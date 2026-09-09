@@ -12,7 +12,7 @@
   <text x="600" y="96" text-anchor="middle" fill="#aeb7c9" font-family="Inter,Segoe UI,sans-serif" font-size="14">merge-room — terminal workspace</text>
   <rect x="84" y="116" width="1032" height="3" fill="url(#bar)"/>
   <g font-family="Cascadia Mono,Consolas,monospace" font-size="18">
-    <text x="126" y="164" fill="#6ee7d4">MERGE ROOM</text><text x="194" y="164" fill="#dbe2f1">· multi-agent command cockpit</text>
+    <text x="126" y="164" fill="#6ee7d4">MERGE ROOM</text><text x="255" y="164" fill="#dbe2f1">· multi-agent command cockpit</text>
     <text x="126" y="204" fill="#7f8aa3">  merge-room "your mission"       </text><text x="530" y="204" fill="#dbe2f1">run a mission</text>
     <text x="126" y="232" fill="#7f8aa3">  merge-room run "your mission"   </text><text x="530" y="232" fill="#dbe2f1">explicit run form</text>
     <text x="126" y="260" fill="#7f8aa3">  merge-room interactive           </text><text x="530" y="260" fill="#dbe2f1">open the cockpit</text>

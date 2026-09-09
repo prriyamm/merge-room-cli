@@ -87,7 +87,7 @@ Merge Room also reads `MERGE_ROOM_API_KEY`, `MERGE_ROOM_BASE_URL`, and `MERGE_RO
 - **Workspace targeting:** `--cwd <path>` or `-C <path>` runs against another project without changing the caller's shell directory. Config, context, history, and exports stay anchored to that workspace.
 - **Reusable missions:** `--prompt-file <path>` reads a reviewed, version-controlled mission file from the selected workspace, with clear empty-file, ambiguity, and size-limit errors.
 - **Focused runs:** `--team=scout,critic` selects a smaller team; custom agents can use their own model and stage.
-- **Terminal themes:** `merge-room`, `ocean`, `ember`, `mono`, and `high-contrast`, plus `NO_COLOR` for plain output.
+- **Terminal themes:** ten built-in palettes, including subtle `liquid-glass`, `graphite`, `sage`, `dusk`, and `champagne` options, plus `NO_COLOR` for plain output.
 - **No runtime dependencies:** installation stays fast and auditable with Node’s built-in APIs.
 
 ## Command guide
@@ -170,9 +170,10 @@ List the built-in palettes:
 merge-room theme list
 merge-room theme list --json
 merge-room --theme=ocean "Map the risks"
+merge-room --theme=liquid-glass "Review the interface"
 ```
 
-Theme names are `merge-room`, `ocean`, `ember`, `mono`, and `high-contrast`. Set `"theme"` in `merge-room.config.json` for a project default. Set `NO_COLOR=1` or use a non-TTY to disable ANSI color entirely.
+Theme names are `merge-room`, `ocean`, `ember`, `mono`, `high-contrast`, `liquid-glass`, `graphite`, `sage`, `dusk`, and `champagne`. Set `"theme"` in `merge-room.config.json` for a project default. `liquid-glass` uses frosted cyan, mist blue, pale iris, and a smoked footer to suggest layered glass without harsh neon. Set `NO_COLOR=1` or use a non-TTY to disable ANSI color entirely.
 
 Every completed mission includes a compact usage footer in human mode. Provider-reported counts are exact; demo mode and providers without usage metadata use conservative character-based estimates prefixed with `~`.
 

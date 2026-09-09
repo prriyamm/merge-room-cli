@@ -15,7 +15,7 @@ import { buildResumeRequest } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
 import { applyCockpitEvent, beginCockpitTurn, createCockpitState, finishCockpitTurn, resetCockpitRoom, selectCockpitRoom } from '../src/cockpit.js';
 import { createCockpitRenderer, printResult } from '../src/ui.js';
-import { resolveTheme, themeSummaries } from '../src/themes.js';
+import { resolveTheme, themeSummaries, THEMES } from '../src/themes.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -105,8 +105,23 @@ test('completion scripts cover supported shells', () => {
 test('themes expose named palettes and useful aliases', () => {
   assert.equal(resolveTheme('default').id, 'merge-room');
   assert.equal(resolveTheme('highcontrast').id, 'high-contrast');
-  assert.equal(themeSummaries().length, 5);
+  assert.equal(resolveTheme('glass').id, 'liquid-glass');
+  assert.deepEqual(themeSummaries().map((theme) => theme.id), ['merge-room', 'ocean', 'ember', 'mono', 'high-contrast', 'liquid-glass', 'graphite', 'sage', 'dusk', 'champagne']);
+  for (const theme of themeSummaries()) {
+    assert.equal(typeof theme.label, 'string');
+    assert.equal(typeof theme.description, 'string');
+    for (const key of ['reset', 'dim', 'bold', 'cyan', 'teal', 'blue', 'purple', 'magenta', 'yellow', 'red', 'green', 'white', 'gray', 'bg']) {
+      assert.match(THEMES[theme.id].colors[key], /^\x1b\[/);
+    }
+  }
   assert.throws(() => resolveTheme('unknown'), /merge-room theme list/);
+});
+
+test('documentation screenshots keep adjacent headings in separate columns', async () => {
+  const started = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-started.svg'), 'utf8');
+  const mission = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-mission.svg'), 'utf8');
+  assert.match(started, /MERGE ROOM<\/text><text x="255"/);
+  assert.match(mission, /Merge Room<\/text><text x="260"/);
 });
 
 test('provider mode can force deterministic local runs', () => {

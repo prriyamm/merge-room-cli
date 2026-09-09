@@ -7,6 +7,7 @@ const live = Boolean(process.stdout.isTTY && process.env.TERM !== 'dumb');
 const colorsEnabled = Boolean(live && !process.env.NO_COLOR);
 let activeTheme = resolveTheme(process.env.MERGE_ROOM_THEME || 'merge-room');
 const color = (name, text) => colorsEnabled ? `${activeTheme.colors[name] || activeTheme.colors.gray}${text}${activeTheme.colors.reset}` : String(text);
+const surface = (text) => colorsEnabled ? `${activeTheme.colors.bg}${String(text).replaceAll(activeTheme.colors.reset, `${activeTheme.colors.reset}${activeTheme.colors.bg}`)}${activeTheme.colors.reset}` : String(text);
 const clear = () => { if (live) process.stdout.write('\x1b[2J\x1b[H'); };
 const width = () => Math.max(48, Math.min(process.stdout.columns || 92, 118) - 2);
 const line = (char = '─') => char.repeat(width());
@@ -77,7 +78,7 @@ export function createRenderer({ config, provider, context = null }) {
    const elapsed = ((Date.now() - state.started) / 1000).toFixed(1);
     const tokenLabel = (value, estimated) => `${estimated ? '~' : ''}${formatTokens(value)}`;
    console.log('');
-    console.log(`  ${color('bg', ` ${color('gray', 'usage')} ${color('white', `${elapsed}s`)}   ${color('gray', 'in')} ${color('cyan', tokenLabel(state.usage.input, state.usage.estimatedInput))}   ${color('gray', 'out')} ${color('purple', tokenLabel(state.usage.output, state.usage.estimatedOutput))}   ${color('gray', 'burned')} ${color('bold', color('yellow', tokenLabel(state.usage.total, state.usage.estimatedInput || state.usage.estimatedOutput)))}   ${color('gray', 'calls')} ${color('white', state.usage.calls || 0)}   ${color('gray', 'agents')} ${color('white', config.agents.length)} `)}`);
+    console.log(`  ${surface(` ${color('gray', 'usage')} ${color('white', `${elapsed}s`)}   ${color('gray', 'in')} ${color('cyan', tokenLabel(state.usage.input, state.usage.estimatedInput))}   ${color('gray', 'out')} ${color('purple', tokenLabel(state.usage.output, state.usage.estimatedOutput))}   ${color('gray', 'burned')} ${color('bold', color('yellow', tokenLabel(state.usage.total, state.usage.estimatedInput || state.usage.estimatedOutput)))}   ${color('gray', 'calls')} ${color('white', state.usage.calls || 0)}   ${color('gray', 'agents')} ${color('white', config.agents.length)} `)}`);
   };
   const event = (payload) => {
     state.usage = payload.telemetry || state.usage;
@@ -126,8 +127,8 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       write(`${color('teal', '│')}${fit(sidebar[index] || '', sidebarWidth)}${color('teal', '│')}${fit(main[index] || '', mainWidth)}${color('teal', '│')}`);
     }
     write(`${color('teal', '╰')}${'─'.repeat(sidebarWidth)}${color('teal', '┴')}${'─'.repeat(mainWidth)}${color('teal', '╯')}`);
-    write(fit(` ${color('gray', '/1 /2 switch · /new reset · /help commands · /quit leave')}`, terminalWidth));
-    write(fit(` ${color('teal', state.message)}`, terminalWidth));
+    write(surface(fit(` ${color('gray', '/1 /2 switch · /new reset · /help commands · /quit leave')}`, terminalWidth)));
+    write(surface(fit(` ${color('teal', state.message)}`, terminalWidth)));
   };
   return { state, event, render, refresh };
 }
@@ -300,7 +301,7 @@ export function printHelp() {
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--timeout=30000')}         bound one provider call (ms)`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--retries=0')}             control transient retries`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--run-id=release-1')}       correlate events and saved runs`);
-  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--theme=ember')}           choose merge-room, ocean, ember, mono, or high-contrast`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--theme=liquid-glass')}    choose a named cockpit palette`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--limit=10')}              bound history or usage queries`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--config path')}           use another Merge Room config file`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--format=md|json')}       choose export format`);

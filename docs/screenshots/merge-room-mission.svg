@@ -11,7 +11,7 @@
   <circle cx="116" cy="91" r="7" fill="#ff6f91"/><circle cx="140" cy="91" r="7" fill="#f6c85f"/><circle cx="164" cy="91" r="7" fill="#6ee7d4"/>
   <text x="600" y="96" text-anchor="middle" fill="#aeb7c9" font-family="Inter,Segoe UI,sans-serif" font-size="14">merge-room — mission cockpit</text>
   <g font-family="Cascadia Mono,Consolas,monospace" font-size="18">
-    <text x="126" y="164" fill="#6ee7d4">Merge Room</text><text x="194" y="164" fill="#dbe2f1">· Map the first three steps for a new feature</text>
+    <text x="126" y="164" fill="#6ee7d4">Merge Room</text><text x="260" y="164" fill="#dbe2f1">· Map the first three steps for a new feature</text>
     <line x1="126" y1="188" x2="1034" y2="188" stroke="#2a3142"/>
     <text x="126" y="232" fill="#6ee7d4">✓</text><text x="162" y="232" fill="#dbe2f1">Scout</text><text x="330" y="232" fill="#7f8aa3">done</text><text x="770" y="232" fill="#66718a">orienting the problem space</text>
     <text x="126" y="272" fill="#6ee7d4">✓</text><text x="162" y="272" fill="#dbe2f1">Architect</text><text x="330" y="272" fill="#7f8aa3">done</text><text x="770" y="272" fill="#66718a">shaping a practical plan</text>
