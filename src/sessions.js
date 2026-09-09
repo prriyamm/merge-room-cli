@@ -28,7 +28,7 @@ export async function listSessions(cwd = process.cwd(), directory = '.loom/sessi
   for (const name of names.filter((name) => name.endsWith('.json')).sort().reverse()) {
     try {
       const data = JSON.parse(await fs.readFile(path.join(root, name), 'utf8'));
-      sessions.push({ id: data.id || name.slice(0, -5), savedAt: data.savedAt, request: data.request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) });
+      sessions.push({ id: data.id || name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request: data.request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) });
     } catch { /* Ignore a partial or hand-edited session file. */ }
   }
   return sessions;
@@ -50,9 +50,13 @@ export function formatSessionMarkdown(session) {
     '# Loom mission', 
     '',
     `- **Session:** ${session.id || 'unsaved'}`,
+    ...(session.runId ? [`- **Run ID:** ${session.runId}`] : []),
+    ...(session.theme ? [`- **Theme:** ${session.theme}`] : []),
     `- **Saved:** ${session.savedAt || 'unknown'}`,
     `- **Provider:** ${session.provider || 'unknown'} · ${session.model || 'unknown'}`,
+  `- **Status:** ${session.status || (session.degraded ? 'degraded' : 'complete')}`,
   `- **Strategy:** ${session.strategy || 'staged'}${session.degraded ? ' · best effort' : ''}`,
+    ...(session.maxCalls ? [`- **Call budget:** ${session.providerCallsStarted || 0}/${session.maxCalls} provider calls started`] : []),
     ...(session.durationMs != null ? [`- **Duration:** ${(Number(session.durationMs) / 1000).toFixed(1)}s`] : []),
    ...(session.waves?.length ? [`- **Waves:** ${session.waves.map((wave) => `${wave.label} (${wave.agentIds?.join(', ') || 'none'})`).join(' → ')}`] : []),
     ...(session.context ? [`- **Workspace context:** ${session.context.fileCount || 0} files · ${session.context.excerptCount || 0} excerpts${session.context.diff ? ' · diff included' : ''}`] : []),

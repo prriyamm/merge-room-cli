@@ -1,17 +1,21 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { normalizeTheme, resolveTheme } from './themes.js';
 
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 
 export const DEFAULT_CONFIG = {
   model: process.env.LOOM_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
   baseUrl: process.env.LOOM_BASE_URL || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+  provider: process.env.LOOM_PROVIDER || 'auto',
+  theme: process.env.LOOM_THEME || 'loom',
   temperature: 0.35,
   maxTokens: 1200,
   streaming: true,
   streamUsage: false,
   strategy: 'staged',
   maxConcurrency: 4,
+  maxCalls: 20,
   requestTimeoutMs: 90000,
   retries: 1,
   sessionDir: '.loom/sessions',
@@ -46,6 +50,10 @@ function mergeConfig(base, local) {
   for (const key of ['streaming', 'streamUsage']) if (local[key] !== undefined && typeof local[key] !== 'boolean') throw new Error(`loom.config.json \`${key}\` must be true or false.`);
   if (local.context?.enabled !== undefined && typeof local.context.enabled !== 'boolean') throw new Error('loom.config.json `context.enabled` must be true or false.');
   for (const key of ['model', 'baseUrl']) if (local[key] !== undefined && (typeof local[key] !== 'string' || !local[key].trim())) throw new Error(`loom.config.json \`${key}\` must be a non-empty string.`);
+  const theme = normalizeTheme(local.theme ?? base.theme);
+  try { resolveTheme(theme); } catch (error) { throw new Error(`loom.config.json \`theme\`: ${error.message}`); }
+  const provider = String(local.provider ?? base.provider).trim().toLowerCase();
+  if (!['auto', 'demo'].includes(provider)) throw new Error('loom.config.json `provider` must be `auto` or `demo`.');
   if (local.sessionDir !== undefined && local.sessionDir !== null && (typeof local.sessionDir !== 'string' || !local.sessionDir.trim())) throw new Error('loom.config.json `sessionDir` must be a non-empty string or null.');
   if (local.agents !== undefined && !Array.isArray(local.agents)) throw new Error('loom.config.json `agents` must be a JSON array.');
   const sourceAgents = Array.isArray(local.agents) && local.agents.length ? local.agents : base.agents;
@@ -67,6 +75,8 @@ function mergeConfig(base, local) {
   if (!Number.isFinite(temperature) || temperature < 0) throw new Error('loom.config.json `temperature` must be a non-negative number.');
   const maxConcurrency = Number(local.maxConcurrency ?? base.maxConcurrency);
   if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1) throw new Error('loom.config.json `maxConcurrency` must be a whole number greater than zero.');
+  const maxCalls = Number(local.maxCalls ?? base.maxCalls);
+  if (!Number.isInteger(maxCalls) || maxCalls < 0) throw new Error('loom.config.json `maxCalls` must be a whole number greater than or equal to zero (zero means unlimited).');
   const requestTimeoutMs = Number(local.requestTimeoutMs ?? base.requestTimeoutMs);
   if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 100) throw new Error('loom.config.json `requestTimeoutMs` must be a whole number of at least 100 milliseconds.');
   const retries = Number(local.retries ?? base.retries);
@@ -79,8 +89,11 @@ function mergeConfig(base, local) {
  return {
     ...base,
     ...local,
+    provider,
+    theme,
     strategy,
     maxConcurrency,
+    maxCalls,
     maxTokens,
     temperature,
     requestTimeoutMs,

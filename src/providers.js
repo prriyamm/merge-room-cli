@@ -2,7 +2,9 @@ import { estimateTokens } from './tokens.js';
 
 export function createProvider(config) {
   const apiKey = process.env.LOOM_API_KEY || process.env.OPENAI_API_KEY;
-  if (!apiKey) return new DemoProvider(config);
+  const mode = String(config.provider || 'auto').trim().toLowerCase();
+  if (!['auto', 'demo'].includes(mode)) throw new Error('Provider mode must be `auto` or `demo`.');
+  if (mode === 'demo' || !apiKey) return new DemoProvider(config);
   return new OpenAICompatibleProvider(config, apiKey);
 }
 

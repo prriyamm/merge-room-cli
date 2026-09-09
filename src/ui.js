@@ -1,9 +1,10 @@
 import readline from 'node:readline';
 import { formatTokens } from './tokens.js';
+import { resolveTheme, themeSummaries } from './themes.js';
 
-const ansi = { reset: '\x1b[0m', dim: '\x1b[2m', bold: '\x1b[1m', cyan: '\x1b[36m', teal: '\x1b[38;5;80m', blue: '\x1b[38;5;111m', purple: '\x1b[38;5;141m', magenta: '\x1b[38;5;141m', yellow: '\x1b[33m', red: '\x1b[31m', green: '\x1b[32m', white: '\x1b[97m', gray: '\x1b[38;5;245m', bg: '\x1b[48;5;235m' };
 const live = Boolean(process.stdout.isTTY && !process.env.NO_COLOR && process.env.TERM !== 'dumb');
-const color = (name, text) => live ? `${ansi[name] || ''}${text}${ansi.reset}` : String(text);
+let activeTheme = resolveTheme(process.env.LOOM_THEME || 'loom');
+const color = (name, text) => live ? `${activeTheme.colors[name] || activeTheme.colors.gray}${text}${activeTheme.colors.reset}` : String(text);
 const clear = () => { if (live) process.stdout.write('\x1b[2J\x1b[H'); };
 const width = () => Math.max(48, Math.min(process.stdout.columns || 92, 118) - 2);
 const line = (char = '─') => char.repeat(width());
@@ -15,6 +16,15 @@ const wrap = (value, max) => String(value).split(/\s+/).reduce((lines, word) => 
   else lines.push(word);
   return lines;
 }, []);
+
+export function setTheme(name = 'loom') {
+  activeTheme = resolveTheme(name);
+  return activeTheme;
+}
+
+export function getTheme() {
+  return activeTheme.id;
+}
 
 export function printBanner({ provider, model }) {
   const w = width();
@@ -39,8 +49,8 @@ export function createRenderer({ config, provider, context = null }) {
     console.log(`  ${color('bold', 'AGENT LANES')}  ${color('gray', laneCaption)}`);
     for (const agent of config.agents) {
       const status = state.statuses.get(agent.id) || 'queued';
-      const icon = status === 'done' ? color('green', '●') : status === 'error' ? color('red', '×') : status === 'working' ? color('yellow', '◌') : color('gray', '○');
-      const label = status === 'working' ? color('yellow', 'working') : status;
+      const icon = status === 'done' ? color('green', '●') : status === 'error' ? color('red', '×') : status === 'skipped' ? color('yellow', '–') : status === 'working' ? color('yellow', '◌') : color('gray', '○');
+      const label = status === 'working' ? color('yellow', 'working') : status === 'skipped' ? color('yellow', 'skipped') : status;
       console.log(`  ${icon} ${color(agent.color, agent.mark)} ${color('bold', agent.name.padEnd(12))} ${color('gray', agent.specialty.padEnd(23))} ${label}`);
     }
     const notes = [...state.notes.entries()].slice(-2);
@@ -75,6 +85,7 @@ export function createRenderer({ config, provider, context = null }) {
     if (payload.type === 'agent:start') { state.statuses.set(payload.agent.id, 'working'); state.events.push({ time: now, message: `${color(payload.agent.color, payload.agent.name)} ${color('gray', 'picked up the thread')}` }); }
     if (payload.type === 'agent:done') { state.statuses.set(payload.agent.id, 'done'); state.notes.set(payload.agent.id, payload.text || 'note received'); state.events.push({ time: now, message: `${color('green', 'done')} ${color('gray', `${payload.agent.name || payload.agent?.name || 'specialist'} returned a note`)}` }); }
     if (payload.type === 'agent:error') { state.statuses.set(payload.agent.id, 'error'); state.events.push({ time: now, message: `${color('red', 'error')} ${color('gray', crop(payload.error, width() - 20))}` }); }
+    if (payload.type === 'agent:skipped') { state.statuses.set(payload.agent.id, 'skipped'); state.events.push({ time: now, message: `${color('yellow', 'skip')} ${color('gray', crop(payload.error, width() - 20))}` }); }
    if (payload.type === 'synthesis:start') state.events.push({ time: now, message: `${color('teal', 'loom')} ${color('gray', 'is weaving the notes together')}` });
     if (payload.type === 'synthesis:error') state.events.push({ time: now, message: `${color('yellow', 'fallback')} ${color('gray', 'lead synthesis unavailable; preserving specialist notes')}` });
     if (payload.type === 'run:cancelled') state.events.push({ time: now, message: `${color('yellow', 'paused')} ${color('gray', payload.error || 'mission cancelled')}` });
@@ -84,7 +95,8 @@ export function createRenderer({ config, provider, context = null }) {
     if (live && deltaDue) render();
     else if (payload.type === 'run:start') console.log(`Loom · ${payload.request}`);
     else if (payload.type === 'agent:done') console.log(`  ${payload.agent.name} done`);
-   else if (payload.type === 'agent:error') console.log(`  ${payload.agent.name} error: ${payload.error}`);
+    else if (payload.type === 'agent:error') console.log(`  ${payload.agent.name} error: ${payload.error}`);
+    else if (payload.type === 'agent:skipped') console.log(`  ${payload.agent.name} skipped: ${payload.error}`);
     else if (payload.type === 'synthesis:error') console.log(`  Lead synthesis unavailable: ${payload.error}`);
     else if (payload.type === 'run:cancelled') console.log(`  Mission cancelled: ${payload.error || 'Mission cancelled.'}`);
    else if (payload.type === 'run:done') console.log(`\n${payload.result.answer}\n`);
@@ -132,13 +144,36 @@ export function printResult(result, { trace = false } = {}) {
  const input = `${result.usage.estimatedInput ? '~' : ''}${formatTokens(result.usage.input)}`;
  const output = `${result.usage.estimatedOutput ? '~' : ''}${formatTokens(result.usage.output)}`;
   const total = `${result.usage.estimatedInput || result.usage.estimatedOutput ? '~' : ''}${formatTokens(result.usage.total)}`;
-  console.log(`  ${color('gray', 'usage')} ${color('yellow', `${total} burned`)} · ${input} in · ${output} out · ${result.usage.calls || 0} calls · ${result.agents?.length || 0} agents`);
+  const budget = result.maxCalls ? ` · cap ${result.maxCalls} calls` : '';
+  console.log(`  ${color('gray', 'usage')} ${color('yellow', `${total} burned`)} · ${input} in · ${output} out · ${result.usage.calls || 0} calls · ${result.agents?.length || 0} agents${budget}`);
   if (result.sessionId) console.log(`  ${color('gray', 'saved')} ${color('teal', `loom show ${result.sessionId}`)}`);
   console.log('');
 }
 
+export function printThemes(current = getTheme()) {
+  console.log(`\n  ${color('bold', 'LOOM THEMES')}\n`);
+  for (const theme of themeSummaries()) {
+    const marker = theme.id === current ? color('green', '●') : color('gray', '○');
+    console.log(`  ${marker} ${color(theme.id === current ? 'teal' : 'white', theme.id.padEnd(16))} ${color('gray', theme.description)}`);
+  }
+  console.log(`\n  ${color('gray', 'Use `--theme=<name>` for one run or set `"theme"` in loom.config.json.')}\n`);
+}
+
+export function printPlan(plan) {
+  printBanner({ provider: plan.provider, model: plan.model });
+  console.log(`  ${color('bold', 'RUN PREFLIGHT')}  ${color('gray', 'no provider calls made')}\n`);
+  console.log(`  ${color('white', crop(plan.request, width() - 4))}\n`);
+  console.log(`  ${color('gray', 'strategy')} ${color('teal', plan.strategy)}  ${color('gray', 'agents')} ${plan.agents.length}  ${color('gray', 'context')} ${plan.context ? `${plan.context.fileCount} files` : 'off'}`);
+  console.log(`  ${color('gray', 'limits')} max ${plan.limits.maxCalls ? `${plan.limits.maxCalls} calls` : 'unlimited'} · ${plan.limits.maxConcurrency} concurrent · ${plan.limits.maxTokens} output tokens/call\n`);
+  for (const wave of plan.waves) {
+    const names = wave.agents.map((agent) => `${agent.mark} ${agent.name}`).join('  ');
+    console.log(`  ${color('teal', `${wave.stage}.`)} ${color('bold', wave.label.padEnd(13))} ${color('white', names)}`);
+  }
+  console.log(`\n  ${color('gray', 'Run the mission without `plan` when this shape looks right.')}\n`);
+}
+
 export function printHelp() {
-  console.log(`${color('bold', 'LOOM')} ${color('gray', '· multi-agent command cockpit')}\n\n  ${color('teal', 'loom')} ${color('white', '"your mission"')}       run a mission\n  ${color('teal', 'loom')} ${color('white', 'run "your mission"')}   explicit run form\n  ${color('teal', 'loom')} ${color('white', 'interactive')}              open the cockpit\n  ${color('teal', 'loom')} ${color('white', '--json "mission"')}       return JSON for scripts\n  ${color('teal', 'loom')} ${color('white', 'agents')}                   show the specialist roster\n  ${color('teal', 'loom')} ${color('white', 'history')}                 list saved missions\n  ${color('teal', 'loom')} ${color('white', 'usage')}                  aggregate saved token usage\n  ${color('teal', 'loom')} ${color('white', 'show <id>')}               reopen a saved mission\n  ${color('teal', 'loom')} ${color('white', 'export <id>')}            print a Markdown transcript\n  ${color('teal', 'loom')} ${color('white', 'context')}                  preview workspace context\n  ${color('teal', 'loom')} ${color('white', 'doctor')}                   check local setup\n  ${color('teal', 'loom')} ${color('white', 'init')}                     create loom.config.json\n  ${color('teal', 'loom')} ${color('white', '--no-context')}            skip workspace excerpts\n  ${color('teal', 'loom')} ${color('white', '--help')}                  show this guide\n\n  ${color('gray', 'Set OPENAI_API_KEY for live runs. Without it, Loom uses a tiny local demo provider.')}`);
+  console.log(`${color('bold', 'LOOM')} ${color('gray', '· multi-agent command cockpit')}\n\n  ${color('teal', 'loom')} ${color('white', '"your mission"')}       run a mission\n  ${color('teal', 'loom')} ${color('white', 'run "your mission"')}   explicit run form\n  ${color('teal', 'loom')} ${color('white', 'plan "your mission"')}  preview a run without provider calls\n  ${color('teal', 'loom')} ${color('white', 'interactive')}              open the cockpit\n  ${color('teal', 'loom')} ${color('white', '--json "mission"')}       return JSON for scripts\n  ${color('teal', 'loom')} ${color('white', 'agents')}                   show the specialist roster\n  ${color('teal', 'loom')} ${color('white', 'theme list')}              list cockpit palettes\n  ${color('teal', 'loom')} ${color('white', 'history')}                 list saved missions\n  ${color('teal', 'loom')} ${color('white', 'usage')}                  aggregate saved token usage\n  ${color('teal', 'loom')} ${color('white', 'show <id>')}               reopen a saved mission\n  ${color('teal', 'loom')} ${color('white', 'export <id>')}            print a Markdown transcript\n  ${color('teal', 'loom')} ${color('white', 'context')}                  preview workspace context\n  ${color('teal', 'loom')} ${color('white', 'doctor')}                   check local setup\n  ${color('teal', 'loom')} ${color('white', 'init')}                     create loom.config.json\n  ${color('teal', 'loom')} ${color('white', '--no-context')}            skip workspace excerpts\n  ${color('teal', 'loom')} ${color('white', '--help')}                  show this guide\n\n  ${color('gray', 'Set OPENAI_API_KEY for live runs. Without it, Loom uses a tiny local demo provider.')}`);
  console.log(`  ${color('teal', 'loom')} ${color('white', 'config')}                  show effective safe config`);
   console.log(`  ${color('teal', 'loom')} ${color('white', 'completions [shell]')}       print shell completion script`);
  console.log(`  ${color('teal', 'loom')} ${color('white', 'review "change"')}       review with bounded Git diff context`);
@@ -153,12 +188,17 @@ export function printHelp() {
  console.log(`  ${color('teal', 'loom')} ${color('white', '--no-stream')}             use non-streaming provider calls`);
   console.log(`  ${color('teal', 'loom')} ${color('white', '--stream-usage')}         request exact streamed usage when supported`);
   console.log(`  ${color('teal', 'loom')} ${color('white', '--events')}                stream newline-delimited JSON events`);
+  console.log(`  ${color('teal', 'loom')} ${color('white', '--strict')}                exit 2 when a run is degraded`);
   console.log(`  ${color('teal', 'loom')} ${color('white', '--model=… --base-url=…')} override provider settings`);
+  console.log(`  ${color('teal', 'loom')} ${color('white', '--provider=demo')}         force local demo mode for CI or offline work`);
   console.log(`  ${color('teal', 'loom')} ${color('white', '--max-tokens=800')}         cap one provider response`);
   console.log(`  ${color('teal', 'loom')} ${color('white', '--temperature=0.2')}       tune response variance`);
   console.log(`  ${color('teal', 'loom')} ${color('white', '--concurrency=2')}          limit specialist work in flight`);
+  console.log(`  ${color('teal', 'loom')} ${color('white', '--max-calls=8')}           cap provider calls (0 = unlimited)`);
   console.log(`  ${color('teal', 'loom')} ${color('white', '--timeout=30000')}         bound one provider call (ms)`);
   console.log(`  ${color('teal', 'loom')} ${color('white', '--retries=0')}             control transient retries`);
+  console.log(`  ${color('teal', 'loom')} ${color('white', '--run-id=release-1')}       correlate events and saved runs`);
+  console.log(`  ${color('teal', 'loom')} ${color('white', '--theme=ember')}           choose loom, ocean, ember, mono, or high-contrast`);
   console.log(`  ${color('teal', 'loom')} ${color('white', '--limit=10')}              bound history or usage queries`);
   console.log(`  ${color('teal', 'loom')} ${color('white', '--config path')}           use another Loom config file`);
   console.log(`  ${color('teal', 'loom')} ${color('white', '--format=md|json')}       choose export format`);
@@ -191,7 +231,7 @@ export function printHistory(sessions) {
    const when = session.savedAt ? new Date(session.savedAt).toLocaleString() : 'unknown time';
     const usage = session.usage || {};
     const burned = usage.total != null ? `${usage.estimatedInput || usage.estimatedOutput ? '~' : ''}${formatTokens(usage.total)} burned` : 'usage unavailable';
-    const details = `${session.agents || 0} agents · ${burned}${session.degraded ? ' · best effort' : ''}`;
+    const details = `${session.agents || 0} agents · ${burned}${session.status === 'degraded' || session.degraded ? ' · degraded' : ''}${session.runId ? ` · run ${session.runId}` : ''}`;
     console.log(`  ${color('teal', session.id)}  ${color('gray', when)}\n  ${color('gray', details)}\n  ${color('white', crop(session.request, width() - 4))}\n`);
  }
 }
@@ -223,7 +263,7 @@ export function printSession(session) {
  console.log(`  ${color('bold', 'MISSION')}  ${session.request}\n`);
   const waveSummary = session.waves?.length ? session.waves.map((wave) => `${wave.label}:${wave.agentIds?.length || 0}`).join(' → ') : '';
   const agentCount = Array.isArray(session.agents) ? session.agents.length : Number(session.agents) || 0;
-  const runSummary = [session.strategy, session.durationMs != null ? `${(Number(session.durationMs) / 1000).toFixed(1)}s` : '', agentCount ? `${agentCount} agents` : '', waveSummary].filter(Boolean).join(' · ');
+  const runSummary = [session.status || (session.degraded ? 'degraded' : 'complete'), session.strategy, session.durationMs != null ? `${(Number(session.durationMs) / 1000).toFixed(1)}s` : '', agentCount ? `${agentCount} agents` : '', waveSummary, session.runId ? `run ${session.runId}` : ''].filter(Boolean).join(' · ');
   if (runSummary) console.log(`  ${color('gray', runSummary)}\n`);
  console.log(`  ${color('bold', 'LOOM SAYS')}\n  ${session.answer}\n`);
  if (session.degraded) console.log(`  ${color('yellow', '△')} ${color('gray', 'Best-effort run: one or more specialists were unavailable.')}\n`);

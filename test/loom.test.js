@@ -7,13 +7,14 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { DEFAULT_CONFIG, loadConfig, safeBaseUrl } from '../src/config.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.js';
-import { LoomEngine } from '../src/engine.js';
-import { DemoProvider, OpenAICompatibleProvider } from '../src/providers.js';
+import { buildRunPlan, LoomEngine } from '../src/engine.js';
+import { createProvider, DemoProvider, OpenAICompatibleProvider } from '../src/providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
 import { buildResumeRequest } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
 import { printResult } from '../src/ui.js';
+import { resolveTheme, themeSummaries } from '../src/themes.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -22,6 +23,19 @@ test('completion scripts cover supported shells', () => {
   assert.match(completionScript('zsh'), /#compdef loom/);
   assert.match(completionScript('ps'), /Register-ArgumentCompleter/);
   assert.throws(() => completionScript('fish'), /Supported completion shells/);
+  assert.match(completionScript('bash'), /--max-calls=/);
+  assert.match(completionScript('bash'), /theme/);
+});
+
+test('themes expose named palettes and useful aliases', () => {
+  assert.equal(resolveTheme('default').id, 'loom');
+  assert.equal(resolveTheme('highcontrast').id, 'high-contrast');
+  assert.equal(themeSummaries().length, 5);
+  assert.throws(() => resolveTheme('unknown'), /loom theme list/);
+});
+
+test('provider mode can force deterministic local runs', () => {
+  assert.equal(createProvider({ ...DEFAULT_CONFIG, provider: 'demo' }).name, 'demo');
 });
 
 test('human result footer exposes input, output, and total burned usage', () => {
@@ -161,6 +175,28 @@ test('parallel strategy dispatches every specialist in one wave', async () => {
   assert.equal(starts.length, 3);
   assert.ok(events.findIndex((event) => event.type === 'agents:dispatch' && event.stageLabel === 'parallel') < firstDone);
   assert.equal(result.usage.calls, 4);
+});
+
+test('run plan mirrors staged orchestration without calling a provider', () => {
+  const plan = buildRunPlan({ strategy: 'staged', agents: DEFAULT_CONFIG.agents });
+  assert.deepEqual(plan.waves, [
+    { stage: 1, label: 'orientation', agentIds: ['scout', 'architect'] },
+    { stage: 2, label: 'draft', agentIds: ['maker'] },
+    { stage: 3, label: 'review', agentIds: ['critic'] }
+  ]);
+});
+
+test('engine enforces a provider call budget and reports skipped agents', async () => {
+  let calls = 0;
+  const config = { ...DEFAULT_CONFIG, maxCalls: 2 };
+  const provider = { name: 'budgeted', model: 'test', complete: async () => { calls += 1; return { text: 'ok', inputTokens: 1, outputTokens: 1 }; } };
+  const result = await new LoomEngine({ config, provider }).run('Respect the budget');
+  assert.equal(calls, 2);
+  assert.equal(result.providerCallsStarted, 2);
+  assert.equal(result.usage.calls, 2);
+  assert.equal(result.agents.filter((item) => item.status === 'skipped').length, 2);
+  assert.equal(result.status, 'degraded');
+  assert.match(result.synthesisError, /budget exhausted/);
 });
 
 test('agent concurrency is capped without changing result order', async () => {
@@ -537,6 +573,12 @@ test('invalid project configuration fails with an actionable message', async () 
     await assert.rejects(() => loadConfig(root), /baseUrl.*non-empty string/);
     await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ sessionDir: '' }), 'utf8');
     await assert.rejects(() => loadConfig(root), /sessionDir.*non-empty string/);
+    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ theme: 'no-such-theme' }), 'utf8');
+    await assert.rejects(() => loadConfig(root), /theme.*loom theme list/);
+    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ maxCalls: -1 }), 'utf8');
+    await assert.rejects(() => loadConfig(root), /maxCalls.*greater than or equal to zero/);
+    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ provider: 'remote' }), 'utf8');
+    await assert.rejects(() => loadConfig(root), /provider.*auto.*demo/);
     await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ agents: {} }), 'utf8');
     await assert.rejects(() => loadConfig(root), /agents.*JSON array/);
     await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ context: { maxBytes: 0 } }), 'utf8');
@@ -554,7 +596,7 @@ test('CLI can load an explicit project profile', async () => {
   try {
     await fs.writeFile(path.join(root, 'profile.json'), JSON.stringify({ strategy: 'parallel', maxConcurrency: 1, agents: [{ id: 'solo', name: 'Solo', prompt: 'Work alone.' }] }), 'utf8');
     const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
-    const { stdout } = await execFileAsync(process.execPath, [bin, '--config', 'profile.json', '--no-context', '--no-save', '--json', 'profile mission'], { cwd: root, windowsHide: true });
+    const { stdout } = await execFileAsync(process.execPath, [bin, '--config', 'profile.json', '--provider=demo', '--no-context', '--no-save', '--json', 'profile mission'], { cwd: root, windowsHide: true });
     const result = JSON.parse(stdout);
     assert.equal(result.strategy, 'parallel');
     assert.equal(result.maxConcurrency, 1);
@@ -568,7 +610,7 @@ test('CLI resolves unique session id prefixes', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-session-prefix-'));
   try {
     const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
-    const run = await execFileAsync(process.execPath, [bin, '--no-context', '--json', 'prefix mission'], { cwd: root, windowsHide: true });
+    const run = await execFileAsync(process.execPath, [bin, '--provider=demo', '--no-context', '--json', 'prefix mission'], { cwd: root, windowsHide: true });
     const saved = JSON.parse(run.stdout);
     const prefix = saved.sessionId.slice(0, 10);
     const shown = await execFileAsync(process.execPath, [bin, 'show', prefix, '--json'], { cwd: root, windowsHide: true });
@@ -596,10 +638,11 @@ test('CLI event mode emits one ordered terminal result', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-events-'));
   try {
     const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
-    const { stdout } = await execFileAsync(process.execPath, [bin, '--events', '--no-context', '--no-save', '--no-stream', 'event mission'], { cwd: root, windowsHide: true });
+    const { stdout } = await execFileAsync(process.execPath, [bin, '--provider=demo', '--events', '--run-id=events-1', '--no-context', '--no-save', '--no-stream', 'event mission'], { cwd: root, windowsHide: true });
     const events = stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line));
     assert.equal(events.at(-1).type, 'run:done');
     assert.equal(events.filter((event) => event.type === 'run:done').length, 1);
+    assert.equal(events.every((event) => event.runId === 'events-1'), true);
     assert.deepEqual(events.map((event) => event.sequence), Array.from({ length: events.length }, (_, index) => index + 1));
     assert.equal(events.at(-1).result.request, 'event mission');
   } finally {
@@ -614,7 +657,7 @@ test('CLI initializes a project and exports its latest mission', async () => {
     const initialized = await execFileAsync(process.execPath, [bin, 'init', '--json'], { cwd: root, windowsHide: true });
     assert.equal(JSON.parse(initialized.stdout).created, true);
     assert.equal((await fs.stat(path.join(root, 'loom.config.json'))).isFile(), true);
-    const run = await execFileAsync(process.execPath, [bin, '--no-context', '--json', 'exportable mission'], { cwd: root, windowsHide: true });
+    const run = await execFileAsync(process.execPath, [bin, '--provider=demo', '--no-context', '--json', 'exportable mission'], { cwd: root, windowsHide: true });
     const saved = JSON.parse(run.stdout);
     const exported = await execFileAsync(process.execPath, [bin, 'export', 'last', '--format=md', '--output', 'transcript.md', '--json'], { cwd: root, windowsHide: true });
     const exportInfo = JSON.parse(exported.stdout);
@@ -629,7 +672,7 @@ test('CLI no-save mode leaves no session artifact', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-no-save-'));
   try {
     const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
-    await execFileAsync(process.execPath, [bin, '--no-save', '--no-context', '--json', 'private mission'], { cwd: root, windowsHide: true });
+    await execFileAsync(process.execPath, [bin, '--provider=demo', '--no-save', '--no-context', '--json', 'private mission'], { cwd: root, windowsHide: true });
     const sessions = await listSessions(root);
     assert.deepEqual(sessions, []);
   } finally {
@@ -660,6 +703,64 @@ test('context command honors no-context', async () => {
     assert.equal(context.fileCount, 0);
     assert.deepEqual(context.excerpts, []);
     assert.equal(context.git, null);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('CLI preflight plan is machine-readable and makes no session', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-plan-'));
+  try {
+    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const { stdout } = await execFileAsync(process.execPath, [bin, 'plan', '--no-context', '--max-calls=7', '--theme=ocean', '--json', 'preflight mission'], { cwd: root, windowsHide: true });
+    const plan = JSON.parse(stdout);
+    assert.equal(plan.kind, 'preflight');
+    assert.equal(plan.request, 'preflight mission');
+    assert.equal(plan.theme, 'ocean');
+    assert.equal(plan.limits.maxCalls, 7);
+    assert.deepEqual(plan.waves.map((wave) => wave.label), ['orientation', 'draft', 'review']);
+    assert.deepEqual(await listSessions(root), []);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('CLI preserves configured context includes unless a flag overrides them', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-configured-include-'));
+  try {
+    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ context: { include: ['z-notes.md'] } }), 'utf8');
+    await fs.writeFile(path.join(root, 'z-notes.md'), 'configured include\n', 'utf8');
+    await fs.writeFile(path.join(root, 'other.md'), 'discovered fallback\n', 'utf8');
+    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const { stdout } = await execFileAsync(process.execPath, [bin, 'context', '--json'], { cwd: root, windowsHide: true });
+    const context = JSON.parse(stdout);
+    assert.equal(context.excerpts[0].path, 'z-notes.md');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('CLI strict mode returns exit code two for degraded runs', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-strict-'));
+  try {
+    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    await assert.rejects(
+      () => execFileAsync(process.execPath, [bin, '--provider=demo', '--strict', '--max-calls=1', '--no-context', '--no-save', '--json', 'strict mission'], { cwd: root, windowsHide: true }),
+      (error) => error.code === 2 && JSON.parse(error.stdout).status === 'degraded'
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('CLI rejects unknown options instead of treating them as mission text', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-unknown-option-'));
+  try {
+    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    await assert.rejects(
+      () => execFileAsync(process.execPath, [bin, '--max-callz=1', 'mistyped option'], { cwd: root, windowsHide: true }),
+      (error) => error.code === 1 && /Unknown option.*max-callz/.test(error.stderr)
+    );
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

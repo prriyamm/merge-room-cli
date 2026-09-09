@@ -1,5 +1,5 @@
-const COMMANDS = ['run', 'ask', 'review', 'brainstorm', 'interactive', 'agents', 'history', 'usage', 'stats', 'config', 'show', 'export', 'resume', 'context', 'doctor', 'init', 'completions', 'version'];
-const OPTIONS = ['--help', '--version', '--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--team=', '--model=', '--base-url=', '--max-tokens=', '--temperature=', '--concurrency=', '--timeout=', '--retries=', '--include=', '--limit=', '--format=', '--output=', '--config='];
+const COMMANDS = ['run', 'ask', 'review', 'brainstorm', 'plan', 'interactive', 'agents', 'history', 'usage', 'stats', 'config', 'show', 'export', 'resume', 'context', 'doctor', 'init', 'theme', 'completions', 'version'];
+const OPTIONS = ['--help', '--version', '--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict', '--team=', '--provider=', '--model=', '--base-url=', '--max-tokens=', '--temperature=', '--concurrency=', '--max-calls=', '--timeout=', '--retries=', '--run-id=', '--theme=', '--include=', '--limit=', '--format=', '--output=', '--config='];
 
 export function completionScript(shell = defaultShell()) {
   const normalized = shell.toLowerCase() === 'ps' ? 'powershell' : shell.toLowerCase();
