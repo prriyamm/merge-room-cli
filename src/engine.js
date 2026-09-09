@@ -2,12 +2,14 @@ import { createLedger } from './tokens.js';
 import { formatWorkspaceContext } from './context.js';
 import { randomUUID } from 'node:crypto';
 
+export const SCHEMA_VERSION = 1;
+
 export class MergeRoomEngine {
   constructor({ config, provider, onEvent = () => {}, runId } = {}) {
     this.config = config; this.provider = provider; this.onEvent = onEvent; this.requestedRunId = runId; this.runId = runId; this.ledger = createLedger(); this.eventSequence = 0; this.callsStarted = 0; this.callBudget = 0;
   }
 
-  emit(event) { this.onEvent({ ...event, runId: this.runId, sequence: ++this.eventSequence, at: new Date().toISOString(), telemetry: this.ledger.snapshot() }); }
+  emit(event) { this.onEvent({ ...event, schemaVersion: SCHEMA_VERSION, runId: this.runId, sequence: ++this.eventSequence, at: new Date().toISOString(), telemetry: this.ledger.snapshot() }); }
 
  async run(request, { signal, context, label } = {}) {
     const started = Date.now();
@@ -90,7 +92,7 @@ export class MergeRoomEngine {
     ensureActive(signal);
     if (synthesisCallStarted) this.ledger.add(final.inputTokens, final.outputTokens, { inputEstimated: final.inputEstimated, outputEstimated: final.outputEstimated, model: this.provider.model || this.config.model });
     this.emit({ type: 'synthesis:done', inputTokens: final.inputTokens, outputTokens: final.outputTokens });
-    const result = { runId: this.runId, theme: this.config.theme || 'merge-room', request: label || request, answer: final.text, agents: results, waves, strategy: this.config.strategy === 'parallel' ? 'parallel' : 'staged', maxConcurrency: Math.max(1, Number(this.config.maxConcurrency) || agents.length), maxCalls: this.callBudget || null, providerCallsStarted: this.callsStarted, status: results.some((item) => item.status !== 'done') || Boolean(synthesisError) ? 'degraded' : 'complete', degraded: results.some((item) => item.status !== 'done') || Boolean(synthesisError), ...(synthesisError ? { synthesisError: synthesisError.message } : {}), usage: this.ledger.snapshot(), durationMs: Date.now() - started, provider: this.provider.name, model: this.provider.model || this.config.model, context: context ? { fileCount: context.fileCount, excerptCount: context.excerpts?.length || 0, truncated: Boolean(context.truncated), git: Boolean(context.git), diff: Boolean(context.git?.diff) } : null };
+    const result = { schemaVersion: SCHEMA_VERSION, runId: this.runId, theme: this.config.theme || 'merge-room', request: label || request, answer: final.text, agents: results, waves, strategy: this.config.strategy === 'parallel' ? 'parallel' : 'staged', maxConcurrency: Math.max(1, Number(this.config.maxConcurrency) || agents.length), maxCalls: this.callBudget || null, providerCallsStarted: this.callsStarted, status: results.some((item) => item.status !== 'done') || Boolean(synthesisError) ? 'degraded' : 'complete', degraded: results.some((item) => item.status !== 'done') || Boolean(synthesisError), ...(synthesisError ? { synthesisError: synthesisError.message } : {}), usage: this.ledger.snapshot(), durationMs: Date.now() - started, provider: this.provider.name, model: this.provider.model || this.config.model, context: context ? { fileCount: context.fileCount, excerptCount: context.excerpts?.length || 0, truncated: Boolean(context.truncated), git: Boolean(context.git), diff: Boolean(context.git?.diff) } : null };
     this.emit({ type: 'run:done', result });
     return result;
     } catch (error) {

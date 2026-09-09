@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { DEFAULT_CONFIG, loadConfig, safeBaseUrl } from '../src/config.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.js';
-import { buildRunPlan, MergeRoomEngine } from '../src/engine.js';
+import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from '../src/engine.js';
 import { createProvider, DemoProvider, OpenAICompatibleProvider } from '../src/providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
@@ -118,6 +118,8 @@ test('engine fans out to specialists and synthesizes', async () => {
   const events = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };
   const result = await new MergeRoomEngine({ config, provider: new DemoProvider(config), onEvent: (event) => events.push(event) }).run('Ship a small feature');
+  assert.equal(result.schemaVersion, SCHEMA_VERSION);
+  assert.equal(events.every((event) => event.schemaVersion === SCHEMA_VERSION), true);
   assert.equal(result.agents.length, 2);
  assert.equal(result.agents.every((agent) => agent.status === 'done'), true);
  assert.equal(result.agents.every((agent) => agent.durationMs >= 0), true);
@@ -684,6 +686,7 @@ test('CLI event mode emits one ordered terminal result', async () => {
     const { stdout } = await execFileAsync(process.execPath, [bin, '--provider=demo', '--events', '--run-id=events-1', '--no-context', '--no-save', '--no-stream', 'event mission'], { cwd: root, windowsHide: true });
     const events = stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line));
     assert.equal(events.at(-1).type, 'run:done');
+    assert.equal(events.at(-1).result.schemaVersion, SCHEMA_VERSION);
     assert.equal(events.filter((event) => event.type === 'run:done').length, 1);
     assert.equal(events.every((event) => event.runId === 'events-1'), true);
     assert.deepEqual(events.map((event) => event.sequence), Array.from({ length: events.length }, (_, index) => index + 1));
@@ -758,6 +761,7 @@ test('CLI preflight plan is machine-readable and makes no session', async () => 
     const { stdout } = await execFileAsync(process.execPath, [bin, 'plan', '--no-context', '--max-calls=7', '--theme=ocean', '--json', 'preflight mission'], { cwd: root, windowsHide: true });
     const plan = JSON.parse(stdout);
     assert.equal(plan.kind, 'preflight');
+    assert.equal(plan.schemaVersion, SCHEMA_VERSION);
     assert.equal(plan.request, 'preflight mission');
     assert.equal(plan.theme, 'ocean');
     assert.equal(plan.limits.maxCalls, 7);

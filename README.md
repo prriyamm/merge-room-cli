@@ -80,7 +80,7 @@ Merge Room also reads `MERGE_ROOM_API_KEY`, `MERGE_ROOM_BASE_URL`, and `MERGE_RO
 - **Preflight planning:** `merge-room plan` shows the provider, team, waves, context scope, concurrency, timeout, retry, and call-budget limits without making a model request.
 - **Staged handoffs:** Scout and Architect orient in parallel, Maker drafts, and Critic reviews. `--parallel` trades staged depth for lower latency.
 - **Spend controls:** `--max-calls=8` caps logical provider calls for one run; `0` means unlimited. `--max-tokens` caps each response.
-- **Automation contracts:** `--json` returns one result object; `--events` emits newline-delimited events with ordered `sequence` values and a `runId`. `--strict` exits with code `2` when a run is degraded.
+- **Automation contracts:** `--json` returns one result object; `--events` emits newline-delimited events with `schemaVersion: 1`, ordered `sequence` values, and a `runId`. `--strict` exits with code `2` when a run is degraded.
 - **Recovery:** sessions are saved under `.merge-room/sessions/` and can be inspected with `show`, continued with `resume`, or exported as Markdown/JSON.
 - **Resilience:** streaming, retries with backoff, timeouts, Ctrl+C cancellation, provider usage metadata, and best-effort fallback answers.
 - **Context safety:** bounded file discovery, `.gitignore` support, secret-looking path exclusion, UTF-8 byte caps, redaction, and opt-in diff content.

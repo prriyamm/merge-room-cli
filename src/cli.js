@@ -3,7 +3,7 @@ import path from 'node:path';
 import { VERSION, loadConfig, safeBaseUrl, writeStarterConfig } from './config.js';
 import { completionScript, defaultShell } from './completions.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from './context.js';
-import { buildRunPlan, MergeRoomEngine } from './engine.js';
+import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from './engine.js';
 import { createProvider } from './providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from './sessions.js';
 import { themeSummaries } from './themes.js';
@@ -394,6 +394,7 @@ function validateOptions(args) {
 function createPlan(config, provider, request, context, workspace = process.cwd()) {
   const runPlan = buildRunPlan(config);
   return {
+    schemaVersion: SCHEMA_VERSION,
     kind: 'preflight',
     workspace,
     request,
