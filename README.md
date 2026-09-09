@@ -15,13 +15,13 @@ Merge Room is a small, dependency-free CLI for thinking with a team of agents. A
 
 ## See it in action
 
-### Start Merge Room
+### Start the cockpit
 
 ![Merge Room CLI startup screen](docs/screenshots/merge-room-started.svg)
 
-### Work in two rooms
+### Keep two conversations moving
 
-![Merge Room CLI two-session cockpit with live subagent activity](docs/screenshots/merge-room-mission-cockpit.svg)
+![Merge Room CLI scrollable conversation with two active rooms](docs/screenshots/merge-room-mission-cockpit.svg)
 
 The screenshots are captured representations of real Merge Room output in local demo mode. Demo mode is deterministic and needs no API key.
 
@@ -31,7 +31,7 @@ Merge Room requires Node.js 20 or newer.
 
 ```bash
 npm install --global github:prriyamm/merge-room-cli
-merge-room --help
+merge-room
 ```
 
 For development:
@@ -41,14 +41,22 @@ git clone https://github.com/prriyamm/merge-room-cli.git
 cd merge-room-cli
 npm install
 npm link
-merge-room --help
+merge-room
 ```
 
 Use `npm install --global .` instead of `npm link` for a one-off local install.
 
 ## Quick start
 
-Run immediately in local demo mode:
+Open the conversational cockpit in local demo mode:
+
+```bash
+merge-room
+```
+
+The woven mark appears once at startup. From then on, prompts, handoffs, and answers append to normal terminal history, so the conversation scrolls naturally instead of repainting the screen.
+
+Run a one-off mission without opening the cockpit:
 
 ```bash
 merge-room "Design a migration plan from REST to event-driven jobs"
@@ -93,12 +101,13 @@ Merge Room also reads `MERGE_ROOM_API_KEY`, `MERGE_ROOM_BASE_URL`, and `MERGE_RO
 ## Command guide
 
 ```text
+merge-room                           Open the conversational cockpit
 merge-room "mission"                 Run a mission through the configured team
 merge-room run "mission"             Explicit run form
 merge-room plan "mission"            Preview a run without provider calls
 merge-room review "change"           Review with bounded Git diff context
 merge-room brainstorm "idea"         Run parallel specialist perspectives
-merge-room interactive                Open the two-session cockpit
+merge-room interactive                Alias for the conversational cockpit
 merge-room agents                     Show the specialist roster
 merge-room theme list                 List available terminal themes
 merge-room history                    List saved missions
@@ -173,7 +182,7 @@ merge-room --theme=ocean "Map the risks"
 merge-room --theme=liquid-glass "Review the interface"
 ```
 
-Theme names are `merge-room`, `ocean`, `ember`, `mono`, `high-contrast`, `liquid-glass`, `graphite`, `sage`, `dusk`, and `champagne`. Set `"theme"` in `merge-room.config.json` for a project default. `liquid-glass` uses frosted cyan, mist blue, pale iris, and a smoked footer to suggest layered glass without harsh neon. Set `NO_COLOR=1` or use a non-TTY to disable ANSI color entirely.
+Theme names are `merge-room`, `ocean`, `ember`, `mono`, `high-contrast`, `liquid-glass`, `graphite`, `sage`, `dusk`, and `champagne`. Set `"theme"` in `merge-room.config.json` for a project default. `liquid-glass` uses frosted cyan, mist blue, pale iris, and smoked surfaces to suggest layered glass without harsh neon. Set `NO_COLOR=1` or use a non-TTY to disable ANSI color entirely. Set `MERGE_ROOM_NO_MOTION=1` to skip the brief startup reveal while keeping the final mark.
 
 Every completed mission includes a compact usage footer in human mode. Provider-reported counts are exact; demo mode and providers without usage metadata use conservative character-based estimates prefixed with `~`.
 
@@ -243,7 +252,9 @@ Use `--no-context` when a mission should not inspect local files. Use `--include
 
 ## Interactive cockpit
 
-Run `merge-room interactive` to work in two independent sessions without opening another terminal window. The left sidebar keeps both rooms and every selected specialist visible while the active room shows its mission, handoffs, run log, answer, and usage. A mission keeps running when you switch rooms, so Room 1 and Room 2 can work at the same time.
+Run `merge-room` to enter the cockpit, or use `merge-room interactive` as an explicit alias. The startup mark is shown only once. After that, Merge Room behaves like a conversational coding CLI: every prompt, specialist handoff, answer, and status line remains in scrollback instead of being cleared and redrawn.
+
+The cockpit keeps two independent rooms in one terminal. A mission continues when you switch rooms, so Room 1 and Room 2 can work at the same time without hiding the conversation that came before.
 
 Type a mission to start the selected room. After it finishes, the next message in that room continues from its answer and specialist notes. Use `/new` when you want a clean session instead.
 
@@ -263,7 +274,7 @@ Type a mission to start the selected room. After it finishes, the next message i
 /quit                  Cancel active work and close both rooms
 ```
 
-The prompt remains available while agents work. Room status and subagent activity update live in the left rail: queued, working, done, skipped, or error.
+The prompt remains available while agents work. Compact status lines identify the room and specialist, and completed answers stay in the terminal’s scrollable history.
 
 ## Development
 

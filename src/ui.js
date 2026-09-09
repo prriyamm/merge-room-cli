@@ -20,6 +20,50 @@ const wrap = (value, max) => String(value).split(/\s+/).reduce((lines, word) => 
   return lines;
 }, []);
 
+const STARTUP_PATTERN = Object.freeze([
+  '      ╲╲                 ╱╱',
+  '       ╲╲               ╱╱',
+  '        ╲╲     ◇       ╱╱',
+  '         ╲╲   ╱ ╲     ╱╱',
+  '          ╲╲ ╱   ╲   ╱╱',
+  '           ╲╱     ╲ ╱',
+  '            ╲     ╱',
+  '             ╲   ╱',
+  '              ╲ ╱',
+  '               ◆'
+]);
+
+export function startupPatternLines() {
+  return [...STARTUP_PATTERN];
+}
+
+function tintPattern(value) {
+  const pivot = Math.floor(value.length / 2);
+  return `${color('teal', value.slice(0, pivot))}${color('purple', value.slice(pivot))}`;
+}
+
+const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+export async function printCockpitWelcome({ provider, model, workspace = process.cwd(), animate = true, write = (value) => console.log(value) }) {
+  const motion = live && animate && !process.env.CI && !process.env.MERGE_ROOM_NO_MOTION;
+  if (motion) {
+    for (let visible = 2; visible <= STARTUP_PATTERN.length; visible += 2) {
+      clear();
+      write('');
+      for (let index = 0; index < STARTUP_PATTERN.length; index += 1) write(index < visible ? tintPattern(STARTUP_PATTERN[index]) : '');
+      await pause(42);
+    }
+    clear();
+  }
+  write('');
+  for (const item of STARTUP_PATTERN) write(tintPattern(item));
+  write('');
+  write(`  ${color('bold', 'Merge Room')}  ${color('gray', 'Two rooms. One continuous conversation.')}`);
+  write(`  ${color('gray', `${provider} · ${model} · ${crop(workspace, 58)}`)}`);
+  write(`  ${color('gray', 'Type a mission, or use')} ${color('teal', '/help')} ${color('gray', 'for cockpit commands.')}`);
+  write('');
+}
+
 export function setTheme(name = 'merge-room') {
   activeTheme = resolveTheme(name);
   return activeTheme;
@@ -131,6 +175,49 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     write(surface(fit(` ${color('teal', state.message)}`, terminalWidth)));
   };
   return { state, event, render, refresh };
+}
+
+export function createConversationRenderer({ config, provider, workspace = process.cwd(), onRefresh = () => {}, force = false, write = (line) => console.log(line) }) {
+  const state = createCockpitState(config.agents);
+  const enabled = Boolean((process.stdin.isTTY && process.stdout.isTTY) || force);
+  let started = false;
+  const emit = (line = '') => { if (enabled) write(line); };
+  const refresh = () => onRefresh();
+  const start = (options) => {
+    if (started) return Promise.resolve();
+    started = true;
+    return printCockpitWelcome({ provider: provider.name, model: config.model, workspace, write: emit, ...options });
+  };
+  const user = (roomIndex, request) => {
+    emit('');
+    emit(`  ${color('teal', `Room ${roomIndex + 1} ›`)} ${color('white', request)}`);
+  };
+  const notice = (message) => emit(`  ${color('gray', '·')} ${color('teal', message)}`);
+  const event = (roomIndex) => (payload) => {
+    applyCockpitEvent(state, roomIndex, payload);
+    if (!enabled) return;
+    let visibleUpdate = false;
+    const prefix = color('gray', `room ${roomIndex + 1}`);
+    if (payload.type === 'agent:start') { emit(`  ${color('gray', '○')} ${color(payload.agent.color, payload.agent.name)} ${color('gray', 'is working')}`); visibleUpdate = true; }
+    if (payload.type === 'agent:done') { emit(`  ${color('green', '✓')} ${color(payload.agent.color, payload.agent.name)} ${color('gray', 'handed back a note')}`); visibleUpdate = true; }
+    if (payload.type === 'agent:error') { emit(`  ${color('red', '×')} ${prefix} ${color('red', crop(payload.error, 76))}`); visibleUpdate = true; }
+    if (payload.type === 'agent:skipped') { emit(`  ${color('yellow', '–')} ${prefix} ${color('gray', crop(payload.error, 76))}`); visibleUpdate = true; }
+    if (payload.type === 'synthesis:start') { emit(`  ${color('purple', '◇')} ${color('gray', 'Merging the room’s notes…')}`); visibleUpdate = true; }
+    if (payload.type === 'synthesis:error') { emit(`  ${color('yellow', '△')} ${color('gray', 'Lead synthesis unavailable; keeping the specialist notes.')}`); visibleUpdate = true; }
+    if (payload.type === 'run:cancelled') { emit(`  ${color('yellow', '△')} ${prefix} ${color('gray', payload.error || 'Mission cancelled.')}`); visibleUpdate = true; }
+    if (payload.type === 'run:done') {
+      visibleUpdate = true;
+      emit('');
+      for (const paragraph of String(payload.result.answer || '').split(/\n+/)) {
+        for (const item of wrap(paragraph, Math.max(44, width() - 8))) emit(`  ${color('white', item)}`);
+      }
+      const usage = payload.result.usage || {};
+      emit('');
+      emit(`  ${color('green', '✓')} ${color('bold', `Room ${roomIndex + 1} complete`)} ${color('gray', `· ${formatTokens(usage.total || 0)} tokens · ${usage.calls || 0} calls`)}`);
+    }
+    if (visibleUpdate) refresh();
+  };
+  return { state, start, user, notice, event, refresh, render: () => {} };
 }
 
 function cockpitSidebar(state, config, maxWidth, height) {
@@ -274,7 +361,7 @@ export function printPlan(plan) {
 }
 
 export function printHelp() {
-  console.log(`${color('bold', 'MERGE ROOM')} ${color('gray', '· multi-agent command cockpit')}\n\n  ${color('teal', 'merge-room')} ${color('white', '"your mission"')}       run a mission\n  ${color('teal', 'merge-room')} ${color('white', 'run "your mission"')}   explicit run form\n  ${color('teal', 'merge-room')} ${color('white', 'plan "your mission"')}  preview a run without provider calls\n  ${color('teal', 'merge-room')} ${color('white', 'interactive')}              open the cockpit\n  ${color('teal', 'merge-room')} ${color('white', '--json "mission"')}       return JSON for scripts\n  ${color('teal', 'merge-room')} ${color('white', 'agents')}                   show the specialist roster\n  ${color('teal', 'merge-room')} ${color('white', 'theme list')}              list cockpit palettes\n  ${color('teal', 'merge-room')} ${color('white', 'history')}                 list saved missions\n  ${color('teal', 'merge-room')} ${color('white', 'usage')}                  aggregate saved token usage\n  ${color('teal', 'merge-room')} ${color('white', 'show <id>')}               reopen a saved mission\n  ${color('teal', 'merge-room')} ${color('white', 'export <id>')}            print a Markdown transcript\n  ${color('teal', 'merge-room')} ${color('white', 'context')}                  preview workspace context\n  ${color('teal', 'merge-room')} ${color('white', 'doctor')}                   check local setup\n  ${color('teal', 'merge-room')} ${color('white', 'init')}                     create merge-room.config.json\n  ${color('teal', 'merge-room')} ${color('white', '--no-context')}            skip workspace excerpts\n  ${color('teal', 'merge-room')} ${color('white', '--help')}                  show this guide\n\n  ${color('gray', 'Set OPENAI_API_KEY for live runs. Without it, Merge Room uses a tiny local demo provider.')}`);
+  console.log(`${color('bold', 'MERGE ROOM')} ${color('gray', '· multi-agent command cockpit')}\n\n  ${color('teal', 'merge-room')}                        open the conversational cockpit\n  ${color('teal', 'merge-room')} ${color('white', '"your mission"')}       run a mission directly\n  ${color('teal', 'merge-room')} ${color('white', 'run "your mission"')}   explicit run form\n  ${color('teal', 'merge-room')} ${color('white', 'plan "your mission"')}  preview a run without provider calls\n  ${color('teal', 'merge-room')} ${color('white', 'interactive')}              cockpit alias\n  ${color('teal', 'merge-room')} ${color('white', '--json "mission"')}       return JSON for scripts\n  ${color('teal', 'merge-room')} ${color('white', 'agents')}                   show the specialist roster\n  ${color('teal', 'merge-room')} ${color('white', 'theme list')}              list cockpit palettes\n  ${color('teal', 'merge-room')} ${color('white', 'history')}                 list saved missions\n  ${color('teal', 'merge-room')} ${color('white', 'usage')}                  aggregate saved token usage\n  ${color('teal', 'merge-room')} ${color('white', 'show <id>')}               reopen a saved mission\n  ${color('teal', 'merge-room')} ${color('white', 'export <id>')}            print a Markdown transcript\n  ${color('teal', 'merge-room')} ${color('white', 'context')}                  preview workspace context\n  ${color('teal', 'merge-room')} ${color('white', 'doctor')}                   check local setup\n  ${color('teal', 'merge-room')} ${color('white', 'init')}                     create merge-room.config.json\n  ${color('teal', 'merge-room')} ${color('white', '--no-context')}            skip workspace excerpts\n  ${color('teal', 'merge-room')} ${color('white', '--help')}                  show this guide\n\n  ${color('gray', 'Set OPENAI_API_KEY for live runs. Without it, Merge Room uses a tiny local demo provider.')}`);
  console.log(`  ${color('teal', 'merge-room')} ${color('white', 'config')}                  show effective safe config`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', 'completions [shell]')}       print shell completion script`);
  console.log(`  ${color('teal', 'merge-room')} ${color('white', 'review "change"')}       review with bounded Git diff context`);

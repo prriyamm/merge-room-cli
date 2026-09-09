@@ -1,49 +1,32 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
-  <title id="title">Merge Room CLI two-session cockpit</title>
-  <desc id="desc">A dark terminal with a left sidebar showing two concurrent rooms and each subagent's live status, beside the selected room's mission, handoffs, and run log.</desc>
+  <title id="title">Merge Room two-room scrollable conversation</title>
+  <desc id="desc">A scrollable conversation after the startup mark has moved above the viewport, showing completed work in Room 1 and concurrent agent activity in Room 2.</desc>
   <defs>
-    <linearGradient id="bar" x1="0" x2="1"><stop offset="0" stop-color="#6ee7d4"/><stop offset="1" stop-color="#9b8cff"/></linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#06070d" flood-opacity=".45"/></filter>
+    <linearGradient id="bar" x1="0" x2="1"><stop offset="0" stop-color="#67e8f9"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+    <radialGradient id="glow"><stop stop-color="#7c3aed" stop-opacity=".12"/><stop offset="1" stop-color="#080d17" stop-opacity="0"/></radialGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#020617" flood-opacity=".58"/></filter>
   </defs>
-  <rect width="1200" height="760" fill="#0a0c13"/>
-  <rect x="54" y="42" width="1092" height="676" rx="18" fill="#111520" stroke="#2a3142" filter="url(#shadow)"/>
-  <rect x="54" y="42" width="1092" height="54" rx="18" fill="#171c2b"/><rect x="54" y="78" width="1092" height="18" fill="#171c2b"/><rect x="54" y="94" width="1092" height="3" fill="url(#bar)"/>
-  <circle cx="86" cy="69" r="7" fill="#ff6f91"/><circle cx="110" cy="69" r="7" fill="#f6c85f"/><circle cx="134" cy="69" r="7" fill="#6ee7d4"/>
-  <text x="600" y="74" text-anchor="middle" fill="#aeb7c9" font-family="Inter,Segoe UI,sans-serif" font-size="14">merge-room — two live sessions</text>
-  <line x1="378" y1="96" x2="378" y2="650" stroke="#2a3142"/>
-  <g font-family="Cascadia Mono,Consolas,monospace">
-    <text x="82" y="132" fill="#eef2ff" font-size="17" font-weight="700">ROOMS</text>
-    <text x="82" y="168" fill="#6ee7d4" font-size="18">›</text><text x="108" y="168" fill="#eef2ff" font-size="18" font-weight="700">Room 1</text><text x="282" y="168" fill="#f6c85f" font-size="15">working</text>
-    <text x="108" y="194" fill="#c7d0e5" font-size="14">Prepare the release</text>
-    <text x="108" y="225" fill="#6ee7d4" font-size="15">●</text><text x="132" y="225" fill="#dbe2f1" font-size="15">Scout</text><text x="272" y="225" fill="#66718a" font-size="14">done</text>
-    <text x="108" y="253" fill="#6ee7d4" font-size="15">●</text><text x="132" y="253" fill="#dbe2f1" font-size="15">Architect</text><text x="272" y="253" fill="#66718a" font-size="14">done</text>
-    <text x="108" y="281" fill="#f6c85f" font-size="15">◌</text><text x="132" y="281" fill="#dbe2f1" font-size="15">Maker</text><text x="252" y="281" fill="#f6c85f" font-size="14">drafting</text>
-    <text x="108" y="309" fill="#66718a" font-size="15">○</text><text x="132" y="309" fill="#dbe2f1" font-size="15">Critic</text><text x="272" y="309" fill="#66718a" font-size="14">queued</text>
-    <line x1="82" y1="337" x2="350" y2="337" stroke="#2a3142" stroke-dasharray="2 6"/>
-    <text x="108" y="374" fill="#eef2ff" font-size="18" font-weight="700">Room 2</text><text x="282" y="374" fill="#f6c85f" font-size="15">working</text>
-    <text x="108" y="400" fill="#c7d0e5" font-size="14">Review API migration</text>
-    <text x="108" y="431" fill="#f6c85f" font-size="15">◌</text><text x="132" y="431" fill="#dbe2f1" font-size="15">Scout</text><text x="252" y="431" fill="#f6c85f" font-size="14">mapping</text>
-    <text x="108" y="459" fill="#f6c85f" font-size="15">◌</text><text x="132" y="459" fill="#dbe2f1" font-size="15">Architect</text><text x="252" y="459" fill="#f6c85f" font-size="14">shaping</text>
-    <text x="108" y="487" fill="#66718a" font-size="15">○</text><text x="132" y="487" fill="#dbe2f1" font-size="15">Maker</text><text x="272" y="487" fill="#66718a" font-size="14">queued</text>
-    <text x="108" y="515" fill="#66718a" font-size="15">○</text><text x="132" y="515" fill="#dbe2f1" font-size="15">Critic</text><text x="272" y="515" fill="#66718a" font-size="14">queued</text>
-    <text x="410" y="132" fill="#eef2ff" font-size="18" font-weight="700">ROOM 1</text><text x="508" y="132" fill="#66718a" font-size="14">· turn 1</text>
-    <text x="410" y="164" fill="#66718a" font-size="13">C:\work\merge-room-cli</text>
-    <text x="410" y="205" fill="#eef2ff" font-size="15" font-weight="700">MISSION</text>
-    <text x="410" y="234" fill="#dbe2f1" font-size="16">Prepare the release and identify the blocking checks.</text>
-    <text x="410" y="281" fill="#eef2ff" font-size="15" font-weight="700">LIVE HANDOFFS</text>
-    <text x="410" y="311" fill="#6ee7d4" font-size="15">◇</text><text x="436" y="311" fill="#7f8aa3" font-size="14">Scope is stable; package and CI are the release gates.</text>
-    <text x="410" y="339" fill="#9b8cff" font-size="15">◈</text><text x="436" y="339" fill="#7f8aa3" font-size="14">Keep the two-room state isolated at the cockpit boundary.</text>
-    <text x="410" y="386" fill="#eef2ff" font-size="15" font-weight="700">RUN LOG</text>
-    <text x="410" y="416" fill="#66718a" font-size="14">14:20:08  Scout returned a note</text>
-    <text x="410" y="444" fill="#66718a" font-size="14">14:20:09  Architect returned a note</text>
-    <text x="410" y="472" fill="#f6c85f" font-size="14">14:20:09  Maker started</text>
-    <text x="410" y="519" fill="#eef2ff" font-size="15" font-weight="700">MERGE ROOM SAYS</text>
-    <text x="410" y="549" fill="#dbe2f1" font-size="15">Drafting the release checklist while Room 2 continues</text>
-    <text x="410" y="575" fill="#dbe2f1" font-size="15">its API review independently.</text>
-    <text x="410" y="622" fill="#66718a" font-size="14">1.8s · ~1.2k tokens · 3 calls</text>
-    <line x1="54" y1="650" x2="1146" y2="650" stroke="#2a3142"/>
-    <text x="82" y="679" fill="#66718a" font-size="13">/1 /2 switch  ·  /new reset  ·  /help commands</text>
-    <text x="575" y="679" fill="#6ee7d4" font-size="13">Room 2 is working while you stay in Room 1.</text>
-    <text x="82" y="704" fill="#6ee7d4" font-size="15">room 1 ›</text><text x="172" y="704" fill="#dbe2f1" font-size="15">_</text>
+  <rect width="1200" height="760" fill="#080d17"/><ellipse cx="808" cy="430" rx="430" ry="310" fill="url(#glow)"/>
+  <rect x="92" y="52" width="1016" height="656" rx="20" fill="#0b1220" stroke="#263449" filter="url(#shadow)"/>
+  <rect x="92" y="52" width="1016" height="54" rx="20" fill="#111c2e"/><rect x="92" y="84" width="1016" height="22" fill="#111c2e"/>
+  <circle cx="124" cy="79" r="7" fill="#fb7185"/><circle cx="148" cy="79" r="7" fill="#fbbf24"/><circle cx="172" cy="79" r="7" fill="#5eead4"/>
+  <text x="600" y="84" text-anchor="middle" fill="#94a3b8" font-family="Inter,Segoe UI,sans-serif" font-size="14">merge-room — scrollable conversation</text>
+  <rect x="92" y="104" width="1016" height="2" fill="url(#bar)"/>
+  <g font-family="Cascadia Mono,Consolas,monospace" font-size="16">
+    <text x="134" y="146" fill="#67e8f9" font-weight="700">Room 1 ›</text><text x="236" y="146" fill="#f8fafc">Prepare the release and identify blocking checks.</text>
+    <text x="134" y="184" fill="#64748b">○</text><text x="162" y="184" fill="#67e8f9">Scout</text><text x="240" y="184" fill="#94a3b8">is working</text>
+    <text x="134" y="214" fill="#5eead4">✓</text><text x="162" y="214" fill="#67e8f9">Scout</text><text x="240" y="214" fill="#94a3b8">handed back a note</text>
+    <text x="134" y="244" fill="#5eead4">✓</text><text x="162" y="244" fill="#60a5fa">Architect</text><text x="280" y="244" fill="#94a3b8">handed back a note</text>
+    <text x="134" y="274" fill="#a78bfa">◇</text><text x="162" y="274" fill="#94a3b8">Merging the room’s notes…</text>
+    <text x="134" y="320" fill="#f8fafc">Release after CI, package verification, and the smoke test pass.</text>
+    <text x="134" y="348" fill="#f8fafc">No migration blocker remains.</text>
+    <text x="134" y="384" fill="#5eead4">✓</text><text x="162" y="384" fill="#f8fafc" font-weight="700">Room 1 complete</text><text x="326" y="384" fill="#64748b">· ~1.2k tokens · 5 calls</text>
+    <text x="134" y="432" fill="#64748b">·</text><text x="160" y="432" fill="#67e8f9">Switched to Room 2.</text>
+    <text x="134" y="476" fill="#67e8f9" font-weight="700">Room 2 ›</text><text x="236" y="476" fill="#f8fafc">Review the API migration while Room 1 is ready.</text>
+    <text x="134" y="514" fill="#64748b">○</text><text x="162" y="514" fill="#67e8f9">Scout</text><text x="240" y="514" fill="#94a3b8">is working</text>
+    <text x="134" y="544" fill="#64748b">○</text><text x="162" y="544" fill="#60a5fa">Architect</text><text x="280" y="544" fill="#94a3b8">is working</text>
+    <text x="134" y="574" fill="#5eead4">✓</text><text x="162" y="574" fill="#67e8f9">Scout</text><text x="240" y="574" fill="#94a3b8">handed back a note</text>
+    <text x="134" y="632" fill="#67e8f9">room 2 ›</text><rect x="233" y="615" width="10" height="22" rx="2" fill="#a78bfa" opacity=".9"/>
+    <text x="802" y="672" fill="#64748b" font-size="13">conversation continues below ↓</text>
   </g>
 </svg>

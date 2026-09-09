@@ -14,7 +14,7 @@ import { createLedger, estimateTokens } from '../src/tokens.js';
 import { buildResumeRequest } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
 import { applyCockpitEvent, beginCockpitTurn, createCockpitState, finishCockpitTurn, resetCockpitRoom, selectCockpitRoom } from '../src/cockpit.js';
-import { createCockpitRenderer, printResult } from '../src/ui.js';
+import { createCockpitRenderer, createConversationRenderer, printResult, startupPatternLines } from '../src/ui.js';
 import { resolveTheme, themeSummaries, THEMES } from '../src/themes.js';
 
 const execFileAsync = promisify(execFile);
@@ -91,6 +91,43 @@ test('interactive CLI accepts work in both rooms from one process', async () => 
   assert.equal((stdout.match(/Mission complete/g) || []).length, 2);
 });
 
+test('bare merge-room command opens the cockpit', async () => {
+  const { stdout } = await runCliWithInput(
+    ['--provider=demo', '--no-context', '--no-save', '--no-stream', '--team=scout'],
+    'Map the next release\n/quit\n'
+  );
+  assert.match(stdout, /\[Room 1\] Map the next release/);
+  assert.match(stdout, /Mission complete/);
+});
+
+test('conversational cockpit prints its mark once and appends the chat', async () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
+  const renderer = createConversationRenderer({ config, provider: { name: 'demo' }, workspace: 'C:\\project', force: true, write: (line) => lines.push(line) });
+  await renderer.start({ animate: false });
+  await renderer.start({ animate: false });
+  beginCockpitTurn(renderer.state, 0, 'Plan the release', config.agents);
+  renderer.user(0, 'Plan the release');
+  renderer.event(0)({ type: 'agent:start', agent: config.agents[0] });
+  renderer.event(0)({ type: 'agent:done', agent: config.agents[0], text: 'Check CI.', telemetry: { total: 12, calls: 1 } });
+  renderer.event(0)({ type: 'run:done', result: { answer: 'Ship after CI passes.', usage: { total: 24, calls: 2 } } });
+  const output = lines.join('\n');
+  assert.equal((output.match(/Two rooms\. One continuous conversation\./g) || []).length, 1);
+  assert.equal((output.match(/◆/g) || []).length, 1);
+  assert.match(output, /Room 1 › Plan the release/);
+  assert.match(output, /Scout is working/);
+  assert.match(output, /Ship after CI passes\./);
+  assert.doesNotMatch(output, /\x1b\[2J/);
+});
+
+test('startup mark is compact, balanced, and terminal safe', () => {
+  const pattern = startupPatternLines();
+  assert.equal(pattern.length, 10);
+  assert.equal(pattern.at(-1).trim(), '◆');
+  assert.equal(pattern.every((line) => line.length <= 34), true);
+  assert.equal(pattern.some((line) => line.includes('╲') && line.includes('╱')), true);
+});
+
 test('completion scripts cover supported shells', () => {
   assert.match(completionScript('bash'), /complete -F _merge_room merge-room/);
   assert.match(completionScript('zsh'), /#compdef merge-room/);
@@ -117,11 +154,14 @@ test('themes expose named palettes and useful aliases', () => {
   assert.throws(() => resolveTheme('unknown'), /merge-room theme list/);
 });
 
-test('documentation screenshots keep adjacent headings in separate columns', async () => {
+test('documentation screenshots show the one-time mark and scrollable conversation', async () => {
   const started = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-started.svg'), 'utf8');
-  const mission = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-mission.svg'), 'utf8');
-  assert.match(started, /MERGE ROOM<\/text><text x="255"/);
-  assert.match(mission, /Merge Room<\/text><text x="260"/);
+  const mission = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-mission-cockpit.svg'), 'utf8');
+  assert.match(started, /Two rooms\. One continuous conversation\./);
+  assert.match(started, /woven Merge Room mark/);
+  assert.match(mission, /Room 1 ›/);
+  assert.match(mission, /Room 2 ›/);
+  assert.match(mission, /scrollable conversation/);
 });
 
 test('provider mode can force deterministic local runs', () => {

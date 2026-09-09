@@ -9,7 +9,7 @@ import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from './engine.js';
 import { createProvider } from './providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from './sessions.js';
 import { themeSummaries } from './themes.js';
-import { createCockpitRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme } from './ui.js';
+import { createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme } from './ui.js';
 
 const VALUE_OPTIONS = ['--cwd', '-C', '--prompt-file', '--config', '--team', '--provider', '--model', '--base-url', '--max-tokens', '--temperature', '--concurrency', '--timeout', '--retries', '--max-calls', '--run-id', '--theme', '--include', '--limit', '--format', '--output'];
 const BOOLEAN_OPTIONS = ['--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict'];
@@ -50,6 +50,7 @@ export async function main(args = [], { signal } = {}) {
   const cleanArgs = stripOptions(args, VALUE_OPTIONS, BOOLEAN_OPTIONS);
   const include = includeValue !== null ? includeValue.split(',').map((item) => item.trim()).filter(Boolean) : null;
   const command = cleanArgs[0];
+  const cockpitByDefault = !command && promptFileValue === null;
   const preset = command === 'review' ? { includeDiff: true } : command === 'brainstorm' ? { strategy: 'parallel' } : {};
   let displayRequest;
   if (command === '--version' || command === '-v' || command === 'version') {
@@ -57,7 +58,7 @@ export async function main(args = [], { signal } = {}) {
     else console.log(`merge-room ${VERSION}`);
     return;
   }
- if ((!command && promptFileValue === null) || command === '--help' || command === '-h' || command === 'help') return printHelp();
+ if (command === '--help' || command === '-h' || command === 'help') return printHelp();
  if (command === 'completions' || command === 'completion') {
    const shell = cleanArgs[1] || defaultShell();
    const script = completionScript(shell);
@@ -168,7 +169,7 @@ export async function main(args = [], { signal } = {}) {
     else printPlan(plan);
     return;
   }
-  if (command === 'interactive' || command === 'chat') return interactive(runConfig, provider, noContext, noSave, signal, trace, workspace);
+  if (cockpitByDefault || command === 'interactive' || command === 'chat') return interactive(runConfig, provider, noContext, noSave, signal, trace, workspace);
   const requestParts = command === 'run' || command === 'ask' || command === 'resume' || command === 'review' || command === 'brainstorm' ? cleanArgs.slice(1) : cleanArgs;
   const request = await readMissionInput(requestParts, promptFileValue, workspace, signal);
   if (!request) return printHelp();
@@ -285,10 +286,19 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   const tasks = new Map();
   const controllers = new Map();
   const isTerminal = Boolean(process.stdin.isTTY && process.stdout.isTTY);
-  const renderer = createCockpitRenderer({ config, provider, workspace, onRefresh: () => reprompt() });
+  const appendLine = (line = '') => {
+    if (isTerminal && rl) {
+      readline.clearLine(process.stdout, 0);
+      readline.cursorTo(process.stdout, 0);
+    }
+    console.log(line);
+  };
+  const renderer = createConversationRenderer({ config, provider, workspace, onRefresh: () => reprompt(), write: appendLine });
 
   function reprompt() {
     if (isTerminal && rl && !closing) {
+      readline.clearLine(process.stdout, 0);
+      readline.cursorTo(process.stdout, 0);
       rl.setPrompt(` room ${renderer.state.activeRoom + 1} › `);
       rl.prompt(true);
     }
@@ -301,7 +311,8 @@ async function interactive(config, provider, noContext = false, noSave = false, 
 
   function setMessage(message) {
     renderer.state.message = message;
-    redraw();
+    renderer.notice(message);
+    reprompt();
   }
 
   async function launch(request) {
@@ -311,18 +322,17 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     const runConfig = activeConfig;
     try { beginCockpitTurn(renderer.state, roomIndex, request, runConfig.agents); }
     catch (error) { setMessage(error.message); return; }
+    renderer.user(roomIndex, request);
     const controller = new AbortController();
     const cancel = () => controller.abort();
     signal?.addEventListener('abort', cancel, { once: true });
     controllers.set(roomIndex, controller);
-    redraw();
     const task = (async () => {
       try {
         const context = contextEnabled ? await collectWorkspaceContext(workspace, runConfig.context) : null;
         const room = renderer.state.rooms[roomIndex];
         room.context = context;
         room.status = 'working';
-        redraw();
         const engineRequest = previous ? buildResumeRequest(request, previous) : request;
         const result = await new MergeRoomEngine({ config: runConfig, provider, onEvent: renderer.event(roomIndex) }).run(engineRequest, { context, label: request, signal: controller.signal });
         const saved = noSave ? null : await persist(result, runConfig, workspace);
@@ -334,12 +344,14 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         }
       } catch (error) {
         finishCockpitTurn(renderer.state, roomIndex, null, error);
-        if (!isTerminal && error.name !== 'AbortError') console.log(`  Room ${roomIndex + 1}: ${error.message}`);
+        if (error.name !== 'AbortError') {
+          if (isTerminal) setMessage(`Room ${roomIndex + 1} stopped: ${error.message}`);
+          else console.log(`  Room ${roomIndex + 1}: ${error.message}`);
+        }
       } finally {
         signal?.removeEventListener('abort', cancel);
         controllers.delete(roomIndex);
         tasks.delete(roomIndex);
-        redraw();
       }
     })();
     tasks.set(roomIndex, task);
@@ -349,10 +361,10 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     const request = String(value || '').trim();
     if (!request) return true;
     if (request === '/quit' || request === '/exit') return false;
-    if (request === '/1' || request === '/2') { selectCockpitRoom(renderer.state, request.slice(1)); redraw(); return true; }
-    if (request === '/switch') { selectCockpitRoom(renderer.state, renderer.state.activeRoom === 0 ? 2 : 1); redraw(); return true; }
+    if (request === '/1' || request === '/2') { const room = selectCockpitRoom(renderer.state, request.slice(1)); setMessage(`Switched to Room ${room.id}.`); return true; }
+    if (request === '/switch') { const room = selectCockpitRoom(renderer.state, renderer.state.activeRoom === 0 ? 2 : 1); setMessage(`Switched to Room ${room.id}.`); return true; }
     if (request === '/new' || request === '/clear') {
-      try { resetCockpitRoom(renderer.state, renderer.state.activeRoom, activeConfig.agents); redraw(); }
+      try { const room = resetCockpitRoom(renderer.state, renderer.state.activeRoom, activeConfig.agents); setMessage(`Room ${room.id} is ready for a new session.`); }
       catch (error) { setMessage(error.message); }
       return true;
     }
@@ -422,16 +434,14 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     return;
   }
 
+  await renderer.start();
   rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-  const onResize = () => redraw();
-  process.stdout.on('resize', onResize);
   redraw();
   await new Promise((resolve) => {
     const shutdown = () => {
       if (closing) return;
       closing = true;
       for (const controller of controllers.values()) controller.abort();
-      process.stdout.removeListener('resize', onResize);
       rl.close();
       resolve();
     };
@@ -440,11 +450,10 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       if (!await handleInput(line)) shutdown();
       else redraw();
     });
-    rl.once('close', () => { if (!closing) { closing = true; process.stdout.removeListener('resize', onResize); resolve(); } });
+    rl.once('close', () => { if (!closing) { closing = true; resolve(); } });
   });
   await Promise.allSettled([...tasks.values()]);
-  process.stdout.write('\x1b[2J\x1b[H');
-  console.log('  Both rooms closed. Until next time.\n');
+  console.log('\n  Both rooms closed. Until next time.\n');
 }
 
 function cropLabel(value, max) {
