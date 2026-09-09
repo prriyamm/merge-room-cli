@@ -1,5 +1,5 @@
 const COMMANDS = ['run', 'ask', 'review', 'brainstorm', 'plan', 'interactive', 'agents', 'history', 'usage', 'stats', 'config', 'show', 'export', 'resume', 'context', 'doctor', 'init', 'theme', 'completions', 'version'];
-const OPTIONS = ['--help', '--version', '--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict', '--team=', '--provider=', '--model=', '--base-url=', '--max-tokens=', '--temperature=', '--concurrency=', '--max-calls=', '--timeout=', '--retries=', '--run-id=', '--theme=', '--include=', '--limit=', '--format=', '--output=', '--config='];
+const OPTIONS = ['--help', '--version', '--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict', '--cwd=', '-C', '--prompt-file=', '--team=', '--provider=', '--model=', '--base-url=', '--max-tokens=', '--temperature=', '--concurrency=', '--max-calls=', '--timeout=', '--retries=', '--run-id=', '--theme=', '--include=', '--limit=', '--format=', '--output=', '--config='];
 
 export function completionScript(shell = defaultShell()) {
   const normalized = shell.toLowerCase() === 'ps' ? 'powershell' : shell.toLowerCase();
@@ -16,11 +16,11 @@ export function defaultShell() {
 function bashCompletion() {
   return [
     '# Merge Room completion for Bash',
-    '_merge-room() {',
+    '_merge_room() {',
     '  local current="${COMP_WORDS[COMP_CWORD]}"',
     '  COMPREPLY=( $(compgen -W "' + COMMANDS.concat(OPTIONS).join(' ') + '" -- "$current") )',
     '}',
-    'complete -F _merge-room merge-room',
+    'complete -F _merge_room merge-room',
     ''
   ].join('\n');
 }

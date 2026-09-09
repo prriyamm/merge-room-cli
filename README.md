@@ -84,6 +84,8 @@ Merge Room also reads `MERGE_ROOM_API_KEY`, `MERGE_ROOM_BASE_URL`, and `MERGE_RO
 - **Recovery:** sessions are saved under `.merge-room/sessions/` and can be inspected with `show`, continued with `resume`, or exported as Markdown/JSON.
 - **Resilience:** streaming, retries with backoff, timeouts, Ctrl+C cancellation, provider usage metadata, and best-effort fallback answers.
 - **Context safety:** bounded file discovery, `.gitignore` support, secret-looking path exclusion, UTF-8 byte caps, redaction, and opt-in diff content.
+- **Workspace targeting:** `--cwd <path>` or `-C <path>` runs against another project without changing the caller's shell directory. Config, context, history, and exports stay anchored to that workspace.
+- **Reusable missions:** `--prompt-file <path>` reads a reviewed, version-controlled mission file from the selected workspace, with clear empty-file, ambiguity, and size-limit errors.
 - **Focused runs:** `--team=scout,critic` selects a smaller team; custom agents can use their own model and stage.
 - **Terminal themes:** `merge-room`, `ocean`, `ember`, `mono`, and `high-contrast`, plus `NO_COLOR` for plain output.
 - **No runtime dependencies:** installation stays fast and auditable with Node’s built-in APIs.
@@ -121,6 +123,8 @@ Useful options:
 --run-id=release-1              Correlate events and the saved transcript
 --no-save                       Keep the run local
 --no-context                    Skip workspace excerpts
+--cwd=<path>, -C <path>         Target another workspace
+--prompt-file=<path>            Read the mission from a UTF-8 text file
 --include=src/app.js,README.md  Prioritize exact context files
 --diff                          Include a bounded, redacted Git diff
 --parallel                      Run the selected team in one wave
@@ -149,6 +153,8 @@ merge-room --parallel --trace "Compare two approaches to caching"
 merge-room --json --run-id=release-42 "Summarize the release risks" > result.json
 merge-room --events --strict "Plan the migration" > events.ndjson
 merge-room review "the current uncommitted changes"
+merge-room -C ../another-project plan "Map the safest first change"
+merge-room --prompt-file missions/release-review.md
 merge-room context --include=src,README.md
 merge-room export last --output=mission.md
 merge-room export last --format=json --output=mission.json
@@ -225,6 +231,8 @@ Example `merge-room.config.json`:
 Agent stages are `1` (orientation), `2` (draft), and `3` (review). Each custom agent needs a unique id; `model` is optional per agent. `maxCalls: 0` disables the call cap, while a positive value provides a hard per-run guard.
 
 Configuration can also be supplied with environment variables or command-line flags. An explicitly supplied `--config` path must exist; Merge Room reports a clear error instead of silently falling back to defaults. `merge-room config` prints a safe effective view with provider URL credentials redacted.
+
+Use `--cwd <path>` (or `-C <path>`) to target a different project. Relative config paths, session history, context discovery, initialization, and export destinations are resolved from that workspace, while help, version, and completion generation remain available even if a workspace is unavailable.
 
 ## Context and privacy
 

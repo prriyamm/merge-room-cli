@@ -163,6 +163,7 @@ export function printPlan(plan) {
   printBanner({ provider: plan.provider, model: plan.model });
   console.log(`  ${color('bold', 'RUN PREFLIGHT')}  ${color('gray', 'no provider calls made')}\n`);
   console.log(`  ${color('white', crop(plan.request, width() - 4))}\n`);
+  console.log(`  ${color('gray', 'workspace')} ${color('white', plan.workspace)}`);
   console.log(`  ${color('gray', 'strategy')} ${color('teal', plan.strategy)}  ${color('gray', 'agents')} ${plan.agents.length}  ${color('gray', 'context')} ${plan.context ? `${plan.context.fileCount} files` : 'off'}`);
   console.log(`  ${color('gray', 'limits')} max ${plan.limits.maxCalls ? `${plan.limits.maxCalls} calls` : 'unlimited'} · ${plan.limits.maxConcurrency} concurrent · ${plan.limits.maxTokens} output tokens/call\n`);
   for (const wave of plan.waves) {
@@ -181,6 +182,8 @@ export function printHelp() {
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--team=scout,critic')}     run a focused team`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', 'resume <id> "follow-up"')} continue a mission`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--no-save')}              keep this run local`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--cwd path / -C path')}    target another workspace`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--prompt-file mission.md')} read a reusable mission file`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--include=a.js,b.md')}      prioritize exact context files`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--diff')}                  include a bounded Git diff`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--parallel')}              trade staged depth for lower latency`);

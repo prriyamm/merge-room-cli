@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { VERSION, loadConfig, safeBaseUrl, writeStarterConfig } from './config.js';
 import { completionScript, defaultShell } from './completions.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from './context.js';
@@ -7,10 +9,14 @@ import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSes
 import { themeSummaries } from './themes.js';
 import { ask, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme } from './ui.js';
 
-const VALUE_OPTIONS = ['--config', '--team', '--provider', '--model', '--base-url', '--max-tokens', '--temperature', '--concurrency', '--timeout', '--retries', '--max-calls', '--run-id', '--theme', '--include', '--limit', '--format', '--output'];
+const VALUE_OPTIONS = ['--cwd', '-C', '--prompt-file', '--config', '--team', '--provider', '--model', '--base-url', '--max-tokens', '--temperature', '--concurrency', '--timeout', '--retries', '--max-calls', '--run-id', '--theme', '--include', '--limit', '--format', '--output'];
 const BOOLEAN_OPTIONS = ['--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict'];
+const NON_MISSION_COMMANDS = new Set(['completions', 'completion', 'agents', 'config', 'context', 'history', 'usage', 'stats', 'show', 'export', 'init', 'doctor', 'theme', 'interactive', 'chat', 'version']);
+const MAX_PROMPT_BYTES = 256 * 1024;
 
 export async function main(args = [], { signal } = {}) {
+ const cwdValue = optionValue(args, '--cwd') ?? optionValue(args, '-C');
+ const promptFileValue = optionValue(args, '--prompt-file');
  const configValue = optionValue(args, '--config');
  const json = args.includes('--json');
   const noContext = args.includes('--no-context');
@@ -49,7 +55,7 @@ export async function main(args = [], { signal } = {}) {
     else console.log(`merge-room ${VERSION}`);
     return;
   }
- if (!command || command === '--help' || command === '-h' || command === 'help') return printHelp();
+ if ((!command && promptFileValue === null) || command === '--help' || command === '-h' || command === 'help') return printHelp();
  if (command === 'completions' || command === 'completion') {
    const shell = cleanArgs[1] || defaultShell();
    const script = completionScript(shell);
@@ -57,7 +63,9 @@ export async function main(args = [], { signal } = {}) {
    else console.log(script);
    return;
  }
-  let config = await loadConfig(process.cwd(), configValue !== null ? configValue : undefined);
+  const workspace = await resolveWorkspace(cwdValue);
+  if (promptFileValue !== null && command && NON_MISSION_COMMANDS.has(command)) throw new Error(`\`--prompt-file\` cannot be used with \`${command}\`.`);
+  let config = await loadConfig(workspace, configValue !== null ? configValue : undefined);
   if (providerValue !== null) config = { ...config, provider: normalizeProvider(providerValue) };
   if (themeValue !== null) config = { ...config, theme: setTheme(themeValue).id };
   else setTheme(config.theme);
@@ -80,20 +88,20 @@ export async function main(args = [], { signal } = {}) {
     return;
   }
   if (command === 'context') {
-    const context = noContext ? { cwd: process.cwd(), entries: [], excerpts: [], fileCount: 0, truncated: false, git: null } : await collectWorkspaceContext(process.cwd(), { ...config.context, ...(include !== null ? { include } : {}), includeDiff: includeDiff || preset.includeDiff === true });
+    const context = noContext ? { cwd: workspace, entries: [], excerpts: [], fileCount: 0, truncated: false, git: null } : await collectWorkspaceContext(workspace, { ...config.context, ...(include !== null ? { include } : {}), includeDiff: includeDiff || preset.includeDiff === true });
    if (json) console.log(JSON.stringify(context, null, 2));
     else console.log(formatWorkspaceContext(context));
     return;
   }
   if (command === 'history') {
-    const allSessions = config.sessionDir ? await listSessions(process.cwd(), config.sessionDir) : [];
+    const allSessions = config.sessionDir ? await listSessions(workspace, config.sessionDir) : [];
     const sessions = limitValue !== null ? allSessions.slice(0, numericFlag(limitValue, '--limit', 1, true)) : allSessions;
     if (json) console.log(JSON.stringify({ sessions }, null, 2));
     else printHistory(sessions);
     return;
   }
   if (command === 'usage' || command === 'stats') {
-    const allSessions = config.sessionDir ? await listSessions(process.cwd(), config.sessionDir) : [];
+    const allSessions = config.sessionDir ? await listSessions(workspace, config.sessionDir) : [];
     const sessions = limitValue !== null ? allSessions.slice(0, numericFlag(limitValue, '--limit', 1, true)) : allSessions;
     const usage = summarizeUsage(sessions);
     if (json) console.log(JSON.stringify(usage, null, 2));
@@ -103,32 +111,32 @@ export async function main(args = [], { signal } = {}) {
   if (command === 'show') {
     if (!cleanArgs[1]) throw new Error('Give show a session id. Try `merge-room history` first.');
     if (!config.sessionDir) throw new Error('Session history is disabled in merge-room.config.json.');
-    const sessionId = await resolveSessionId(cleanArgs[1], config);
-    const session = await readSession(sessionId, process.cwd(), config.sessionDir);
+    const sessionId = await resolveSessionId(cleanArgs[1], config, workspace);
+    const session = await readSession(sessionId, workspace, config.sessionDir);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
     if (json) console.log(JSON.stringify(session, null, 2));
     else printSession(session);
     return;
   }
-  if (command === 'export') return exportMission({ cleanArgs, config, formatValue, outputValue, json });
+  if (command === 'export') return exportMission({ cleanArgs, config, formatValue, outputValue, json, workspace });
   if (command === 'resume') {
     if (!cleanArgs[1]) throw new Error('Give resume a session id. Try `merge-room history` first.');
     if (!config.sessionDir) throw new Error('Session history is disabled in merge-room.config.json.');
-    const sessionId = await resolveSessionId(cleanArgs[1], config);
-    const prior = await readSession(sessionId, process.cwd(), config.sessionDir);
+    const sessionId = await resolveSessionId(cleanArgs[1], config, workspace);
+    const prior = await readSession(sessionId, workspace, config.sessionDir);
     if (!prior) throw new Error(`Session not found: ${sessionId}`);
-   const followup = cleanArgs.slice(2).join(' ').trim();
+   const followup = await readMissionInput(cleanArgs.slice(2), promptFileValue, workspace, signal);
    if (!followup) throw new Error('Add a follow-up mission after the session id, for example `merge-room resume <id> "make it shorter"`.');
    displayRequest = followup;
     cleanArgs.splice(0, cleanArgs.length, 'run', buildResumeRequest(followup, prior));
   }
   if (command === 'init') {
-    const result = await writeStarterConfig();
+    const result = await writeStarterConfig(workspace);
     if (json) console.log(JSON.stringify(result, null, 2));
     else console.log(result.created ? `  Created ${result.file}` : `  Already here: ${result.file}`);
     return;
   }
-  if (command === 'doctor') return doctor(config, json);
+  if (command === 'doctor') return doctor(config, json, workspace);
   const configuredRun = {
     ...config,
     context: { ...config.context, ...(include !== null ? { include } : {}), includeDiff: includeDiff || preset.includeDiff === true },
@@ -150,21 +158,21 @@ export async function main(args = [], { signal } = {}) {
   const provider = createProvider(runConfig);
   if (command === 'plan') {
     const requestParts = cleanArgs.slice(1);
-    const request = requestParts.length === 1 && requestParts[0] === '-' ? await readStdin(signal) : requestParts.join(' ').trim();
+    const request = await readMissionInput(requestParts, promptFileValue, workspace, signal);
     if (!request) throw new Error('Give plan a mission, for example `merge-room plan "map the release risks"`.');
-    const context = noContext || runConfig.context?.enabled === false ? null : await collectWorkspaceContext(process.cwd(), runConfig.context);
-    const plan = createPlan(runConfig, provider, request, context);
+    const context = noContext || runConfig.context?.enabled === false ? null : await collectWorkspaceContext(workspace, runConfig.context);
+    const plan = createPlan(runConfig, provider, request, context, workspace);
     if (json) console.log(JSON.stringify(plan, null, 2));
     else printPlan(plan);
     return;
   }
-  if (command === 'interactive' || command === 'chat') return interactive(runConfig, provider, noContext, noSave, signal, trace);
+  if (command === 'interactive' || command === 'chat') return interactive(runConfig, provider, noContext, noSave, signal, trace, workspace);
   const requestParts = command === 'run' || command === 'ask' || command === 'resume' || command === 'review' || command === 'brainstorm' ? cleanArgs.slice(1) : cleanArgs;
-  const request = requestParts.length === 1 && requestParts[0] === '-' ? await readStdin(signal) : requestParts.join(' ').trim();
+  const request = await readMissionInput(requestParts, promptFileValue, workspace, signal);
   if (!request) return printHelp();
-  const context = noContext || runConfig.context?.enabled === false ? null : await collectWorkspaceContext(process.cwd(), runConfig.context);
+  const context = noContext || runConfig.context?.enabled === false ? null : await collectWorkspaceContext(workspace, runConfig.context);
   if (json || events) {
-    const result = await runMission({ config: runConfig, provider, request, context, displayRequest, noSave, signal, runId: runIdValue, onEvent: events ? (event) => console.log(JSON.stringify(event)) : undefined });
+    const result = await runMission({ config: runConfig, provider, request, context, displayRequest, noSave, signal, runId: runIdValue, onEvent: events ? (event) => console.log(JSON.stringify(event)) : undefined, workspace });
     if (strict && result.degraded) process.exitCode = 2;
     if (json && !events) console.log(JSON.stringify(result, null, 2));
     return;
@@ -174,7 +182,7 @@ export async function main(args = [], { signal } = {}) {
   renderer.render();
   const engine = new MergeRoomEngine({ config: runConfig, provider, runId: runIdValue || undefined, onEvent: renderer.event });
   const result = await engine.run(request, { context, label: displayRequest, signal });
-  const saved = noSave ? null : await persist(result, config);
+  const saved = noSave ? null : await persist(result, config, workspace);
   if (saved) result.sessionId = saved.id;
   renderer.render();
   printResult(result, { trace });
@@ -224,6 +232,39 @@ function optionValue(args, name) {
   return index >= 0 ? (args[index + 1] ?? '') : null;
 }
 
+async function readMissionInput(parts, promptFile, workspace, signal) {
+  if (promptFile === null) {
+    return parts.length === 1 && parts[0] === '-' ? readStdin(signal) : parts.join(' ').trim();
+  }
+  if (parts.some((part) => part.trim())) throw new Error('Use either `--prompt-file` or inline mission text, not both.');
+  const value = String(promptFile).trim();
+  if (!value) throw new Error('`--prompt-file` needs a file path.');
+  const file = path.resolve(workspace, value);
+  let stat;
+  try { stat = await fs.stat(file); } catch { throw new Error(`Could not read prompt file: ${file}`); }
+  if (!stat.isFile()) throw new Error(`Prompt path is not a file: ${file}`);
+  if (stat.size > MAX_PROMPT_BYTES) throw new Error(`Prompt file exceeds the ${MAX_PROMPT_BYTES / 1024} KB limit: ${file}`);
+  const request = (await fs.readFile(file, 'utf8')).trim();
+  if (!request) throw new Error(`Prompt file is empty: ${file}`);
+  return request;
+}
+
+async function resolveWorkspace(value) {
+  const requested = value === null ? process.cwd() : String(value).trim();
+  if (!requested) throw new Error('`--cwd` needs a workspace directory.');
+  const candidate = path.resolve(process.cwd(), requested);
+  let resolved;
+  try {
+    resolved = await fs.realpath(candidate);
+    const stat = await fs.stat(resolved);
+    if (!stat.isDirectory()) throw new Error('not a directory');
+  } catch (error) {
+    if (error.message === 'not a directory') throw new Error(`Workspace is not a directory: ${candidate}`);
+    throw new Error(`Could not open workspace: ${candidate}`);
+  }
+  return resolved;
+}
+
 function stripOptions(args, valueOptions, booleanOptions) {
   const skip = new Set();
   args.forEach((arg, index) => {
@@ -234,7 +275,7 @@ function stripOptions(args, valueOptions, booleanOptions) {
   return args.filter((_, index) => !skip.has(index));
 }
 
-async function interactive(config, provider, noContext = false, noSave = false, signal, trace = false) {
+async function interactive(config, provider, noContext = false, noSave = false, signal, trace = false, workspace = process.cwd()) {
  let activeConfig = config;
  let contextEnabled = !noContext && config.context?.enabled !== false;
   const scriptedRequests = process.stdin.isTTY ? null : (await readStdin(signal)).split(/\r?\n/).map((line) => line.trim());
@@ -245,14 +286,14 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (!request || request === '/quit' || request === '/exit') break;
     if (request === '/help') { printHelp(); continue; }
     if (request === '/agents') { printAgents(activeConfig); continue; }
-    if (request === '/history') { printHistory(activeConfig.sessionDir ? await listSessions(process.cwd(), activeConfig.sessionDir) : []); continue; }
-    if (request === '/usage') { printUsage(summarizeUsage(activeConfig.sessionDir ? await listSessions(process.cwd(), activeConfig.sessionDir) : [])); continue; }
+    if (request === '/history') { printHistory(activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : []); continue; }
+    if (request === '/usage') { printUsage(summarizeUsage(activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : [])); continue; }
     if (request === '/show' || request.startsWith('/show ')) {
      const value = request.slice('/show '.length).trim();
       if (!value) { console.log('  Use `/show <id>` or `/show last`.'); continue; }
      if (!activeConfig.sessionDir) { console.log('  Session history is disabled in merge-room.config.json.'); continue; }
       let session;
-      try { session = await readSession(await resolveSessionId(value, activeConfig), process.cwd(), activeConfig.sessionDir); } catch (error) { console.log(`  ${error.message}`); continue; }
+      try { session = await readSession(await resolveSessionId(value, activeConfig, workspace), workspace, activeConfig.sessionDir); } catch (error) { console.log(`  ${error.message}`); continue; }
       if (!session) { console.log(`  Session not found: ${value}`); continue; }
       printSession(session);
       continue;
@@ -260,11 +301,11 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (request === '/export' || request.startsWith('/export ')) {
      const parts = request.slice('/export '.length).trim().split(/\s+/);
       if (!parts[0]) { console.log('  Use `/export <id>` or `/export last`.'); continue; }
-      try { await exportMission({ cleanArgs: ['export', parts[0]], config: activeConfig, formatValue: parts[1] || 'md', outputValue: null, json: false }); } catch (error) { console.log(`  ${error.message}`); }
+      try { await exportMission({ cleanArgs: ['export', parts[0]], config: activeConfig, formatValue: parts[1] || 'md', outputValue: null, json: false, workspace }); } catch (error) { console.log(`  ${error.message}`); }
       continue;
     }
     if (request === '/context') {
-      const preview = contextEnabled ? await collectWorkspaceContext(process.cwd(), activeConfig.context) : null;
+      const preview = contextEnabled ? await collectWorkspaceContext(workspace, activeConfig.context) : null;
       console.log(preview ? formatWorkspaceContext(preview) : '  Workspace context is off for this session.');
       continue;
     }
@@ -276,7 +317,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     }
     if (request === '/context off') { contextEnabled = false; console.log('  Workspace context off for the next mission.'); continue; }
     if (request === '/context on') { contextEnabled = true; console.log('  Workspace context on for the next mission.'); continue; }
-    const context = contextEnabled ? await collectWorkspaceContext(process.cwd(), activeConfig.context) : null;
+    const context = contextEnabled ? await collectWorkspaceContext(workspace, activeConfig.context) : null;
     const renderer = createRenderer({ config: activeConfig, provider, context });
    renderer.state.request = request;
    renderer.render();
@@ -286,7 +327,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       console.log(`  ${error.message}\n`);
       continue;
     }
-   const saved = noSave ? null : await persist(result, activeConfig);
+   const saved = noSave ? null : await persist(result, activeConfig, workspace);
     if (saved) result.sessionId = saved.id;
     renderer.render();
     printResult(result, { trace });
@@ -294,26 +335,26 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   console.log('  Until next time.\n');
 }
 
-async function runMission({ config, provider, request, context, displayRequest, noSave = false, signal, runId, onEvent }) {
+async function runMission({ config, provider, request, context, displayRequest, noSave = false, signal, runId, onEvent, workspace = process.cwd() }) {
   let completedEvent;
   const relay = onEvent ? (event) => {
     if (event.type === 'run:done') completedEvent = event;
     else onEvent(event);
   } : undefined;
   const result = await new MergeRoomEngine({ config, provider, runId: runId || undefined, onEvent: relay }).run(request, { context, label: displayRequest, signal });
-  const saved = noSave ? null : await persist(result, config);
+  const saved = noSave ? null : await persist(result, config, workspace);
   if (saved) result.sessionId = saved.id;
   if (completedEvent) onEvent({ ...completedEvent, result });
   return result;
 }
 
-async function persist(result, config) {
+async function persist(result, config, workspace = process.cwd()) {
   if (!config.sessionDir) return null;
-  try { return await saveSession(result, process.cwd(), config.sessionDir); } catch { /* Session history is helpful, never a reason to lose an answer. */ return null; }
+  try { return await saveSession(result, workspace, config.sessionDir); } catch { /* Session history is helpful, never a reason to lose an answer. */ return null; }
 }
 
-async function resolveSessionId(value, config) {
-  const sessions = await listSessions(process.cwd(), config.sessionDir);
+async function resolveSessionId(value, config, workspace = process.cwd()) {
+  const sessions = await listSessions(workspace, config.sessionDir);
   if (value.toLowerCase() !== 'last') {
     const matches = sessions.filter((session) => session.id.startsWith(value));
     if (matches.length === 1) return matches[0].id;
@@ -350,10 +391,11 @@ function validateOptions(args) {
   }
 }
 
-function createPlan(config, provider, request, context) {
+function createPlan(config, provider, request, context, workspace = process.cwd()) {
   const runPlan = buildRunPlan(config);
   return {
     kind: 'preflight',
+    workspace,
     request,
     provider: provider.name,
     model: provider.model || config.model,
@@ -372,17 +414,17 @@ function createPlan(config, provider, request, context) {
   };
 }
 
-async function exportMission({ cleanArgs, config, formatValue, outputValue, json }) {
+async function exportMission({ cleanArgs, config, formatValue, outputValue, json, workspace = process.cwd() }) {
   if (!cleanArgs[1]) throw new Error('Give export a session id. Try `merge-room history` first.');
   if (!config.sessionDir) throw new Error('Session history is disabled in merge-room.config.json.');
-  const sessionId = await resolveSessionId(cleanArgs[1], config);
-  const session = await readSession(sessionId, process.cwd(), config.sessionDir);
+  const sessionId = await resolveSessionId(cleanArgs[1], config, workspace);
+  const session = await readSession(sessionId, workspace, config.sessionDir);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
   const format = (formatValue || 'md').toLowerCase();
   if (!['md', 'markdown', 'json'].includes(format)) throw new Error('Export format must be `md` or `json`.');
   const normalizedFormat = format === 'markdown' ? 'md' : format;
   if (outputValue) {
-    const file = await writeSessionExport(session, process.cwd(), outputValue, normalizedFormat);
+    const file = await writeSessionExport(session, workspace, outputValue, normalizedFormat);
     if (json) console.log(JSON.stringify({ id: sessionId, format: normalizedFormat, file }, null, 2));
     else console.log(`  Exported ${sessionId} → ${file}`);
   } else if (json || normalizedFormat === 'json') {
@@ -463,10 +505,11 @@ function abortError() {
   return error;
 }
 
-function doctor(config, json = false) {
+function doctor(config, json = false, workspace = process.cwd()) {
   const provider = createProvider(config);
   const report = {
     provider: { name: provider.name, model: provider.model, baseUrl: safeBaseUrl(config.baseUrl) },
+    workspace,
     providerMode: config.provider,
     node: process.versions.node,
     agents: config.agents.map((agent) => agent.id),
@@ -487,6 +530,7 @@ function doctor(config, json = false) {
     return;
   }
   printBanner({ provider: provider.name, model: config.model });
+  console.log(`  ● Workspace ${workspace}`);
   console.log(`  ${provider.name === 'demo' ? '○' : '●'} ${provider.name === 'demo' ? 'Demo mode' : 'Live provider'} ${provider.name === 'demo' ? '· set OPENAI_API_KEY for live model calls' : '· API key detected'}`);
   console.log(`  ${provider.name === 'demo' ? '●' : '●'} Node ${process.versions.node}`);
   console.log(`  ${provider.name === 'demo' ? '●' : '●'} ${config.agents.length} agents ready`);

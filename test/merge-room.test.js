@@ -19,11 +19,13 @@ import { resolveTheme, themeSummaries } from '../src/themes.js';
 const execFileAsync = promisify(execFile);
 
 test('completion scripts cover supported shells', () => {
-  assert.match(completionScript('bash'), /complete -F _merge-room merge-room/);
+  assert.match(completionScript('bash'), /complete -F _merge_room merge-room/);
   assert.match(completionScript('zsh'), /#compdef merge-room/);
   assert.match(completionScript('ps'), /Register-ArgumentCompleter/);
   assert.throws(() => completionScript('fish'), /Supported completion shells/);
   assert.match(completionScript('bash'), /--max-calls=/);
+  assert.match(completionScript('bash'), /--cwd=/);
+  assert.match(completionScript('bash'), /--prompt-file=/);
   assert.match(completionScript('bash'), /theme/);
 });
 
@@ -606,6 +608,47 @@ test('CLI can load an explicit project profile', async () => {
   }
 });
 
+test('CLI can target another workspace with --cwd or -C', async () => {
+  const caller = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-caller-'));
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-workspace-'));
+  try {
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
+    const initialized = await execFileAsync(process.execPath, [bin, '--cwd', workspace, 'init', '--json'], { cwd: caller, windowsHide: true });
+    assert.equal(JSON.parse(initialized.stdout).created, true);
+    assert.equal((await fs.stat(path.join(workspace, 'merge-room.config.json'))).isFile(), true);
+    await fs.writeFile(path.join(workspace, 'project-notes.md'), 'workspace-specific context\n', 'utf8');
+    const planned = await execFileAsync(process.execPath, [bin, '-C', workspace, 'plan', '--provider=demo', '--include=project-notes.md', '--json', 'inspect target'], { cwd: caller, windowsHide: true });
+    const plan = JSON.parse(planned.stdout);
+    assert.equal(plan.workspace, await fs.realpath(workspace));
+    assert.equal(plan.context.excerptCount > 0, true);
+    const run = await execFileAsync(process.execPath, [bin, '--cwd', workspace, '--provider=demo', '--no-context', '--json', 'save in target'], { cwd: caller, windowsHide: true });
+    const saved = JSON.parse(run.stdout);
+    assert.ok(saved.sessionId);
+    assert.equal((await listSessions(workspace)).some((session) => session.id === saved.sessionId), true);
+  } finally {
+    await fs.rm(caller, { recursive: true, force: true });
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('CLI reads reusable missions from the selected workspace', async () => {
+  const caller = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-prompt-caller-'));
+  const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-prompt-workspace-'));
+  try {
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
+    await fs.writeFile(path.join(workspace, 'mission.md'), 'Review the release and list the two highest risks.\n', 'utf8');
+    const planned = await execFileAsync(process.execPath, [bin, '--cwd', workspace, 'plan', '--prompt-file', 'mission.md', '--no-context', '--json'], { cwd: caller, windowsHide: true });
+    assert.equal(JSON.parse(planned.stdout).request, 'Review the release and list the two highest risks.');
+    await assert.rejects(
+      () => execFileAsync(process.execPath, [bin, '--cwd', workspace, '--prompt-file=mission.md', '--no-context', '--json', 'inline mission'], { cwd: caller, windowsHide: true }),
+      (error) => error.code === 1 && /either.*prompt-file.*inline/i.test(error.stderr)
+    );
+  } finally {
+    await fs.rm(caller, { recursive: true, force: true });
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test('CLI resolves unique session id prefixes', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-prefix-'));
   try {
@@ -628,7 +671,7 @@ test('completion command remains available with an invalid project profile', asy
     await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ strategy: 'invalid' }), 'utf8');
     const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     const { stdout } = await execFileAsync(process.execPath, [bin, 'completions', 'bash'], { cwd: root, windowsHide: true });
-    assert.match(stdout, /complete -F _merge-room merge-room/);
+    assert.match(stdout, /complete -F _merge_room merge-room/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
