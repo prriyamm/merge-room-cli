@@ -21,25 +21,25 @@ const wrap = (value, max) => String(value).split(/\s+/).reduce((lines, word) => 
 }, []);
 
 const STARTUP_PATTERN = Object.freeze([
-  '      ╲╲                 ╱╱',
-  '       ╲╲               ╱╱',
-  '        ╲╲     ◇       ╱╱',
-  '         ╲╲   ╱ ╲     ╱╱',
-  '          ╲╲ ╱   ╲   ╱╱',
-  '           ╲╱     ╲ ╱',
-  '            ╲     ╱',
-  '             ╲   ╱',
-  '              ╲ ╱',
-  '               ◆'
+  Object.freeze({ text: '  ╲╲                  ╱╱', cyanEnd: 4 }),
+  Object.freeze({ text: '   ╲╲                ╱╱', cyanEnd: 5 }),
+  Object.freeze({ text: '    ╲╲      ◇       ╱╱', cyanEnd: 6 }),
+  Object.freeze({ text: '     ╲╲    ╱ ╲     ╱╱', cyanEnd: 7 }),
+  Object.freeze({ text: '      ╲╲  ╱   ╲   ╱╱', cyanEnd: 8 }),
+  Object.freeze({ text: '       ╲╲╱     ╲ ╱╱', cyanEnd: 9 }),
+  Object.freeze({ text: '        ╳       ╳', cyanEnd: 0 }),
+  Object.freeze({ text: '         ╲     ╱', cyanEnd: 0 }),
+  Object.freeze({ text: '          ╲   ╱', cyanEnd: 0 }),
+  Object.freeze({ text: '           ╲ ╱', cyanEnd: 0 }),
+  Object.freeze({ text: '            ◆', cyanEnd: 0 })
 ]);
 
 export function startupPatternLines() {
-  return [...STARTUP_PATTERN];
+  return STARTUP_PATTERN.map((item) => item.text);
 }
 
-function tintPattern(value) {
-  const pivot = Math.floor(value.length / 2);
-  return `${color('teal', value.slice(0, pivot))}${color('purple', value.slice(pivot))}`;
+function tintPattern(item) {
+  return `${color('teal', item.text.slice(0, item.cyanEnd))}${color('purple', item.text.slice(item.cyanEnd))}`;
 }
 
 const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));

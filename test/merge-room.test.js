@@ -120,12 +120,14 @@ test('conversational cockpit prints its mark once and appends the chat', async (
   assert.doesNotMatch(output, /\x1b\[2J/);
 });
 
-test('startup mark is compact, balanced, and terminal safe', () => {
+test('startup mark matches the angular twin-rail reference silhouette', () => {
   const pattern = startupPatternLines();
-  assert.equal(pattern.length, 10);
+  assert.equal(pattern.length, 11);
   assert.equal(pattern.at(-1).trim(), '◆');
   assert.equal(pattern.every((line) => line.length <= 34), true);
-  assert.equal(pattern.some((line) => line.includes('╲') && line.includes('╱')), true);
+  assert.equal(pattern[0].trim(), '╲╲                  ╱╱');
+  assert.equal(pattern.some((line) => line.includes('◇')), true);
+  assert.equal(pattern.some((line) => line.includes('╳       ╳')), true);
 });
 
 test('completion scripts cover supported shells', () => {
@@ -158,7 +160,7 @@ test('documentation screenshots show the one-time mark and scrollable conversati
   const started = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-started.svg'), 'utf8');
   const mission = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-mission-cockpit.svg'), 'utf8');
   assert.match(started, /Two rooms\. One continuous conversation\./);
-  assert.match(started, /woven Merge Room mark/);
+  assert.match(started, /angular twin-rail Merge Room mark/);
   assert.match(mission, /Room 1 ›/);
   assert.match(mission, /Room 2 ›/);
   assert.match(mission, /scrollable conversation/);
