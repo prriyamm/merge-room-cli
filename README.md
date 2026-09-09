@@ -19,9 +19,9 @@ Merge Room is a small, dependency-free CLI for thinking with a team of agents. A
 
 ![Merge Room CLI startup screen](docs/screenshots/merge-room-started.svg)
 
-### Run a mission
+### Work in two rooms
 
-![Merge Room CLI multi-agent mission](docs/screenshots/merge-room-mission-cockpit.svg)
+![Merge Room CLI two-session cockpit with live subagent activity](docs/screenshots/merge-room-mission-cockpit.svg)
 
 The screenshots are captured representations of real Merge Room output in local demo mode. Demo mode is deterministic and needs no API key.
 
@@ -98,7 +98,7 @@ merge-room run "mission"             Explicit run form
 merge-room plan "mission"            Preview a run without provider calls
 merge-room review "change"           Review with bounded Git diff context
 merge-room brainstorm "idea"         Run parallel specialist perspectives
-merge-room interactive                Open the multi-mission cockpit
+merge-room interactive                Open the two-session cockpit
 merge-room agents                     Show the specialist roster
 merge-room theme list                 List available terminal themes
 merge-room history                    List saved missions
@@ -242,7 +242,27 @@ Use `--no-context` when a mission should not inspect local files. Use `--include
 
 ## Interactive cockpit
 
-Run `merge-room interactive` for multiple missions in one process. Available commands include `/agents`, `/history`, `/usage`, `/context`, `/context on`, `/context off`, `/team scout,critic`, `/show last`, `/export last`, `/help`, and `/quit`.
+Run `merge-room interactive` to work in two independent sessions without opening another terminal window. The left sidebar keeps both rooms and every selected specialist visible while the active room shows its mission, handoffs, run log, answer, and usage. A mission keeps running when you switch rooms, so Room 1 and Room 2 can work at the same time.
+
+Type a mission to start the selected room. After it finishes, the next message in that room continues from its answer and specialist notes. Use `/new` when you want a clean session instead.
+
+```text
+/1 or /2              Select a room
+/switch               Move to the other room
+/new                   Reset the selected room
+/wait                  Wait for both rooms to finish
+/agents                Show the active specialist team
+/team scout,critic     Change the team for future turns
+/context on|off        Change workspace context for future turns
+/history               Show recent saved missions
+/show last             Load a saved mission into the selected room
+/export last md        Export a saved mission
+/usage                 Show saved usage totals
+/help                  Show the cockpit command summary
+/quit                  Cancel active work and close both rooms
+```
+
+The prompt remains available while agents work. Room status and subagent activity update live in the left rail: queued, working, done, skipped, or error.
 
 ## Development
 

@@ -1,10 +1,12 @@
 import readline from 'node:readline';
 import { formatTokens } from './tokens.js';
 import { resolveTheme, themeSummaries } from './themes.js';
+import { applyCockpitEvent, createCockpitState } from './cockpit.js';
 
-const live = Boolean(process.stdout.isTTY && !process.env.NO_COLOR && process.env.TERM !== 'dumb');
+const live = Boolean(process.stdout.isTTY && process.env.TERM !== 'dumb');
+const colorsEnabled = Boolean(live && !process.env.NO_COLOR);
 let activeTheme = resolveTheme(process.env.MERGE_ROOM_THEME || 'merge-room');
-const color = (name, text) => live ? `${activeTheme.colors[name] || activeTheme.colors.gray}${text}${activeTheme.colors.reset}` : String(text);
+const color = (name, text) => colorsEnabled ? `${activeTheme.colors[name] || activeTheme.colors.gray}${text}${activeTheme.colors.reset}` : String(text);
 const clear = () => { if (live) process.stdout.write('\x1b[2J\x1b[H'); };
 const width = () => Math.max(48, Math.min(process.stdout.columns || 92, 118) - 2);
 const line = (char = '─') => char.repeat(width());
@@ -102,6 +104,103 @@ export function createRenderer({ config, provider, context = null }) {
    else if (payload.type === 'run:done') console.log(`\n${payload.result.answer}\n`);
   };
   return { event, render, state };
+}
+
+export function createCockpitRenderer({ config, provider, workspace = process.cwd(), onRefresh = () => {}, force = false, columns, rows, write = (line) => console.log(line) }) {
+  const state = createCockpitState(config.agents);
+  const refresh = () => { render(); onRefresh(); };
+  const event = (roomIndex) => (payload) => { applyCockpitEvent(state, roomIndex, payload); refresh(); };
+  const render = () => {
+    if (!live && !force) return;
+    clear();
+    const terminalWidth = Math.max(68, Math.min(columns || process.stdout.columns || 108, 140));
+    const terminalHeight = Math.max(22, rows || process.stdout.rows || 32);
+    const sidebarWidth = Math.min(34, Math.max(27, Math.floor(terminalWidth * 0.3)));
+    const mainWidth = terminalWidth - sidebarWidth - 3;
+    const contentHeight = Math.max(15, terminalHeight - 6);
+    const sidebar = cockpitSidebar(state, config, sidebarWidth, contentHeight);
+    const main = cockpitMain(state, config, workspace, mainWidth, contentHeight);
+    const header = ` ${color('bold', 'MERGE ROOM')} ${color('gray', `· ${provider.name} · two live sessions`)}`;
+    write(`${color('teal', '╭')}${fit(header, terminalWidth - 2)}${color('teal', '╮')}`);
+    for (let index = 0; index < contentHeight; index += 1) {
+      write(`${color('teal', '│')}${fit(sidebar[index] || '', sidebarWidth)}${color('teal', '│')}${fit(main[index] || '', mainWidth)}${color('teal', '│')}`);
+    }
+    write(`${color('teal', '╰')}${'─'.repeat(sidebarWidth)}${color('teal', '┴')}${'─'.repeat(mainWidth)}${color('teal', '╯')}`);
+    write(fit(` ${color('gray', '/1 /2 switch · /new reset · /help commands · /quit leave')}`, terminalWidth));
+    write(fit(` ${color('teal', state.message)}`, terminalWidth));
+  };
+  return { state, event, render, refresh };
+}
+
+function cockpitSidebar(state, config, maxWidth, height) {
+  const lines = [` ${color('bold', 'ROOMS')}`, ''];
+  const roomHeight = Math.max(4, Math.floor((height - 3) / state.rooms.length));
+  for (const [roomIndex, room] of state.rooms.entries()) {
+    const section = [];
+    const selected = roomIndex === state.activeRoom;
+    const marker = selected ? color('teal', '›') : ' ';
+    const status = room.status === 'done' ? color('green', 'done') : room.status === 'error' ? color('red', 'error') : room.running ? color('yellow', room.status) : color('gray', room.status);
+    section.push(` ${marker} ${color('bold', `Room ${room.id}`)}  ${status}`);
+    section.push(`   ${color('white', crop(room.request || 'Ready for a mission', maxWidth - 4))}`);
+    const roomAgents = config.agents.filter((item) => room.agentIds.includes(item.id));
+    const agentSlots = Math.max(1, roomHeight - 2);
+    const visibleAgents = roomAgents.length > agentSlots ? roomAgents.slice(0, Math.max(0, agentSlots - 1)) : roomAgents;
+    for (const agent of visibleAgents) {
+      const agentStatus = room.statuses[agent.id] || 'idle';
+      const icon = agentStatus === 'done' ? color('green', '●') : agentStatus === 'working' ? color('yellow', '◌') : agentStatus === 'error' ? color('red', '×') : agentStatus === 'skipped' ? color('yellow', '–') : color('gray', '○');
+      const activity = agentStatus === 'working' ? agent.specialty : agentStatus;
+      section.push(`   ${icon} ${crop(agent.name, 10).padEnd(10)} ${color('gray', crop(activity, maxWidth - 18))}`);
+    }
+    if (roomAgents.length > visibleAgents.length) section.push(`     ${color('gray', `+${roomAgents.length - visibleAgents.length} more agents`)}`);
+    while (section.length < roomHeight) section.push('');
+    lines.push(...section.slice(0, roomHeight));
+    if (roomIndex < state.rooms.length - 1) lines.push(` ${color('gray', '·'.repeat(Math.max(3, maxWidth - 2)))}`);
+  }
+  return lines.slice(0, height);
+}
+
+function cockpitMain(state, config, workspace, maxWidth, height) {
+  const room = state.rooms[state.activeRoom];
+  const lines = [
+    ` ${color('bold', `ROOM ${room.id}`)} ${color('gray', room.turn ? `· turn ${room.turn}` : '· new session')}`,
+    ` ${color('gray', crop(workspace, maxWidth - 2))}`,
+    '',
+    ` ${color('bold', 'MISSION')}`,
+    ...wrap(room.request || 'Type a mission below. Switch rooms at any time.', maxWidth - 2).slice(0, 2).map((item) => ` ${color('white', item)}`),
+    '',
+    ` ${color('bold', 'LIVE HANDOFFS')}`
+  ];
+  const notes = Object.entries(room.notes).slice(-2);
+  if (!notes.length) lines.push(` ${color('gray', room.running ? 'Specialists are getting oriented…' : 'No handoffs yet.')}`);
+  for (const [agentId, note] of notes) {
+    const agent = config.agents.find((item) => item.id === agentId);
+    lines.push(` ${color(agent?.color || 'gray', agent?.mark || '·')} ${color('gray', crop(note, maxWidth - 5))}`);
+  }
+  lines.push('', ` ${color('bold', 'RUN LOG')}`);
+  if (!room.events.length) lines.push(` ${color('gray', 'Waiting for work.')}`);
+  for (const item of room.events.slice(-3)) lines.push(` ${color('gray', item.time)} ${crop(item.message, maxWidth - 13)}`);
+  const answer = room.final || room.answerDraft;
+  if (answer) {
+    lines.push('', ` ${color('bold', 'MERGE ROOM SAYS')}`);
+    const remaining = Math.max(2, height - lines.length - 2);
+    lines.push(...wrap(answer, maxWidth - 2).slice(-remaining).map((item) => ` ${color('white', item)}`));
+  } else if (room.error) lines.push('', ` ${color('red', crop(room.error, maxWidth - 2))}`);
+  const elapsed = room.started ? `${((Date.now() - room.started) / 1000).toFixed(1)}s` : '0.0s';
+  const usage = room.usage || {};
+  const footer = ` ${elapsed} · ${formatTokens(usage.total || 0)} tokens · ${usage.calls || 0} calls`;
+  while (lines.length < height - 1) lines.push('');
+  lines.push(color('gray', footer));
+  return lines.slice(0, height);
+}
+
+function visibleLength(value) {
+  return String(value).replace(/\x1b\[[0-9;]*m/g, '').length;
+}
+
+function fit(value, max) {
+  const text = String(value);
+  const missing = max - visibleLength(text);
+  return missing >= 0 ? `${text}${' '.repeat(missing)}` : crop(text.replace(/\x1b\[[0-9;]*m/g, ''), max);
 }
 
 export async function ask(question = 'What should we move forward today?', signal) {

@@ -1,30 +1,49 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
-  <title id="title">Merge Room CLI running a multi-agent mission</title>
-  <desc id="desc">A dark terminal window showing Scout, Architect, Maker, and Critic completing a mission with a two-line token usage footer.</desc>
+  <title id="title">Merge Room CLI two-session cockpit</title>
+  <desc id="desc">A dark terminal with a left sidebar showing two concurrent rooms and each subagent's live status, beside the selected room's mission, handoffs, and run log.</desc>
   <defs>
     <linearGradient id="bar" x1="0" x2="1"><stop offset="0" stop-color="#6ee7d4"/><stop offset="1" stop-color="#9b8cff"/></linearGradient>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="20" stdDeviation="24" flood-color="#06070d" flood-opacity=".45"/></filter>
   </defs>
   <rect width="1200" height="760" fill="#0a0c13"/>
-  <rect x="84" y="64" width="1032" height="632" rx="18" fill="#111520" stroke="#2a3142" filter="url(#shadow)"/>
-  <rect x="84" y="64" width="1032" height="54" rx="18" fill="#171c2b"/><rect x="84" y="100" width="1032" height="18" fill="#171c2b"/><rect x="84" y="116" width="1032" height="3" fill="url(#bar)"/>
-  <circle cx="116" cy="91" r="7" fill="#ff6f91"/><circle cx="140" cy="91" r="7" fill="#f6c85f"/><circle cx="164" cy="91" r="7" fill="#6ee7d4"/>
-  <text x="600" y="96" text-anchor="middle" fill="#aeb7c9" font-family="Inter,Segoe UI,sans-serif" font-size="14">merge-room — mission cockpit</text>
-  <g font-family="Cascadia Mono,Consolas,monospace" font-size="18">
-    <text x="126" y="164" fill="#6ee7d4">Merge Room</text><text x="194" y="164" fill="#dbe2f1">· Map the first three steps for a new feature</text>
-    <line x1="126" y1="188" x2="1034" y2="188" stroke="#2a3142"/>
-    <text x="126" y="232" fill="#6ee7d4">✓</text><text x="162" y="232" fill="#dbe2f1">Scout</text><text x="330" y="232" fill="#7f8aa3">done</text><text x="770" y="232" fill="#66718a">orienting the problem space</text>
-    <text x="126" y="272" fill="#6ee7d4">✓</text><text x="162" y="272" fill="#dbe2f1">Architect</text><text x="330" y="272" fill="#7f8aa3">done</text><text x="770" y="272" fill="#66718a">shaping a practical plan</text>
-    <text x="126" y="312" fill="#6ee7d4">✓</text><text x="162" y="312" fill="#dbe2f1">Maker</text><text x="330" y="312" fill="#7f8aa3">done</text><text x="770" y="312" fill="#66718a">turning notes into a next move</text>
-    <text x="126" y="352" fill="#6ee7d4">✓</text><text x="162" y="352" fill="#dbe2f1">Critic</text><text x="330" y="352" fill="#7f8aa3">done</text><text x="770" y="352" fill="#66718a">checking the plan</text>
-    <line x1="126" y1="388" x2="1034" y2="388" stroke="#2a3142"/>
-    <text x="126" y="432" fill="#eef2ff">A practical starting point:</text>
-    <text x="150" y="474" fill="#dbe2f1">1.</text><text x="190" y="474" fill="#c7d0e5">Define the outcome and the constraint.</text>
-    <text x="150" y="510" fill="#dbe2f1">2.</text><text x="190" y="510" fill="#c7d0e5">Make the smallest reversible change.</text>
-    <text x="150" y="546" fill="#dbe2f1">3.</text><text x="190" y="546" fill="#c7d0e5">Verify it with one concrete check.</text>
-    <text x="126" y="592" fill="#6ee7d4">Next move:</text><text x="260" y="592" fill="#dbe2f1">write the first acceptance check and assign an owner.</text>
-    <line x1="126" y1="620" x2="1034" y2="620" stroke="#2a3142"/>
-    <text x="126" y="650" fill="#6ee7d4">✓ Mission complete in 1.7s</text>
-    <text x="126" y="680" fill="#9b8cff" font-size="15">usage ~1.5k burned · ~1.2k in · ~309 out · 5 calls · 4 agents</text>
+  <rect x="54" y="42" width="1092" height="676" rx="18" fill="#111520" stroke="#2a3142" filter="url(#shadow)"/>
+  <rect x="54" y="42" width="1092" height="54" rx="18" fill="#171c2b"/><rect x="54" y="78" width="1092" height="18" fill="#171c2b"/><rect x="54" y="94" width="1092" height="3" fill="url(#bar)"/>
+  <circle cx="86" cy="69" r="7" fill="#ff6f91"/><circle cx="110" cy="69" r="7" fill="#f6c85f"/><circle cx="134" cy="69" r="7" fill="#6ee7d4"/>
+  <text x="600" y="74" text-anchor="middle" fill="#aeb7c9" font-family="Inter,Segoe UI,sans-serif" font-size="14">merge-room — two live sessions</text>
+  <line x1="378" y1="96" x2="378" y2="650" stroke="#2a3142"/>
+  <g font-family="Cascadia Mono,Consolas,monospace">
+    <text x="82" y="132" fill="#eef2ff" font-size="17" font-weight="700">ROOMS</text>
+    <text x="82" y="168" fill="#6ee7d4" font-size="18">›</text><text x="108" y="168" fill="#eef2ff" font-size="18" font-weight="700">Room 1</text><text x="282" y="168" fill="#f6c85f" font-size="15">working</text>
+    <text x="108" y="194" fill="#c7d0e5" font-size="14">Prepare the release</text>
+    <text x="108" y="225" fill="#6ee7d4" font-size="15">●</text><text x="132" y="225" fill="#dbe2f1" font-size="15">Scout</text><text x="272" y="225" fill="#66718a" font-size="14">done</text>
+    <text x="108" y="253" fill="#6ee7d4" font-size="15">●</text><text x="132" y="253" fill="#dbe2f1" font-size="15">Architect</text><text x="272" y="253" fill="#66718a" font-size="14">done</text>
+    <text x="108" y="281" fill="#f6c85f" font-size="15">◌</text><text x="132" y="281" fill="#dbe2f1" font-size="15">Maker</text><text x="252" y="281" fill="#f6c85f" font-size="14">drafting</text>
+    <text x="108" y="309" fill="#66718a" font-size="15">○</text><text x="132" y="309" fill="#dbe2f1" font-size="15">Critic</text><text x="272" y="309" fill="#66718a" font-size="14">queued</text>
+    <line x1="82" y1="337" x2="350" y2="337" stroke="#2a3142" stroke-dasharray="2 6"/>
+    <text x="108" y="374" fill="#eef2ff" font-size="18" font-weight="700">Room 2</text><text x="282" y="374" fill="#f6c85f" font-size="15">working</text>
+    <text x="108" y="400" fill="#c7d0e5" font-size="14">Review API migration</text>
+    <text x="108" y="431" fill="#f6c85f" font-size="15">◌</text><text x="132" y="431" fill="#dbe2f1" font-size="15">Scout</text><text x="252" y="431" fill="#f6c85f" font-size="14">mapping</text>
+    <text x="108" y="459" fill="#f6c85f" font-size="15">◌</text><text x="132" y="459" fill="#dbe2f1" font-size="15">Architect</text><text x="252" y="459" fill="#f6c85f" font-size="14">shaping</text>
+    <text x="108" y="487" fill="#66718a" font-size="15">○</text><text x="132" y="487" fill="#dbe2f1" font-size="15">Maker</text><text x="272" y="487" fill="#66718a" font-size="14">queued</text>
+    <text x="108" y="515" fill="#66718a" font-size="15">○</text><text x="132" y="515" fill="#dbe2f1" font-size="15">Critic</text><text x="272" y="515" fill="#66718a" font-size="14">queued</text>
+    <text x="410" y="132" fill="#eef2ff" font-size="18" font-weight="700">ROOM 1</text><text x="508" y="132" fill="#66718a" font-size="14">· turn 1</text>
+    <text x="410" y="164" fill="#66718a" font-size="13">C:\work\merge-room-cli</text>
+    <text x="410" y="205" fill="#eef2ff" font-size="15" font-weight="700">MISSION</text>
+    <text x="410" y="234" fill="#dbe2f1" font-size="16">Prepare the release and identify the blocking checks.</text>
+    <text x="410" y="281" fill="#eef2ff" font-size="15" font-weight="700">LIVE HANDOFFS</text>
+    <text x="410" y="311" fill="#6ee7d4" font-size="15">◇</text><text x="436" y="311" fill="#7f8aa3" font-size="14">Scope is stable; package and CI are the release gates.</text>
+    <text x="410" y="339" fill="#9b8cff" font-size="15">◈</text><text x="436" y="339" fill="#7f8aa3" font-size="14">Keep the two-room state isolated at the cockpit boundary.</text>
+    <text x="410" y="386" fill="#eef2ff" font-size="15" font-weight="700">RUN LOG</text>
+    <text x="410" y="416" fill="#66718a" font-size="14">14:20:08  Scout returned a note</text>
+    <text x="410" y="444" fill="#66718a" font-size="14">14:20:09  Architect returned a note</text>
+    <text x="410" y="472" fill="#f6c85f" font-size="14">14:20:09  Maker started</text>
+    <text x="410" y="519" fill="#eef2ff" font-size="15" font-weight="700">MERGE ROOM SAYS</text>
+    <text x="410" y="549" fill="#dbe2f1" font-size="15">Drafting the release checklist while Room 2 continues</text>
+    <text x="410" y="575" fill="#dbe2f1" font-size="15">its API review independently.</text>
+    <text x="410" y="622" fill="#66718a" font-size="14">1.8s · ~1.2k tokens · 3 calls</text>
+    <line x1="54" y1="650" x2="1146" y2="650" stroke="#2a3142"/>
+    <text x="82" y="679" fill="#66718a" font-size="13">/1 /2 switch  ·  /new reset  ·  /help commands</text>
+    <text x="575" y="679" fill="#6ee7d4" font-size="13">Room 2 is working while you stay in Room 1.</text>
+    <text x="82" y="704" fill="#6ee7d4" font-size="15">room 1 ›</text><text x="172" y="704" fill="#dbe2f1" font-size="15">_</text>
   </g>
 </svg>

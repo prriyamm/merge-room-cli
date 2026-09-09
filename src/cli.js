@@ -1,5 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import readline from 'node:readline';
+import { beginCockpitTurn, finishCockpitTurn, resetCockpitRoom, selectCockpitRoom } from './cockpit.js';
 import { VERSION, loadConfig, safeBaseUrl, writeStarterConfig } from './config.js';
 import { completionScript, defaultShell } from './completions.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from './context.js';
@@ -7,7 +9,7 @@ import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from './engine.js';
 import { createProvider } from './providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from './sessions.js';
 import { themeSummaries } from './themes.js';
-import { ask, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme } from './ui.js';
+import { createCockpitRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme } from './ui.js';
 
 const VALUE_OPTIONS = ['--cwd', '-C', '--prompt-file', '--config', '--team', '--provider', '--model', '--base-url', '--max-tokens', '--temperature', '--concurrency', '--timeout', '--retries', '--max-calls', '--run-id', '--theme', '--include', '--limit', '--format', '--output'];
 const BOOLEAN_OPTIONS = ['--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict'];
@@ -276,63 +278,178 @@ function stripOptions(args, valueOptions, booleanOptions) {
 }
 
 async function interactive(config, provider, noContext = false, noSave = false, signal, trace = false, workspace = process.cwd()) {
- let activeConfig = config;
- let contextEnabled = !noContext && config.context?.enabled !== false;
-  const scriptedRequests = process.stdin.isTTY ? null : (await readStdin(signal)).split(/\r?\n/).map((line) => line.trim());
- printBanner({ provider: provider.name, model: config.model });
-  console.log(`  ${colorize('gray', 'Commands: /agents  /history  /usage  /context  /team <ids>  /show <id>  /export <id>  /help  /quit.')}\n`);
- while (true) {
-    const request = scriptedRequests ? (scriptedRequests.shift() ?? '') : await ask('What should we move forward today?', signal);
-    if (!request || request === '/quit' || request === '/exit') break;
-    if (request === '/help') { printHelp(); continue; }
-    if (request === '/agents') { printAgents(activeConfig); continue; }
-    if (request === '/history') { printHistory(activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : []); continue; }
-    if (request === '/usage') { printUsage(summarizeUsage(activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : [])); continue; }
+  let activeConfig = config;
+  let contextEnabled = !noContext && config.context?.enabled !== false;
+  let closing = false;
+  let rl;
+  const tasks = new Map();
+  const controllers = new Map();
+  const isTerminal = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const renderer = createCockpitRenderer({ config, provider, workspace, onRefresh: () => reprompt() });
+
+  function reprompt() {
+    if (isTerminal && rl && !closing) {
+      rl.setPrompt(` room ${renderer.state.activeRoom + 1} › `);
+      rl.prompt(true);
+    }
+  }
+
+  function redraw() {
+    renderer.render();
+    reprompt();
+  }
+
+  function setMessage(message) {
+    renderer.state.message = message;
+    redraw();
+  }
+
+  async function launch(request) {
+    const roomIndex = renderer.state.activeRoom;
+    const existing = renderer.state.rooms[roomIndex];
+    const previous = existing.result;
+    const runConfig = activeConfig;
+    try { beginCockpitTurn(renderer.state, roomIndex, request, runConfig.agents); }
+    catch (error) { setMessage(error.message); return; }
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    signal?.addEventListener('abort', cancel, { once: true });
+    controllers.set(roomIndex, controller);
+    redraw();
+    const task = (async () => {
+      try {
+        const context = contextEnabled ? await collectWorkspaceContext(workspace, runConfig.context) : null;
+        const room = renderer.state.rooms[roomIndex];
+        room.context = context;
+        room.status = 'working';
+        redraw();
+        const engineRequest = previous ? buildResumeRequest(request, previous) : request;
+        const result = await new MergeRoomEngine({ config: runConfig, provider, onEvent: renderer.event(roomIndex) }).run(engineRequest, { context, label: request, signal: controller.signal });
+        const saved = noSave ? null : await persist(result, runConfig, workspace);
+        if (saved) result.sessionId = saved.id;
+        finishCockpitTurn(renderer.state, roomIndex, result);
+        if (!isTerminal) {
+          console.log(`\n[Room ${roomIndex + 1}] ${request}`);
+          printResult(result, { trace });
+        }
+      } catch (error) {
+        finishCockpitTurn(renderer.state, roomIndex, null, error);
+        if (!isTerminal && error.name !== 'AbortError') console.log(`  Room ${roomIndex + 1}: ${error.message}`);
+      } finally {
+        signal?.removeEventListener('abort', cancel);
+        controllers.delete(roomIndex);
+        tasks.delete(roomIndex);
+        redraw();
+      }
+    })();
+    tasks.set(roomIndex, task);
+  }
+
+  async function handleInput(value) {
+    const request = String(value || '').trim();
+    if (!request) return true;
+    if (request === '/quit' || request === '/exit') return false;
+    if (request === '/1' || request === '/2') { selectCockpitRoom(renderer.state, request.slice(1)); redraw(); return true; }
+    if (request === '/switch') { selectCockpitRoom(renderer.state, renderer.state.activeRoom === 0 ? 2 : 1); redraw(); return true; }
+    if (request === '/new' || request === '/clear') {
+      try { resetCockpitRoom(renderer.state, renderer.state.activeRoom, activeConfig.agents); redraw(); }
+      catch (error) { setMessage(error.message); }
+      return true;
+    }
+    if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); await Promise.allSettled([...tasks.values()]); setMessage('Both rooms are ready.'); return true; }
+    if (request === '/help') { setMessage('Type a mission · /1 /2 /switch · /new · /team <ids> · /context on|off · /show <id> · /wait · /quit'); return true; }
+    if (request === '/agents') { setMessage(`Agents: ${activeConfig.agents.map((agent) => `${agent.name} (${agent.specialty})`).join(', ')}`); return true; }
+    if (request === '/history') {
+      const sessions = activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : [];
+      setMessage(sessions.length ? `Recent: ${sessions.slice(0, 3).map((item) => `${item.id} ${cropLabel(item.request, 18)}`).join(' · ')}` : 'No saved missions yet.');
+      return true;
+    }
+    if (request === '/usage') {
+      const usage = summarizeUsage(activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : []);
+      setMessage(`${usage.sessions} saved missions · ${usage.total} tokens · ${usage.calls} calls`);
+      return true;
+    }
+    if (request === '/context') { setMessage(contextEnabled ? `Context is on for ${workspace}` : 'Context is off. Use /context on to enable it.'); return true; }
+    if (request === '/context on' || request === '/context off') { contextEnabled = request.endsWith('on'); setMessage(`Workspace context ${contextEnabled ? 'on' : 'off'} for new turns.`); return true; }
+    if (request === '/team all') { activeConfig = config; setMessage(`All ${activeConfig.agents.length} agents selected.`); return true; }
+    if (request.startsWith('/team ')) {
+      try { activeConfig = selectTeam(config, request.slice('/team '.length)); setMessage(`Team: ${activeConfig.agents.map((agent) => agent.name).join(', ')}`); }
+      catch (error) { setMessage(error.message); }
+      return true;
+    }
     if (request === '/show' || request.startsWith('/show ')) {
-     const value = request.slice('/show '.length).trim();
-      if (!value) { console.log('  Use `/show <id>` or `/show last`.'); continue; }
-     if (!activeConfig.sessionDir) { console.log('  Session history is disabled in merge-room.config.json.'); continue; }
-      let session;
-      try { session = await readSession(await resolveSessionId(value, activeConfig, workspace), workspace, activeConfig.sessionDir); } catch (error) { console.log(`  ${error.message}`); continue; }
-      if (!session) { console.log(`  Session not found: ${value}`); continue; }
-      printSession(session);
-      continue;
+      const value = request.slice('/show'.length).trim();
+      if (!value) { setMessage('Use /show <id> or /show last.'); return true; }
+      try {
+        if (!activeConfig.sessionDir) throw new Error('Session history is disabled.');
+        if (renderer.state.rooms[renderer.state.activeRoom].running) throw new Error(`Room ${renderer.state.activeRoom + 1} is working. Switch rooms before loading a saved mission.`);
+        const session = await readSession(await resolveSessionId(value, activeConfig, workspace), workspace, activeConfig.sessionDir);
+        if (!session) throw new Error(`Session not found: ${value}`);
+        const room = renderer.state.rooms[renderer.state.activeRoom];
+        room.request = session.request || '';
+        room.final = session.answer || '';
+        room.result = session;
+        room.status = session.degraded ? 'degraded' : 'done';
+        room.turn = Math.max(1, room.turn);
+        room.notes = Object.fromEntries((session.agents || []).map((item) => [item.agent?.id, item.text]));
+        room.agentIds = (session.agents || []).map((item) => item.agent?.id).filter(Boolean);
+        room.statuses = Object.fromEntries(activeConfig.agents.map((agent) => [agent.id, 'done']));
+        setMessage(`Loaded ${session.id} into Room ${room.id}.`);
+      } catch (error) { setMessage(error.message); }
+      return true;
     }
     if (request === '/export' || request.startsWith('/export ')) {
-     const parts = request.slice('/export '.length).trim().split(/\s+/);
-      if (!parts[0]) { console.log('  Use `/export <id>` or `/export last`.'); continue; }
-      try { await exportMission({ cleanArgs: ['export', parts[0]], config: activeConfig, formatValue: parts[1] || 'md', outputValue: null, json: false, workspace }); } catch (error) { console.log(`  ${error.message}`); }
-      continue;
+      const parts = request.slice('/export'.length).trim().split(/\s+/).filter(Boolean);
+      if (!parts[0]) { setMessage('Use /export <id> [md|json].'); return true; }
+      try {
+        const sessionId = await resolveSessionId(parts[0], activeConfig, workspace);
+        const session = await readSession(sessionId, workspace, activeConfig.sessionDir);
+        if (!session) throw new Error(`Session not found: ${parts[0]}`);
+        const extension = String(parts[1] || 'md').toLowerCase() === 'json' ? 'json' : 'md';
+        const file = await writeSessionExport(session, workspace, `merge-room-${sessionId}.${extension}`, extension);
+        setMessage(`Exported ${sessionId} to ${file}`);
+      } catch (error) { setMessage(error.message); }
+      return true;
     }
-    if (request === '/context') {
-      const preview = contextEnabled ? await collectWorkspaceContext(workspace, activeConfig.context) : null;
-      console.log(preview ? formatWorkspaceContext(preview) : '  Workspace context is off for this session.');
-      continue;
-    }
-    if (request === '/team all') { activeConfig = config; printAgents(activeConfig); continue; }
-   if (request.startsWith('/team ')) {
-      try { activeConfig = selectTeam(config, request.slice('/team '.length)); } catch (error) { console.log(`  ${error.message}`); continue; }
-     printAgents(activeConfig);
-      continue;
-    }
-    if (request === '/context off') { contextEnabled = false; console.log('  Workspace context off for the next mission.'); continue; }
-    if (request === '/context on') { contextEnabled = true; console.log('  Workspace context on for the next mission.'); continue; }
-    const context = contextEnabled ? await collectWorkspaceContext(workspace, activeConfig.context) : null;
-    const renderer = createRenderer({ config: activeConfig, provider, context });
-   renderer.state.request = request;
-   renderer.render();
-    let result;
-    try { result = await new MergeRoomEngine({ config: activeConfig, provider, onEvent: renderer.event }).run(request, { context, signal }); } catch (error) {
-      if (error.name === 'AbortError') throw error;
-      console.log(`  ${error.message}\n`);
-      continue;
-    }
-   const saved = noSave ? null : await persist(result, activeConfig, workspace);
-    if (saved) result.sessionId = saved.id;
-    renderer.render();
-    printResult(result, { trace });
+    await launch(request);
+    return true;
   }
-  console.log('  Until next time.\n');
+
+  if (!isTerminal) {
+    const scriptedRequests = (await readStdin(signal)).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    for (const request of scriptedRequests) { if (!await handleInput(request)) break; }
+    await Promise.allSettled([...tasks.values()]);
+    return;
+  }
+
+  rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  const onResize = () => redraw();
+  process.stdout.on('resize', onResize);
+  redraw();
+  await new Promise((resolve) => {
+    const shutdown = () => {
+      if (closing) return;
+      closing = true;
+      for (const controller of controllers.values()) controller.abort();
+      process.stdout.removeListener('resize', onResize);
+      rl.close();
+      resolve();
+    };
+    signal?.addEventListener('abort', shutdown, { once: true });
+    rl.on('line', async (line) => {
+      if (!await handleInput(line)) shutdown();
+      else redraw();
+    });
+    rl.once('close', () => { if (!closing) { closing = true; process.stdout.removeListener('resize', onResize); resolve(); } });
+  });
+  await Promise.allSettled([...tasks.values()]);
+  process.stdout.write('\x1b[2J\x1b[H');
+  console.log('  Both rooms closed. Until next time.\n');
+}
+
+function cropLabel(value, max) {
+  const text = String(value || '').replace(/\s+/g, ' ');
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
 async function runMission({ config, provider, request, context, displayRequest, noSave = false, signal, runId, onEvent, workspace = process.cwd() }) {
@@ -492,12 +609,6 @@ function publicConfig(config) {
     },
     agents: config.agents.map(({ id, name, mark, color, specialty, stage, prompt, model }) => ({ id, name, mark, color, specialty, stage, prompt, ...(model ? { model } : {}) })),
   };
-}
-
-function colorize(name, value) {
-  const codes = { gray: '\x1b[38;5;245m' };
-  const enabled = Boolean(process.stdout.isTTY && !process.env.NO_COLOR && process.env.TERM !== 'dumb');
-  return enabled ? `${codes[name] || ''}${value}\x1b[0m` : String(value);
 }
 
 function abortError() {

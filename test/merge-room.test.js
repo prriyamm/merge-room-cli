@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
-import { DEFAULT_CONFIG, loadConfig, safeBaseUrl } from '../src/config.js';
+import { DEFAULT_CONFIG, loadConfig, safeBaseUrl, VERSION } from '../src/config.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.js';
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from '../src/engine.js';
 import { createProvider, DemoProvider, OpenAICompatibleProvider } from '../src/providers.js';
@@ -13,10 +13,83 @@ import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSes
 import { createLedger, estimateTokens } from '../src/tokens.js';
 import { buildResumeRequest } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
-import { printResult } from '../src/ui.js';
+import { applyCockpitEvent, beginCockpitTurn, createCockpitState, finishCockpitTurn, resetCockpitRoom, selectCockpitRoom } from '../src/cockpit.js';
+import { createCockpitRenderer, printResult } from '../src/ui.js';
 import { resolveTheme, themeSummaries } from '../src/themes.js';
 
 const execFileAsync = promisify(execFile);
+
+test('CLI version matches package metadata', async () => {
+  const manifest = JSON.parse(await fs.readFile(path.resolve(process.cwd(), 'package.json'), 'utf8'));
+  assert.equal(VERSION, manifest.version);
+});
+
+function runCliWithInput(args, input, cwd = process.cwd()) {
+  const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [bin, ...args], { cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => { stdout += chunk; });
+    child.stderr.on('data', (chunk) => { stderr += chunk; });
+    child.once('error', reject);
+    child.once('close', (code) => code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`CLI exited ${code}: ${stderr}`)));
+    child.stdin.end(input);
+  });
+}
+
+test('cockpit keeps two independent live rooms and agent activity', () => {
+  const agents = DEFAULT_CONFIG.agents.slice(0, 2);
+  const state = createCockpitState(agents);
+  beginCockpitTurn(state, 0, 'Plan the release', agents);
+  selectCockpitRoom(state, 2);
+  beginCockpitTurn(state, 1, 'Review the API', agents);
+  assert.equal(state.rooms.every((room) => room.running), true);
+  applyCockpitEvent(state, 0, { type: 'agent:start', agent: agents[0] });
+  applyCockpitEvent(state, 1, { type: 'agent:done', agent: agents[1], text: 'One risk found.', telemetry: { total: 12, calls: 1 } });
+  assert.equal(state.rooms[0].statuses[agents[0].id], 'working');
+  assert.equal(state.rooms[1].statuses[agents[1].id], 'done');
+  assert.equal(state.rooms[1].notes[agents[1].id], 'One risk found.');
+  assert.equal(state.rooms[1].usage.total, 12);
+  applyCockpitEvent(state, 0, { type: 'run:done', result: { answer: 'Release answer', usage: { total: 20 } } });
+  assert.equal(state.rooms[0].status, 'saving');
+  assert.equal(state.rooms[0].running, true);
+  finishCockpitTurn(state, 0, state.rooms[0].result);
+  assert.equal(state.rooms[0].status, 'done');
+  assert.equal(state.rooms[1].running, true);
+  assert.throws(() => resetCockpitRoom(state, 1, agents), /working/);
+  resetCockpitRoom(state, 0, agents);
+  assert.equal(state.rooms[0].status, 'idle');
+  assert.equal(state.rooms[1].request, 'Review the API');
+});
+
+test('cockpit renders a left activity rail and a focused room pane', () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };
+  const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, workspace: 'C:\\project', force: true, columns: 100, rows: 28, write: (line) => lines.push(line) });
+  beginCockpitTurn(renderer.state, 0, 'Plan the release', config.agents);
+  applyCockpitEvent(renderer.state, 0, { type: 'agent:start', agent: config.agents[0] });
+  renderer.render();
+  const output = lines.join('\n');
+  assert.match(output, /ROOMS/);
+  assert.match(output, /Room 1/);
+  assert.match(output, /Room 2/);
+  assert.match(output, /Scout\s+scope & risk/);
+  assert.match(output, /│.*│.*ROOM 1/);
+  assert.match(output, /LIVE HANDOFFS/);
+});
+
+test('interactive CLI accepts work in both rooms from one process', async () => {
+  const { stdout } = await runCliWithInput(
+    ['interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream', '--team=scout'],
+    'Plan release checks\n/2\nReview API risks\n/wait\n/quit\n'
+  );
+  assert.match(stdout, /\[Room 1\] Plan release checks/);
+  assert.match(stdout, /\[Room 2\] Review API risks/);
+  assert.equal((stdout.match(/Mission complete/g) || []).length, 2);
+});
 
 test('completion scripts cover supported shells', () => {
   assert.match(completionScript('bash'), /complete -F _merge_room merge-room/);

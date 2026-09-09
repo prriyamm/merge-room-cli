@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { normalizeTheme, resolveTheme } from './themes.js';
 
-export const VERSION = '0.4.0';
+export const VERSION = '0.5.0';
 
 export const DEFAULT_CONFIG = {
   model: process.env.MERGE_ROOM_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
