@@ -1,4 +1,4 @@
 node_modules/
-.loom/
+.merge-room/
 .DS_Store
 *.log

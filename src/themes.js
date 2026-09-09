@@ -6,9 +6,9 @@ const palette = (values) => Object.freeze({
 });
 
 export const THEMES = Object.freeze({
-  loom: Object.freeze({
-    id: 'loom',
-    label: 'Loom',
+  'merge-room': Object.freeze({
+    id: 'merge-room',
+    label: 'Merge Room',
     description: 'Teal, violet, and soft gray — the default cockpit palette.',
     colors: palette({ cyan: '36', teal: '38;5;80', blue: '38;5;111', purple: '38;5;141', magenta: '38;5;141', yellow: '33', red: '31', green: '32', white: '97', gray: '38;5;245', bg: '48;5;235' })
   }),
@@ -39,21 +39,21 @@ export const THEMES = Object.freeze({
 });
 
 const aliases = new Map([
-  ['default', 'loom'],
-  ['classic', 'loom'],
+  ['default', 'merge-room'],
+  ['classic', 'merge-room'],
   ['highcontrast', 'high-contrast'],
   ['high_contrast', 'high-contrast']
 ]);
 
-export function normalizeTheme(value = 'loom') {
+export function normalizeTheme(value = 'merge-room') {
   const raw = String(value).trim().toLowerCase();
   return aliases.get(raw) || raw;
 }
 
-export function resolveTheme(value = 'loom') {
+export function resolveTheme(value = 'merge-room') {
   const id = normalizeTheme(value);
   const theme = THEMES[id];
-  if (!theme) throw new Error(`Unknown theme \`${value}\`. Try \`loom theme list\`.`);
+  if (!theme) throw new Error(`Unknown theme \`${value}\`. Try \`merge-room theme list\`.`);
   return theme;
 }
 

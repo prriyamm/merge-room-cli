@@ -7,7 +7,7 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_IGNORES = new Set([
   '.git', '.hg', '.svn', 'node_modules', 'dist', 'build', 'coverage', '.next',
-  '.cache', 'outputs', 'work', '.loom'
+  '.cache', 'outputs', 'work', '.merge-room'
 ]);
 const SECRET_NAMES = /(^|[._-])(env|secret|secrets|token|password|passwd|credential|credentials)([._-]|$)|id_rsa|\.pem$/i;
 const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.json', '.md', '.txt', '.css', '.html', '.yml', '.yaml', '.toml', '.py', '.go', '.rs', '.java', '.rb', '.sql', '.sh', '.ps1']);

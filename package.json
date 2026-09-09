@@ -1,10 +1,10 @@
 {
-  "name": "loom-cli",
+  "name": "merge-room-cli",
   "version": "0.4.0",
   "description": "A beautiful, terminal-first multi-agent command cockpit for building with language models.",
   "type": "module",
   "bin": {
-    "loom": "./bin/loom.js"
+    "merge-room": "./bin/merge-room.js"
   },
   "files": [
     "bin",
@@ -14,7 +14,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "start": "node ./bin/loom.js",
+    "start": "node ./bin/merge-room.js",
     "test": "node --test"
   },
   "engines": {
@@ -23,12 +23,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/prriyamm/loom-cli.git"
+    "url": "https://github.com/prriyamm/merge-room-cli.git"
   },
   "bugs": {
-    "url": "https://github.com/prriyamm/loom-cli/issues"
+    "url": "https://github.com/prriyamm/merge-room-cli/issues"
   },
-  "homepage": "https://github.com/prriyamm/loom-cli#readme",
+  "homepage": "https://github.com/prriyamm/merge-room-cli#readme",
   "keywords": [
     "cli",
     "ai",

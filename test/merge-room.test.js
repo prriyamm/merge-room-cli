@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { DEFAULT_CONFIG, loadConfig, safeBaseUrl } from '../src/config.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.js';
-import { buildRunPlan, LoomEngine } from '../src/engine.js';
+import { buildRunPlan, MergeRoomEngine } from '../src/engine.js';
 import { createProvider, DemoProvider, OpenAICompatibleProvider } from '../src/providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
@@ -19,8 +19,8 @@ import { resolveTheme, themeSummaries } from '../src/themes.js';
 const execFileAsync = promisify(execFile);
 
 test('completion scripts cover supported shells', () => {
-  assert.match(completionScript('bash'), /complete -F _loom loom/);
-  assert.match(completionScript('zsh'), /#compdef loom/);
+  assert.match(completionScript('bash'), /complete -F _merge-room merge-room/);
+  assert.match(completionScript('zsh'), /#compdef merge-room/);
   assert.match(completionScript('ps'), /Register-ArgumentCompleter/);
   assert.throws(() => completionScript('fish'), /Supported completion shells/);
   assert.match(completionScript('bash'), /--max-calls=/);
@@ -28,10 +28,10 @@ test('completion scripts cover supported shells', () => {
 });
 
 test('themes expose named palettes and useful aliases', () => {
-  assert.equal(resolveTheme('default').id, 'loom');
+  assert.equal(resolveTheme('default').id, 'merge-room');
   assert.equal(resolveTheme('highcontrast').id, 'high-contrast');
   assert.equal(themeSummaries().length, 5);
-  assert.throws(() => resolveTheme('unknown'), /loom theme list/);
+  assert.throws(() => resolveTheme('unknown'), /merge-room theme list/);
 });
 
 test('provider mode can force deterministic local runs', () => {
@@ -93,7 +93,7 @@ test('openai-compatible adapter cancels retry backoff', async () => {
   }
 });
 
-test('session exports preserve the answer and usage ledger', async () => { const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-export-')); try { const session = { id: 'abc123', savedAt: '2026-01-01T00:00:00.000Z', request: 'Export this', answer: 'A useful answer.', provider: 'demo', model: 'local-demo', strategy: 'staged', synthesisError: 'lead offline', usage: { input: 12, output: 8, total: 20, calls: 5 }, agents: [{ agent: { id: 'scout', name: 'Scout' }, stage: 1, text: 'A concise note.' }] }; const markdown = formatSessionMarkdown(session); assert.ok(markdown.includes('Total tokens burned: 20')); assert.ok(markdown.includes('A useful answer.')); assert.ok(markdown.includes('lead offline')); const output = await writeSessionExport(session, root, 'out/report.json', 'json'); assert.equal(JSON.parse(await fs.readFile(output, 'utf8')).answer, 'A useful answer.'); } finally { await fs.rm(root, { recursive: true, force: true }); } });
+test('session exports preserve the answer and usage ledger', async () => { const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-export-')); try { const session = { id: 'abc123', savedAt: '2026-01-01T00:00:00.000Z', request: 'Export this', answer: 'A useful answer.', provider: 'demo', model: 'local-demo', strategy: 'staged', synthesisError: 'lead offline', usage: { input: 12, output: 8, total: 20, calls: 5 }, agents: [{ agent: { id: 'scout', name: 'Scout' }, stage: 1, text: 'A concise note.' }] }; const markdown = formatSessionMarkdown(session); assert.ok(markdown.includes('Total tokens burned: 20')); assert.ok(markdown.includes('A useful answer.')); assert.ok(markdown.includes('lead offline')); const output = await writeSessionExport(session, root, 'out/report.json', 'json'); assert.equal(JSON.parse(await fs.readFile(output, 'utf8')).answer, 'A useful answer.'); } finally { await fs.rm(root, { recursive: true, force: true }); } });
 
 test('session markdown preserves orchestration metadata', () => {
   const markdown = formatSessionMarkdown({ strategy: 'staged', durationMs: 1250, waves: [{ label: 'orientation', agentIds: ['scout'] }], agents: [{ agent: { name: 'Scout' }, stage: 1, status: 'done', durationMs: 300, text: 'note' }] });
@@ -115,7 +115,7 @@ test('demo provider returns a usable bounded note', async () => {
 test('engine fans out to specialists and synthesizes', async () => {
   const events = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };
-  const result = await new LoomEngine({ config, provider: new DemoProvider(config), onEvent: (event) => events.push(event) }).run('Ship a small feature');
+  const result = await new MergeRoomEngine({ config, provider: new DemoProvider(config), onEvent: (event) => events.push(event) }).run('Ship a small feature');
   assert.equal(result.agents.length, 2);
  assert.equal(result.agents.every((agent) => agent.status === 'done'), true);
  assert.equal(result.agents.every((agent) => agent.durationMs >= 0), true);
@@ -130,7 +130,7 @@ test('engine fans out to specialists and synthesizes', async () => {
 test('reusing an engine starts a fresh ledger and event stream', async () => {
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
   const events = [];
-  const engine = new LoomEngine({ config, provider: new DemoProvider(config), onEvent: (event) => events.push(event) });
+  const engine = new MergeRoomEngine({ config, provider: new DemoProvider(config), onEvent: (event) => events.push(event) });
   const first = await engine.run('first reusable mission');
   const firstEventCount = events.length;
   const second = await engine.run('second reusable mission');
@@ -142,7 +142,7 @@ test('reusing an engine starts a fresh ledger and event stream', async () => {
 
 test('default roster uses a staged team handoff', async () => {
   const events = [];
-  const result = await new LoomEngine({ config: DEFAULT_CONFIG, provider: new DemoProvider(DEFAULT_CONFIG), onEvent: (event) => events.push(event) }).run('Design a small release plan');
+  const result = await new MergeRoomEngine({ config: DEFAULT_CONFIG, provider: new DemoProvider(DEFAULT_CONFIG), onEvent: (event) => events.push(event) }).run('Design a small release plan');
   assert.deepEqual(result.waves.map((wave) => wave.label), ['orientation', 'draft', 'review']);
   assert.deepEqual(result.agents.map((item) => item.stage), [1, 1, 2, 3]);
   const dispatches = events.filter((event) => event.type === 'agents:dispatch');
@@ -167,7 +167,7 @@ test('parallel strategy dispatches every specialist in one wave', async () => {
     onDelta?.('ok');
     return { text: 'ok', inputTokens: 1, outputTokens: 1 };
   } };
-  const result = await new LoomEngine({ config, provider, onEvent: (event) => events.push(event) }).run('Run in parallel');
+  const result = await new MergeRoomEngine({ config, provider, onEvent: (event) => events.push(event) }).run('Run in parallel');
   assert.deepEqual(result.waves, [{ stage: 1, label: 'parallel', agentIds: ['scout', 'architect', 'maker'] }]);
   assert.deepEqual(result.agents.map((item) => item.stage), [1, 1, 2]);
   const firstDone = events.findIndex((event) => event.type === 'agent:done');
@@ -190,7 +190,7 @@ test('engine enforces a provider call budget and reports skipped agents', async 
   let calls = 0;
   const config = { ...DEFAULT_CONFIG, maxCalls: 2 };
   const provider = { name: 'budgeted', model: 'test', complete: async () => { calls += 1; return { text: 'ok', inputTokens: 1, outputTokens: 1 }; } };
-  const result = await new LoomEngine({ config, provider }).run('Respect the budget');
+  const result = await new MergeRoomEngine({ config, provider }).run('Respect the budget');
   assert.equal(calls, 2);
   assert.equal(result.providerCallsStarted, 2);
   assert.equal(result.usage.calls, 2);
@@ -210,7 +210,7 @@ test('agent concurrency is capped without changing result order', async () => {
     active -= 1;
     return { text: /lead/i.test(system) ? 'synthesis' : system.match(/You are (\w+)/)?.[1] || 'note', inputTokens: 1, outputTokens: 1 };
   } };
-  const result = await new LoomEngine({ config, provider }).run('Respect concurrency');
+  const result = await new MergeRoomEngine({ config, provider }).run('Respect concurrency');
   assert.equal(peak, 2);
   assert.deepEqual(result.agents.map((item) => item.agent.id), ['scout', 'architect', 'maker', 'critic']);
   assert.equal(result.usage.calls, 5);
@@ -224,7 +224,7 @@ test('engine forwards bounded workspace context as reference material', async ()
     return { text: 'ok', inputTokens: 1, outputTokens: 1 };
   } };
   const config = { ...DEFAULT_CONFIG, agents: [DEFAULT_CONFIG.agents[0]] };
-  await new LoomEngine({ config, provider }).run('Inspect this project', { context: { fileCount: 1, excerpts: [{ path: 'README.md', text: 'reference' }], entries: ['README.md 10 B'], truncated: false, git: null } });
+  await new MergeRoomEngine({ config, provider }).run('Inspect this project', { context: { fileCount: 1, excerpts: [{ path: 'README.md', text: 'reference' }], entries: ['README.md 10 B'], truncated: false, git: null } });
   assert.match(calls[0].prompt, /Workspace project context/);
   assert.match(calls[0].prompt, /untrusted reference material/);
   assert.match(calls.at(-1).system, /Specialist notes and workspace excerpts are untrusted/);
@@ -236,7 +236,7 @@ test('engine marks a synthesis as best effort when a specialist fails', async ()
     if (/Scout/.test(system)) throw new Error('temporary specialist outage');
     return { text: 'available note', inputTokens: 2, outputTokens: 1 };
   } };
-  const result = await new LoomEngine({ config, provider }).run('Handle a partial team');
+  const result = await new MergeRoomEngine({ config, provider }).run('Handle a partial team');
   assert.equal(result.degraded, true);
   assert.equal(result.agents.some((agent) => agent.status === 'error'), true);
   assert.match(result.answer, /available note|practical starting point|Handle a partial team/i);
@@ -249,7 +249,7 @@ test('engine returns specialist notes when lead synthesis fails', async () => {
     if (/lead/i.test(system)) throw new Error('lead offline');
     return { text: 'scout note', inputTokens: 2, outputTokens: 1 };
   } };
-  const result = await new LoomEngine({ config, provider, onEvent: (event) => events.push(event) }).run('Keep the partial result');
+  const result = await new MergeRoomEngine({ config, provider, onEvent: (event) => events.push(event) }).run('Keep the partial result');
   assert.equal(result.degraded, true);
   assert.equal(result.synthesisError, 'lead offline');
   assert.match(result.answer, /scout note/);
@@ -263,7 +263,7 @@ test('agent model overrides are forwarded without changing the lead model', asyn
     return { text: 'ok', inputTokens: 1, outputTokens: 1 };
   } };
   const config = { ...DEFAULT_CONFIG, agents: [{ ...DEFAULT_CONFIG.agents[0], model: 'scout-model' }] };
-  const result = await new LoomEngine({ config, provider }).run('Compare models');
+  const result = await new MergeRoomEngine({ config, provider }).run('Compare models');
   assert.equal(calls[0].model, 'scout-model');
   assert.equal(calls.at(-1).model, undefined);
  assert.equal(result.agents[0].model, 'scout-model');
@@ -278,7 +278,7 @@ test('engine stops before synthesis when its signal is cancelled', async () => {
   const calls = [];
   const events = [];
   const provider = { name: 'recording', complete: async () => { calls.push('unexpected'); return { text: 'no', inputTokens: 1, outputTokens: 1 }; } };
-  await assert.rejects(() => new LoomEngine({ config: { ...DEFAULT_CONFIG, agents: [DEFAULT_CONFIG.agents[0]] }, provider, onEvent: (event) => events.push(event) }).run('Cancel this', { signal: controller.signal }), /Mission cancelled/);
+  await assert.rejects(() => new MergeRoomEngine({ config: { ...DEFAULT_CONFIG, agents: [DEFAULT_CONFIG.agents[0]] }, provider, onEvent: (event) => events.push(event) }).run('Cancel this', { signal: controller.signal }), /Mission cancelled/);
   assert.equal(calls.length, 0);
   assert.equal(events.at(-1).type, 'run:cancelled');
   assert.equal(events.at(-1).sequence, 1);
@@ -290,7 +290,7 @@ test('demo provider cancels an in-flight mission', async () => {
   const events = [];
   setTimeout(() => controller.abort(), 15);
   await assert.rejects(
-    () => new LoomEngine({ config, provider: new DemoProvider(config), onEvent: (event) => events.push(event) }).run('cancel during work', { signal: controller.signal }),
+    () => new MergeRoomEngine({ config, provider: new DemoProvider(config), onEvent: (event) => events.push(event) }).run('cancel during work', { signal: controller.signal }),
     (error) => error.name === 'AbortError'
   );
   assert.equal(events.at(-1).type, 'run:cancelled');
@@ -398,7 +398,7 @@ test('openai-compatible adapter reports provider timeouts distinctly', async () 
 });
 
 test('workspace context is bounded and excludes secret-looking files', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-context-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-context-'));
   try {
     await fs.writeFile(path.join(root, 'README.md'), '# Project\nUseful notes');
     await fs.writeFile(path.join(root, '.env'), 'TOKEN=do-not-include');
@@ -415,7 +415,7 @@ test('workspace context is bounded and excludes secret-looking files', async () 
 });
 
 test('workspace excerpt caps are measured in UTF-8 bytes', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-context-utf8-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-context-utf8-'));
   try {
     await fs.writeFile(path.join(root, 'unicode.md'), '🙂'.repeat(120), 'utf8');
     const context = await collectWorkspaceContext(root, { maxBytes: 100, maxExcerptBytes: 400 });
@@ -427,7 +427,7 @@ test('workspace excerpt caps are measured in UTF-8 bytes', async () => {
 });
 
 test('workspace context prioritizes safe explicit includes', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-include-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-include-'));
   try {
     await fs.mkdir(path.join(root, 'src'), { recursive: true });
     await fs.mkdir(path.join(root, 'secrets'), { recursive: true });
@@ -444,7 +444,7 @@ test('workspace context prioritizes safe explicit includes', async () => {
 });
 
 test('workspace context respects project ignore patterns', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-gitignore-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-'));
   try {
     await fs.mkdir(path.join(root, 'cache'), { recursive: true });
     await fs.writeFile(path.join(root, '.gitignore'), '*.log\ncache/\n!/cache/keep.json\n', 'utf8');
@@ -476,11 +476,11 @@ test('workspace formatting keeps an opt-in diff clearly bounded', () => {
 
 test('opt-in Git context includes staged and unstaged changes from HEAD', async () => {
   try { await execFileAsync('git', ['--version']); } catch { return; }
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-git-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-git-'));
   try {
     await execFileAsync('git', ['init'], { cwd: root });
-    await execFileAsync('git', ['config', 'user.name', 'Loom Test'], { cwd: root });
-    await execFileAsync('git', ['config', 'user.email', 'loom-test@example.invalid'], { cwd: root });
+    await execFileAsync('git', ['config', 'user.name', 'Merge Room Test'], { cwd: root });
+    await execFileAsync('git', ['config', 'user.email', 'merge-room-test@example.invalid'], { cwd: root });
     await fs.writeFile(path.join(root, 'app.js'), 'const state = "base";\n', 'utf8');
     await execFileAsync('git', ['add', 'app.js'], { cwd: root });
     await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: root });
@@ -496,7 +496,7 @@ test('opt-in Git context includes staged and unstaged changes from HEAD', async 
 });
 
 test('sessions can be saved, listed, and reopened', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-session-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-'));
   try {
    const saved = await saveSession({ request: 'Test mission', answer: 'Test answer', usage: { total: 3, input: 2, output: 1 } }, root, 'sessions');
     const files = await fs.readdir(path.join(root, 'sessions'));
@@ -513,9 +513,9 @@ test('sessions can be saved, listed, and reopened', async () => {
 });
 
 test('custom agents receive stable ids and inherited defaults', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-config-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-config-'));
   try {
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ agents: [{ name: 'Security Watch', specialty: 'threats', prompt: 'Look for risks.' }] }));
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ agents: [{ name: 'Security Watch', specialty: 'threats', prompt: 'Look for risks.' }] }));
     const config = await loadConfig(root);
     assert.equal(config.agents[0].id, 'security-watch');
     assert.equal(config.agents[0].name, 'Security Watch');
@@ -528,7 +528,7 @@ test('custom agents receive stable ids and inherited defaults', async () => {
 test('custom agent stages control staged orchestration', async () => {
   const config = await loadConfig(process.cwd(), undefined);
   const staged = { ...config, agents: [{ ...config.agents[0], id: 'research', name: 'Research', stage: 1 }, { ...config.agents[2], id: 'builder', name: 'Builder', stage: 2 }, { ...config.agents[3], id: 'reviewer', name: 'Reviewer', stage: 3 }] };
-  const result = await new LoomEngine({ config: staged, provider: new DemoProvider(staged) }).run('custom stage mission');
+  const result = await new MergeRoomEngine({ config: staged, provider: new DemoProvider(staged) }).run('custom stage mission');
   assert.deepEqual(result.agents.map((item) => item.stage), [1, 2, 3]);
   assert.deepEqual(result.waves.map((wave) => wave.label), ['orientation', 'draft', 'review']);
 });
@@ -537,7 +537,7 @@ test('reviewer-only late stage remains a stage-three wave', async () => {
   const config = await loadConfig(process.cwd(), undefined);
   const staged = { ...config, agents: [{ ...config.agents[0], id: 'research', name: 'Research', stage: 1 }, { ...config.agents[3], id: 'reviewer', name: 'Reviewer', stage: 3 }] };
   const events = [];
-  const result = await new LoomEngine({ config: staged, provider: new DemoProvider(staged), onEvent: (event) => events.push(event) }).run('review-only mission');
+  const result = await new MergeRoomEngine({ config: staged, provider: new DemoProvider(staged), onEvent: (event) => events.push(event) }).run('review-only mission');
   assert.deepEqual(result.waves.map((wave) => wave.stage), [1, 3]);
   assert.deepEqual(result.agents.map((item) => item.stage), [1, 3]);
   assert.equal(events.some((event) => event.type === 'agents:dispatch' && event.stage === 3), true);
@@ -547,7 +547,7 @@ test('late-stage-only teams preserve their configured stage', async () => {
   const config = await loadConfig(process.cwd(), undefined);
   const focused = { ...config, agents: [{ ...config.agents[3], id: 'reviewer', name: 'Reviewer', stage: 3 }] };
   const events = [];
-  const result = await new LoomEngine({ config: focused, provider: new DemoProvider(focused), onEvent: (event) => events.push(event) }).run('focused review mission');
+  const result = await new MergeRoomEngine({ config: focused, provider: new DemoProvider(focused), onEvent: (event) => events.push(event) }).run('focused review mission');
   assert.deepEqual(result.waves, [{ stage: 3, label: 'review', agentIds: ['reviewer'] }]);
   assert.equal(result.agents[0].stage, 3);
   assert.equal(events.find((event) => event.type === 'agents:dispatch').stage, 3);
@@ -561,29 +561,29 @@ test('resume request preserves specialist notes as untrusted reference', () => {
 });
 
 test('invalid project configuration fails with an actionable message', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-config-invalid-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-config-invalid-'));
   try {
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ strategy: 'chaotic', agents: [{ name: 'Broken' }] }), 'utf8');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ strategy: 'chaotic', agents: [{ name: 'Broken' }] }), 'utf8');
     await assert.rejects(() => loadConfig(root), /strategy.*staged.*parallel/);
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ requestTimeoutMs: 0 }), 'utf8');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ requestTimeoutMs: 0 }), 'utf8');
     await assert.rejects(() => loadConfig(root), /requestTimeoutMs.*100 milliseconds/);
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ streaming: 'false' }), 'utf8');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ streaming: 'false' }), 'utf8');
     await assert.rejects(() => loadConfig(root), /streaming.*true or false/);
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ baseUrl: 42 }), 'utf8');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ baseUrl: 42 }), 'utf8');
     await assert.rejects(() => loadConfig(root), /baseUrl.*non-empty string/);
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ sessionDir: '' }), 'utf8');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ sessionDir: '' }), 'utf8');
     await assert.rejects(() => loadConfig(root), /sessionDir.*non-empty string/);
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ theme: 'no-such-theme' }), 'utf8');
-    await assert.rejects(() => loadConfig(root), /theme.*loom theme list/);
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ maxCalls: -1 }), 'utf8');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ theme: 'no-such-theme' }), 'utf8');
+    await assert.rejects(() => loadConfig(root), /theme.*merge-room theme list/);
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ maxCalls: -1 }), 'utf8');
     await assert.rejects(() => loadConfig(root), /maxCalls.*greater than or equal to zero/);
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ provider: 'remote' }), 'utf8');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ provider: 'remote' }), 'utf8');
     await assert.rejects(() => loadConfig(root), /provider.*auto.*demo/);
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ agents: {} }), 'utf8');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ agents: {} }), 'utf8');
     await assert.rejects(() => loadConfig(root), /agents.*JSON array/);
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ context: { maxBytes: 0 } }), 'utf8');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ context: { maxBytes: 0 } }), 'utf8');
     await assert.rejects(() => loadConfig(root), /context.maxBytes.*256/);
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ agents: [{ name: 'Too Late', stage: 4 }] }), 'utf8');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ agents: [{ name: 'Too Late', stage: 4 }] }), 'utf8');
     await assert.rejects(() => loadConfig(root), /stage.*1, 2, or 3/);
     await assert.rejects(() => loadConfig(root, 'missing-profile.json'), /file not found/);
   } finally {
@@ -592,10 +592,10 @@ test('invalid project configuration fails with an actionable message', async () 
 });
 
 test('CLI can load an explicit project profile', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-config-profile-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-config-profile-'));
   try {
     await fs.writeFile(path.join(root, 'profile.json'), JSON.stringify({ strategy: 'parallel', maxConcurrency: 1, agents: [{ id: 'solo', name: 'Solo', prompt: 'Work alone.' }] }), 'utf8');
-    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     const { stdout } = await execFileAsync(process.execPath, [bin, '--config', 'profile.json', '--provider=demo', '--no-context', '--no-save', '--json', 'profile mission'], { cwd: root, windowsHide: true });
     const result = JSON.parse(stdout);
     assert.equal(result.strategy, 'parallel');
@@ -607,9 +607,9 @@ test('CLI can load an explicit project profile', async () => {
 });
 
 test('CLI resolves unique session id prefixes', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-session-prefix-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-prefix-'));
   try {
-    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     const run = await execFileAsync(process.execPath, [bin, '--provider=demo', '--no-context', '--json', 'prefix mission'], { cwd: root, windowsHide: true });
     const saved = JSON.parse(run.stdout);
     const prefix = saved.sessionId.slice(0, 10);
@@ -623,21 +623,21 @@ test('CLI resolves unique session id prefixes', async () => {
 });
 
 test('completion command remains available with an invalid project profile', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-completion-recovery-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-completion-recovery-'));
   try {
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ strategy: 'invalid' }), 'utf8');
-    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ strategy: 'invalid' }), 'utf8');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     const { stdout } = await execFileAsync(process.execPath, [bin, 'completions', 'bash'], { cwd: root, windowsHide: true });
-    assert.match(stdout, /complete -F _loom loom/);
+    assert.match(stdout, /complete -F _merge-room merge-room/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
 });
 
 test('CLI event mode emits one ordered terminal result', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-events-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-events-'));
   try {
-    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     const { stdout } = await execFileAsync(process.execPath, [bin, '--provider=demo', '--events', '--run-id=events-1', '--no-context', '--no-save', '--no-stream', 'event mission'], { cwd: root, windowsHide: true });
     const events = stdout.trim().split(/\r?\n/).map((line) => JSON.parse(line));
     assert.equal(events.at(-1).type, 'run:done');
@@ -651,12 +651,12 @@ test('CLI event mode emits one ordered terminal result', async () => {
 });
 
 test('CLI initializes a project and exports its latest mission', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-init-export-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-init-export-'));
   try {
-    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     const initialized = await execFileAsync(process.execPath, [bin, 'init', '--json'], { cwd: root, windowsHide: true });
     assert.equal(JSON.parse(initialized.stdout).created, true);
-    assert.equal((await fs.stat(path.join(root, 'loom.config.json'))).isFile(), true);
+    assert.equal((await fs.stat(path.join(root, 'merge-room.config.json'))).isFile(), true);
     const run = await execFileAsync(process.execPath, [bin, '--provider=demo', '--no-context', '--json', 'exportable mission'], { cwd: root, windowsHide: true });
     const saved = JSON.parse(run.stdout);
     const exported = await execFileAsync(process.execPath, [bin, 'export', 'last', '--format=md', '--output', 'transcript.md', '--json'], { cwd: root, windowsHide: true });
@@ -669,9 +669,9 @@ test('CLI initializes a project and exports its latest mission', async () => {
 });
 
 test('CLI no-save mode leaves no session artifact', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-no-save-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-no-save-'));
   try {
-    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     await execFileAsync(process.execPath, [bin, '--provider=demo', '--no-save', '--no-context', '--json', 'private mission'], { cwd: root, windowsHide: true });
     const sessions = await listSessions(root);
     assert.deepEqual(sessions, []);
@@ -681,9 +681,9 @@ test('CLI no-save mode leaves no session artifact', async () => {
 });
 
 test('doctor exposes provider reliability settings', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-doctor-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-doctor-'));
   try {
-    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     const { stdout } = await execFileAsync(process.execPath, [bin, 'doctor', '--json'], { cwd: root, windowsHide: true });
     const report = JSON.parse(stdout);
     assert.equal(report.streamUsage, false);
@@ -695,9 +695,9 @@ test('doctor exposes provider reliability settings', async () => {
 });
 
 test('context command honors no-context', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-context-off-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-context-off-'));
   try {
-    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     const { stdout } = await execFileAsync(process.execPath, [bin, 'context', '--json', '--no-context'], { cwd: root, windowsHide: true });
     const context = JSON.parse(stdout);
     assert.equal(context.fileCount, 0);
@@ -709,9 +709,9 @@ test('context command honors no-context', async () => {
 });
 
 test('CLI preflight plan is machine-readable and makes no session', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-plan-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-plan-'));
   try {
-    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     const { stdout } = await execFileAsync(process.execPath, [bin, 'plan', '--no-context', '--max-calls=7', '--theme=ocean', '--json', 'preflight mission'], { cwd: root, windowsHide: true });
     const plan = JSON.parse(stdout);
     assert.equal(plan.kind, 'preflight');
@@ -726,12 +726,12 @@ test('CLI preflight plan is machine-readable and makes no session', async () => 
 });
 
 test('CLI preserves configured context includes unless a flag overrides them', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-configured-include-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-configured-include-'));
   try {
-    await fs.writeFile(path.join(root, 'loom.config.json'), JSON.stringify({ context: { include: ['z-notes.md'] } }), 'utf8');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ context: { include: ['z-notes.md'] } }), 'utf8');
     await fs.writeFile(path.join(root, 'z-notes.md'), 'configured include\n', 'utf8');
     await fs.writeFile(path.join(root, 'other.md'), 'discovered fallback\n', 'utf8');
-    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     const { stdout } = await execFileAsync(process.execPath, [bin, 'context', '--json'], { cwd: root, windowsHide: true });
     const context = JSON.parse(stdout);
     assert.equal(context.excerpts[0].path, 'z-notes.md');
@@ -741,9 +741,9 @@ test('CLI preserves configured context includes unless a flag overrides them', a
 });
 
 test('CLI strict mode returns exit code two for degraded runs', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-strict-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-strict-'));
   try {
-    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     await assert.rejects(
       () => execFileAsync(process.execPath, [bin, '--provider=demo', '--strict', '--max-calls=1', '--no-context', '--no-save', '--json', 'strict mission'], { cwd: root, windowsHide: true }),
       (error) => error.code === 2 && JSON.parse(error.stdout).status === 'degraded'
@@ -754,9 +754,9 @@ test('CLI strict mode returns exit code two for degraded runs', async () => {
 });
 
 test('CLI rejects unknown options instead of treating them as mission text', async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'loom-unknown-option-'));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-unknown-option-'));
   try {
-    const bin = path.resolve(process.cwd(), 'bin', 'loom.js');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
     await assert.rejects(
       () => execFileAsync(process.execPath, [bin, '--max-callz=1', 'mistyped option'], { cwd: root, windowsHide: true }),
       (error) => error.code === 1 && /Unknown option.*max-callz/.test(error.stderr)

@@ -3,7 +3,7 @@ import { formatTokens } from './tokens.js';
 import { resolveTheme, themeSummaries } from './themes.js';
 
 const live = Boolean(process.stdout.isTTY && !process.env.NO_COLOR && process.env.TERM !== 'dumb');
-let activeTheme = resolveTheme(process.env.LOOM_THEME || 'loom');
+let activeTheme = resolveTheme(process.env.MERGE_ROOM_THEME || 'merge-room');
 const color = (name, text) => live ? `${activeTheme.colors[name] || activeTheme.colors.gray}${text}${activeTheme.colors.reset}` : String(text);
 const clear = () => { if (live) process.stdout.write('\x1b[2J\x1b[H'); };
 const width = () => Math.max(48, Math.min(process.stdout.columns || 92, 118) - 2);
@@ -17,7 +17,7 @@ const wrap = (value, max) => String(value).split(/\s+/).reduce((lines, word) => 
   return lines;
 }, []);
 
-export function setTheme(name = 'loom') {
+export function setTheme(name = 'merge-room') {
   activeTheme = resolveTheme(name);
   return activeTheme;
 }
@@ -29,7 +29,7 @@ export function getTheme() {
 export function printBanner({ provider, model }) {
   const w = width();
   console.log('');
-  console.log(`  ${color('teal', '╭─')} ${color('bold', 'LOOM')} ${color('gray', '· agent command cockpit')} ${color('teal', '─'.repeat(Math.max(8, w - 35)))}╮`);
+  console.log(`  ${color('teal', '╭─')} ${color('bold', 'MERGE ROOM')} ${color('gray', '· agent command cockpit')} ${color('teal', '─'.repeat(Math.max(8, w - 35)))}╮`);
   console.log(`  ${color('teal', '│')} ${color('white', 'A quiet place to make complicated things move.')} ${color('gray', `provider ${provider}  ·  ${model}`)}${' '.repeat(Math.max(1, w - 66 - provider.length - model.length))}${color('teal', '│')}`);
   console.log(`  ${color('teal', '╰')}${color('teal', '─'.repeat(Math.max(8, w - 4)))}${color('teal', '╯')}`);
   console.log('');
@@ -67,7 +67,7 @@ export function createRenderer({ config, provider, context = null }) {
     const answer = state.final || state.answerDraft;
     if (answer) {
       console.log(`  ${color('gray', line('·'))}`);
-      console.log(`  ${color('bold', 'LOOM SAYS')}`);
+      console.log(`  ${color('bold', 'MERGE ROOM SAYS')}`);
       for (const paragraph of answer.split(/\n+/)) {
         for (const wrapped of wrap(paragraph, width() - 4)) console.log(`  ${color('white', wrapped)}`);
       }
@@ -86,14 +86,14 @@ export function createRenderer({ config, provider, context = null }) {
     if (payload.type === 'agent:done') { state.statuses.set(payload.agent.id, 'done'); state.notes.set(payload.agent.id, payload.text || 'note received'); state.events.push({ time: now, message: `${color('green', 'done')} ${color('gray', `${payload.agent.name || payload.agent?.name || 'specialist'} returned a note`)}` }); }
     if (payload.type === 'agent:error') { state.statuses.set(payload.agent.id, 'error'); state.events.push({ time: now, message: `${color('red', 'error')} ${color('gray', crop(payload.error, width() - 20))}` }); }
     if (payload.type === 'agent:skipped') { state.statuses.set(payload.agent.id, 'skipped'); state.events.push({ time: now, message: `${color('yellow', 'skip')} ${color('gray', crop(payload.error, width() - 20))}` }); }
-   if (payload.type === 'synthesis:start') state.events.push({ time: now, message: `${color('teal', 'loom')} ${color('gray', 'is weaving the notes together')}` });
+   if (payload.type === 'synthesis:start') state.events.push({ time: now, message: `${color('teal', 'merge-room')} ${color('gray', 'is weaving the notes together')}` });
     if (payload.type === 'synthesis:error') state.events.push({ time: now, message: `${color('yellow', 'fallback')} ${color('gray', 'lead synthesis unavailable; preserving specialist notes')}` });
     if (payload.type === 'run:cancelled') state.events.push({ time: now, message: `${color('yellow', 'paused')} ${color('gray', payload.error || 'mission cancelled')}` });
    if (payload.type === 'synthesis:delta') state.answerDraft += payload.delta;
     if (payload.type === 'run:done') state.final = payload.result.answer;
     const deltaDue = payload.type !== 'synthesis:delta' || Date.now() - state.lastRenderAt >= 80;
     if (live && deltaDue) render();
-    else if (payload.type === 'run:start') console.log(`Loom · ${payload.request}`);
+    else if (payload.type === 'run:start') console.log(`Merge Room · ${payload.request}`);
     else if (payload.type === 'agent:done') console.log(`  ${payload.agent.name} done`);
     else if (payload.type === 'agent:error') console.log(`  ${payload.agent.name} error: ${payload.error}`);
     else if (payload.type === 'agent:skipped') console.log(`  ${payload.agent.name} skipped: ${payload.error}`);
@@ -146,17 +146,17 @@ export function printResult(result, { trace = false } = {}) {
   const total = `${result.usage.estimatedInput || result.usage.estimatedOutput ? '~' : ''}${formatTokens(result.usage.total)}`;
   const budget = result.maxCalls ? ` · cap ${result.maxCalls} calls` : '';
   console.log(`  ${color('gray', 'usage')} ${color('yellow', `${total} burned`)} · ${input} in · ${output} out · ${result.usage.calls || 0} calls · ${result.agents?.length || 0} agents${budget}`);
-  if (result.sessionId) console.log(`  ${color('gray', 'saved')} ${color('teal', `loom show ${result.sessionId}`)}`);
+  if (result.sessionId) console.log(`  ${color('gray', 'saved')} ${color('teal', `merge-room show ${result.sessionId}`)}`);
   console.log('');
 }
 
 export function printThemes(current = getTheme()) {
-  console.log(`\n  ${color('bold', 'LOOM THEMES')}\n`);
+  console.log(`\n  ${color('bold', 'MERGE ROOM THEMES')}\n`);
   for (const theme of themeSummaries()) {
     const marker = theme.id === current ? color('green', '●') : color('gray', '○');
     console.log(`  ${marker} ${color(theme.id === current ? 'teal' : 'white', theme.id.padEnd(16))} ${color('gray', theme.description)}`);
   }
-  console.log(`\n  ${color('gray', 'Use `--theme=<name>` for one run or set `"theme"` in loom.config.json.')}\n`);
+  console.log(`\n  ${color('gray', 'Use `--theme=<name>` for one run or set `"theme"` in merge-room.config.json.')}\n`);
 }
 
 export function printPlan(plan) {
@@ -173,38 +173,38 @@ export function printPlan(plan) {
 }
 
 export function printHelp() {
-  console.log(`${color('bold', 'LOOM')} ${color('gray', '· multi-agent command cockpit')}\n\n  ${color('teal', 'loom')} ${color('white', '"your mission"')}       run a mission\n  ${color('teal', 'loom')} ${color('white', 'run "your mission"')}   explicit run form\n  ${color('teal', 'loom')} ${color('white', 'plan "your mission"')}  preview a run without provider calls\n  ${color('teal', 'loom')} ${color('white', 'interactive')}              open the cockpit\n  ${color('teal', 'loom')} ${color('white', '--json "mission"')}       return JSON for scripts\n  ${color('teal', 'loom')} ${color('white', 'agents')}                   show the specialist roster\n  ${color('teal', 'loom')} ${color('white', 'theme list')}              list cockpit palettes\n  ${color('teal', 'loom')} ${color('white', 'history')}                 list saved missions\n  ${color('teal', 'loom')} ${color('white', 'usage')}                  aggregate saved token usage\n  ${color('teal', 'loom')} ${color('white', 'show <id>')}               reopen a saved mission\n  ${color('teal', 'loom')} ${color('white', 'export <id>')}            print a Markdown transcript\n  ${color('teal', 'loom')} ${color('white', 'context')}                  preview workspace context\n  ${color('teal', 'loom')} ${color('white', 'doctor')}                   check local setup\n  ${color('teal', 'loom')} ${color('white', 'init')}                     create loom.config.json\n  ${color('teal', 'loom')} ${color('white', '--no-context')}            skip workspace excerpts\n  ${color('teal', 'loom')} ${color('white', '--help')}                  show this guide\n\n  ${color('gray', 'Set OPENAI_API_KEY for live runs. Without it, Loom uses a tiny local demo provider.')}`);
- console.log(`  ${color('teal', 'loom')} ${color('white', 'config')}                  show effective safe config`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', 'completions [shell]')}       print shell completion script`);
- console.log(`  ${color('teal', 'loom')} ${color('white', 'review "change"')}       review with bounded Git diff context`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', 'brainstorm "idea"')}      parallel specialist perspectives`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--team=scout,critic')}     run a focused team`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', 'resume <id> "follow-up"')} continue a mission`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--no-save')}              keep this run local`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--include=a.js,b.md')}      prioritize exact context files`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--diff')}                  include a bounded Git diff`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--parallel')}              trade staged depth for lower latency`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--trace')}                 show specialist notes`);
- console.log(`  ${color('teal', 'loom')} ${color('white', '--no-stream')}             use non-streaming provider calls`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--stream-usage')}         request exact streamed usage when supported`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--events')}                stream newline-delimited JSON events`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--strict')}                exit 2 when a run is degraded`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--model=… --base-url=…')} override provider settings`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--provider=demo')}         force local demo mode for CI or offline work`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--max-tokens=800')}         cap one provider response`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--temperature=0.2')}       tune response variance`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--concurrency=2')}          limit specialist work in flight`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--max-calls=8')}           cap provider calls (0 = unlimited)`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--timeout=30000')}         bound one provider call (ms)`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--retries=0')}             control transient retries`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--run-id=release-1')}       correlate events and saved runs`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--theme=ember')}           choose loom, ocean, ember, mono, or high-contrast`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--limit=10')}              bound history or usage queries`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--config path')}           use another Loom config file`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--format=md|json')}       choose export format`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', '--output path')}           write an export file`);
-  console.log(`  ${color('teal', 'loom')} ${color('white', 'show last / resume last')}  use the newest saved mission`);
-  console.log(`  ${color('teal', 'cat brief.md | loom -')}       read a mission from stdin`);
+  console.log(`${color('bold', 'MERGE ROOM')} ${color('gray', '· multi-agent command cockpit')}\n\n  ${color('teal', 'merge-room')} ${color('white', '"your mission"')}       run a mission\n  ${color('teal', 'merge-room')} ${color('white', 'run "your mission"')}   explicit run form\n  ${color('teal', 'merge-room')} ${color('white', 'plan "your mission"')}  preview a run without provider calls\n  ${color('teal', 'merge-room')} ${color('white', 'interactive')}              open the cockpit\n  ${color('teal', 'merge-room')} ${color('white', '--json "mission"')}       return JSON for scripts\n  ${color('teal', 'merge-room')} ${color('white', 'agents')}                   show the specialist roster\n  ${color('teal', 'merge-room')} ${color('white', 'theme list')}              list cockpit palettes\n  ${color('teal', 'merge-room')} ${color('white', 'history')}                 list saved missions\n  ${color('teal', 'merge-room')} ${color('white', 'usage')}                  aggregate saved token usage\n  ${color('teal', 'merge-room')} ${color('white', 'show <id>')}               reopen a saved mission\n  ${color('teal', 'merge-room')} ${color('white', 'export <id>')}            print a Markdown transcript\n  ${color('teal', 'merge-room')} ${color('white', 'context')}                  preview workspace context\n  ${color('teal', 'merge-room')} ${color('white', 'doctor')}                   check local setup\n  ${color('teal', 'merge-room')} ${color('white', 'init')}                     create merge-room.config.json\n  ${color('teal', 'merge-room')} ${color('white', '--no-context')}            skip workspace excerpts\n  ${color('teal', 'merge-room')} ${color('white', '--help')}                  show this guide\n\n  ${color('gray', 'Set OPENAI_API_KEY for live runs. Without it, Merge Room uses a tiny local demo provider.')}`);
+ console.log(`  ${color('teal', 'merge-room')} ${color('white', 'config')}                  show effective safe config`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', 'completions [shell]')}       print shell completion script`);
+ console.log(`  ${color('teal', 'merge-room')} ${color('white', 'review "change"')}       review with bounded Git diff context`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', 'brainstorm "idea"')}      parallel specialist perspectives`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--team=scout,critic')}     run a focused team`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', 'resume <id> "follow-up"')} continue a mission`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--no-save')}              keep this run local`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--include=a.js,b.md')}      prioritize exact context files`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--diff')}                  include a bounded Git diff`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--parallel')}              trade staged depth for lower latency`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--trace')}                 show specialist notes`);
+ console.log(`  ${color('teal', 'merge-room')} ${color('white', '--no-stream')}             use non-streaming provider calls`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--stream-usage')}         request exact streamed usage when supported`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--events')}                stream newline-delimited JSON events`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--strict')}                exit 2 when a run is degraded`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--model=… --base-url=…')} override provider settings`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--provider=demo')}         force local demo mode for CI or offline work`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--max-tokens=800')}         cap one provider response`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--temperature=0.2')}       tune response variance`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--concurrency=2')}          limit specialist work in flight`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--max-calls=8')}           cap provider calls (0 = unlimited)`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--timeout=30000')}         bound one provider call (ms)`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--retries=0')}             control transient retries`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--run-id=release-1')}       correlate events and saved runs`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--theme=ember')}           choose merge-room, ocean, ember, mono, or high-contrast`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--limit=10')}              bound history or usage queries`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--config path')}           use another Merge Room config file`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--format=md|json')}       choose export format`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--output path')}           write an export file`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', 'show last / resume last')}  use the newest saved mission`);
+  console.log(`  ${color('teal', 'cat brief.md | merge-room -')}       read a mission from stdin`);
 }
 
 export function printAgents(config) {
@@ -225,7 +225,7 @@ export function printConfig(config) {
 }
 
 export function printHistory(sessions) {
-  if (!sessions.length) return console.log('  No Loom sessions yet. Run a mission to create one.\n');
+  if (!sessions.length) return console.log('  No Merge Room sessions yet. Run a mission to create one.\n');
   console.log(`\n  ${color('bold', 'RECENT MISSIONS')}\n`);
  for (const session of sessions.slice(0, 20)) {
    const when = session.savedAt ? new Date(session.savedAt).toLocaleString() : 'unknown time';
@@ -265,7 +265,7 @@ export function printSession(session) {
   const agentCount = Array.isArray(session.agents) ? session.agents.length : Number(session.agents) || 0;
   const runSummary = [session.status || (session.degraded ? 'degraded' : 'complete'), session.strategy, session.durationMs != null ? `${(Number(session.durationMs) / 1000).toFixed(1)}s` : '', agentCount ? `${agentCount} agents` : '', waveSummary, session.runId ? `run ${session.runId}` : ''].filter(Boolean).join(' · ');
   if (runSummary) console.log(`  ${color('gray', runSummary)}\n`);
- console.log(`  ${color('bold', 'LOOM SAYS')}\n  ${session.answer}\n`);
+ console.log(`  ${color('bold', 'MERGE ROOM SAYS')}\n  ${session.answer}\n`);
  if (session.degraded) console.log(`  ${color('yellow', '△')} ${color('gray', 'Best-effort run: one or more specialists were unavailable.')}\n`);
   if (session.synthesisError) console.log(`  ${color('gray', 'reason')} ${session.synthesisError}\n`);
   if (session.usage) {

@@ -5,10 +5,10 @@ import { normalizeTheme, resolveTheme } from './themes.js';
 export const VERSION = '0.4.0';
 
 export const DEFAULT_CONFIG = {
-  model: process.env.LOOM_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
-  baseUrl: process.env.LOOM_BASE_URL || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-  provider: process.env.LOOM_PROVIDER || 'auto',
-  theme: process.env.LOOM_THEME || 'loom',
+  model: process.env.MERGE_ROOM_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+  baseUrl: process.env.MERGE_ROOM_BASE_URL || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+  provider: process.env.MERGE_ROOM_PROVIDER || 'auto',
+  theme: process.env.MERGE_ROOM_THEME || 'merge-room',
   temperature: 0.35,
   maxTokens: 1200,
   streaming: true,
@@ -18,7 +18,7 @@ export const DEFAULT_CONFIG = {
   maxCalls: 20,
   requestTimeoutMs: 90000,
   retries: 1,
-  sessionDir: '.loom/sessions',
+  sessionDir: '.merge-room/sessions',
   context: { enabled: true, maxFiles: 180, maxBytes: 18000, maxExcerptBytes: 2400, maxDepth: 3 },
   agents: [
     { id: 'scout', name: 'Scout', mark: '◇', color: 'cyan', specialty: 'scope & risks', stage: 1, prompt: 'Map the request into a concise brief. Surface assumptions, risks, and the smallest useful first step.' },
@@ -31,7 +31,7 @@ export const DEFAULT_CONFIG = {
 export async function loadConfig(cwd = process.cwd(), explicitPath) {
   const candidates = explicitPath
     ? [path.resolve(cwd, explicitPath)]
-    : [path.join(cwd, 'loom.config.json'), path.join(cwd, '.loomrc.json')];
+    : [path.join(cwd, 'merge-room.config.json'), path.join(cwd, '.merge-roomrc.json')];
   for (const file of candidates) {
     try {
       const local = JSON.parse(await fs.readFile(file, 'utf8'));
@@ -45,45 +45,45 @@ export async function loadConfig(cwd = process.cwd(), explicitPath) {
 }
 
 function mergeConfig(base, local) {
-  if (!local || typeof local !== 'object' || Array.isArray(local)) throw new Error('loom.config.json must contain a JSON object at the top level.');
-  if (local.context !== undefined && (!local.context || typeof local.context !== 'object' || Array.isArray(local.context))) throw new Error('loom.config.json `context` must be a JSON object.');
-  for (const key of ['streaming', 'streamUsage']) if (local[key] !== undefined && typeof local[key] !== 'boolean') throw new Error(`loom.config.json \`${key}\` must be true or false.`);
-  if (local.context?.enabled !== undefined && typeof local.context.enabled !== 'boolean') throw new Error('loom.config.json `context.enabled` must be true or false.');
-  for (const key of ['model', 'baseUrl']) if (local[key] !== undefined && (typeof local[key] !== 'string' || !local[key].trim())) throw new Error(`loom.config.json \`${key}\` must be a non-empty string.`);
+  if (!local || typeof local !== 'object' || Array.isArray(local)) throw new Error('merge-room.config.json must contain a JSON object at the top level.');
+  if (local.context !== undefined && (!local.context || typeof local.context !== 'object' || Array.isArray(local.context))) throw new Error('merge-room.config.json `context` must be a JSON object.');
+  for (const key of ['streaming', 'streamUsage']) if (local[key] !== undefined && typeof local[key] !== 'boolean') throw new Error(`merge-room.config.json \`${key}\` must be true or false.`);
+  if (local.context?.enabled !== undefined && typeof local.context.enabled !== 'boolean') throw new Error('merge-room.config.json `context.enabled` must be true or false.');
+  for (const key of ['model', 'baseUrl']) if (local[key] !== undefined && (typeof local[key] !== 'string' || !local[key].trim())) throw new Error(`merge-room.config.json \`${key}\` must be a non-empty string.`);
   const theme = normalizeTheme(local.theme ?? base.theme);
-  try { resolveTheme(theme); } catch (error) { throw new Error(`loom.config.json \`theme\`: ${error.message}`); }
+  try { resolveTheme(theme); } catch (error) { throw new Error(`merge-room.config.json \`theme\`: ${error.message}`); }
   const provider = String(local.provider ?? base.provider).trim().toLowerCase();
-  if (!['auto', 'demo'].includes(provider)) throw new Error('loom.config.json `provider` must be `auto` or `demo`.');
-  if (local.sessionDir !== undefined && local.sessionDir !== null && (typeof local.sessionDir !== 'string' || !local.sessionDir.trim())) throw new Error('loom.config.json `sessionDir` must be a non-empty string or null.');
-  if (local.agents !== undefined && !Array.isArray(local.agents)) throw new Error('loom.config.json `agents` must be a JSON array.');
+  if (!['auto', 'demo'].includes(provider)) throw new Error('merge-room.config.json `provider` must be `auto` or `demo`.');
+  if (local.sessionDir !== undefined && local.sessionDir !== null && (typeof local.sessionDir !== 'string' || !local.sessionDir.trim())) throw new Error('merge-room.config.json `sessionDir` must be a non-empty string or null.');
+  if (local.agents !== undefined && !Array.isArray(local.agents)) throw new Error('merge-room.config.json `agents` must be a JSON array.');
   const sourceAgents = Array.isArray(local.agents) && local.agents.length ? local.agents : base.agents;
   const agents = sourceAgents.map((agent, index) => {
-    if (!agent || typeof agent !== 'object' || Array.isArray(agent)) throw new Error(`loom.config.json agent ${index + 1} must be a JSON object.`);
+    if (!agent || typeof agent !== 'object' || Array.isArray(agent)) throw new Error(`merge-room.config.json agent ${index + 1} must be a JSON object.`);
     const fallback = base.agents[index] || base.agents[0];
     const merged = { ...fallback, ...agent };
     const stage = Number(merged.stage ?? fallback.stage ?? 1);
-    if (!Number.isInteger(stage) || stage < 1 || stage > 3) throw new Error(`loom.config.json agent ${index + 1} \`stage\` must be 1, 2, or 3.`);
+    if (!Number.isInteger(stage) || stage < 1 || stage > 3) throw new Error(`merge-room.config.json agent ${index + 1} \`stage\` must be 1, 2, or 3.`);
     return { ...merged, id: slugify(agent.id || agent.name || fallback.id), name: String(merged.name || fallback.name), specialty: String(merged.specialty || fallback.specialty), prompt: String(merged.prompt || fallback.prompt), stage };
   });
   const ids = agents.map((agent) => agent.id);
-  if (new Set(ids).size !== ids.length) throw new Error('loom.config.json contains duplicate agent ids. Give each specialist a unique `id`.');
+  if (new Set(ids).size !== ids.length) throw new Error('merge-room.config.json contains duplicate agent ids. Give each specialist a unique `id`.');
   const strategy = local.strategy ?? base.strategy;
-  if (!['staged', 'parallel'].includes(strategy)) throw new Error('loom.config.json `strategy` must be `staged` or `parallel`.');
+  if (!['staged', 'parallel'].includes(strategy)) throw new Error('merge-room.config.json `strategy` must be `staged` or `parallel`.');
   const maxTokens = Number(local.maxTokens ?? base.maxTokens);
-  if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error('loom.config.json `maxTokens` must be a whole number greater than zero.');
+  if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error('merge-room.config.json `maxTokens` must be a whole number greater than zero.');
   const temperature = Number(local.temperature ?? base.temperature);
-  if (!Number.isFinite(temperature) || temperature < 0) throw new Error('loom.config.json `temperature` must be a non-negative number.');
+  if (!Number.isFinite(temperature) || temperature < 0) throw new Error('merge-room.config.json `temperature` must be a non-negative number.');
   const maxConcurrency = Number(local.maxConcurrency ?? base.maxConcurrency);
-  if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1) throw new Error('loom.config.json `maxConcurrency` must be a whole number greater than zero.');
+  if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1) throw new Error('merge-room.config.json `maxConcurrency` must be a whole number greater than zero.');
   const maxCalls = Number(local.maxCalls ?? base.maxCalls);
-  if (!Number.isInteger(maxCalls) || maxCalls < 0) throw new Error('loom.config.json `maxCalls` must be a whole number greater than or equal to zero (zero means unlimited).');
+  if (!Number.isInteger(maxCalls) || maxCalls < 0) throw new Error('merge-room.config.json `maxCalls` must be a whole number greater than or equal to zero (zero means unlimited).');
   const requestTimeoutMs = Number(local.requestTimeoutMs ?? base.requestTimeoutMs);
-  if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 100) throw new Error('loom.config.json `requestTimeoutMs` must be a whole number of at least 100 milliseconds.');
+  if (!Number.isInteger(requestTimeoutMs) || requestTimeoutMs < 100) throw new Error('merge-room.config.json `requestTimeoutMs` must be a whole number of at least 100 milliseconds.');
   const retries = Number(local.retries ?? base.retries);
-  if (!Number.isInteger(retries) || retries < 0) throw new Error('loom.config.json `retries` must be a whole number greater than or equal to zero.');
+  if (!Number.isInteger(retries) || retries < 0) throw new Error('merge-room.config.json `retries` must be a whole number greater than or equal to zero.');
   const context = { ...base.context, ...(local.context || {}) };
   for (const [key, minimum] of [['maxFiles', 1], ['maxBytes', 256], ['maxExcerptBytes', 80], ['maxDepth', 0]]) {
-    if (!Number.isInteger(Number(context[key])) || Number(context[key]) < minimum) throw new Error(`loom.config.json \`context.${key}\` must be a whole number >= ${minimum}.`);
+    if (!Number.isInteger(Number(context[key])) || Number(context[key]) < minimum) throw new Error(`merge-room.config.json \`context.${key}\` must be a whole number >= ${minimum}.`);
     context[key] = Number(context[key]);
   }
  return {
@@ -108,7 +108,7 @@ function slugify(value) {
 }
 
 export async function writeStarterConfig(cwd = process.cwd()) {
-  const file = path.join(cwd, 'loom.config.json');
+  const file = path.join(cwd, 'merge-room.config.json');
   try { await fs.access(file); return { file, created: false }; } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }

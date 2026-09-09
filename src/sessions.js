@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-export async function saveSession(result, cwd = process.cwd(), directory = '.loom/sessions') {
+export async function saveSession(result, cwd = process.cwd(), directory = '.merge-room/sessions') {
   const root = path.resolve(cwd, directory);
   await fs.mkdir(root, { recursive: true });
   const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
@@ -17,7 +17,7 @@ export async function saveSession(result, cwd = process.cwd(), directory = '.loo
  return { id, file };
 }
 
-export async function listSessions(cwd = process.cwd(), directory = '.loom/sessions') {
+export async function listSessions(cwd = process.cwd(), directory = '.merge-room/sessions') {
   const root = path.resolve(cwd, directory);
   let names;
   try { names = await fs.readdir(root); } catch (error) {
@@ -34,7 +34,7 @@ export async function listSessions(cwd = process.cwd(), directory = '.loom/sessi
   return sessions;
 }
 
-export async function readSession(id, cwd = process.cwd(), directory = '.loom/sessions') {
+export async function readSession(id, cwd = process.cwd(), directory = '.merge-room/sessions') {
   if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Session ids may only contain letters, numbers, underscores, and dashes.');
   const file = path.resolve(cwd, directory, `${id}.json`);
   try {
@@ -47,7 +47,7 @@ export async function readSession(id, cwd = process.cwd(), directory = '.loom/se
 
 export function formatSessionMarkdown(session) {
   const lines = [
-    '# Loom mission', 
+    '# Merge Room mission',
     '',
     `- **Session:** ${session.id || 'unsaved'}`,
     ...(session.runId ? [`- **Run ID:** ${session.runId}`] : []),
@@ -66,7 +66,7 @@ export function formatSessionMarkdown(session) {
     '',
     session.request || '',
     '',
-    '## Loom says',
+    '## Merge Room says',
     '',
     session.answer || '',
     ''

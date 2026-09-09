@@ -15,19 +15,19 @@ export function defaultShell() {
 
 function bashCompletion() {
   return [
-    '# Loom completion for Bash',
-    '_loom() {',
+    '# Merge Room completion for Bash',
+    '_merge-room() {',
     '  local current="${COMP_WORDS[COMP_CWORD]}"',
     '  COMPREPLY=( $(compgen -W "' + COMMANDS.concat(OPTIONS).join(' ') + '" -- "$current") )',
     '}',
-    'complete -F _loom loom',
+    'complete -F _merge-room merge-room',
     ''
   ].join('\n');
 }
 
 function zshCompletion() {
   return [
-    '#compdef loom',
+    '#compdef merge-room',
     '_arguments \'1:command:(' + COMMANDS.join(' ') + ')\' \'*:option:(' + OPTIONS.join(' ') + ')\'',
     ''
   ].join('\n');
@@ -36,8 +36,8 @@ function zshCompletion() {
 function powershellCompletion() {
   const values = [...COMMANDS, ...OPTIONS].join("', '");
   return [
-    '# Loom completion for PowerShell',
-    'Register-ArgumentCompleter -CommandName loom -ScriptBlock {',
+    '# Merge Room completion for PowerShell',
+    'Register-ArgumentCompleter -CommandName merge-room -ScriptBlock {',
     '  param($wordToComplete, $commandAst, $cursorPosition)',
     "  $values = @('" + values + "')",
     '  $values | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {',

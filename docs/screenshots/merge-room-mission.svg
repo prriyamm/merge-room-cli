@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
-  <title id="title">Loom CLI running a multi-agent mission</title>
+  <title id="title">Merge Room CLI running a multi-agent mission</title>
   <desc id="desc">A dark terminal window showing Scout, Architect, Maker, and Critic completing a mission with a two-line token usage footer.</desc>
   <defs>
     <linearGradient id="bar" x1="0" x2="1"><stop offset="0" stop-color="#6ee7d4"/><stop offset="1" stop-color="#9b8cff"/></linearGradient>
@@ -9,9 +9,9 @@
   <rect x="84" y="64" width="1032" height="632" rx="18" fill="#111520" stroke="#2a3142" filter="url(#shadow)"/>
   <rect x="84" y="64" width="1032" height="54" rx="18" fill="#171c2b"/><rect x="84" y="100" width="1032" height="18" fill="#171c2b"/><rect x="84" y="116" width="1032" height="3" fill="url(#bar)"/>
   <circle cx="116" cy="91" r="7" fill="#ff6f91"/><circle cx="140" cy="91" r="7" fill="#f6c85f"/><circle cx="164" cy="91" r="7" fill="#6ee7d4"/>
-  <text x="600" y="96" text-anchor="middle" fill="#aeb7c9" font-family="Inter,Segoe UI,sans-serif" font-size="14">loom — mission cockpit</text>
+  <text x="600" y="96" text-anchor="middle" fill="#aeb7c9" font-family="Inter,Segoe UI,sans-serif" font-size="14">merge-room — mission cockpit</text>
   <g font-family="Cascadia Mono,Consolas,monospace" font-size="18">
-    <text x="126" y="164" fill="#6ee7d4">Loom</text><text x="194" y="164" fill="#dbe2f1">· Map the first three steps for a new feature</text>
+    <text x="126" y="164" fill="#6ee7d4">Merge Room</text><text x="194" y="164" fill="#dbe2f1">· Map the first three steps for a new feature</text>
     <line x1="126" y1="188" x2="1034" y2="188" stroke="#2a3142"/>
     <text x="126" y="232" fill="#6ee7d4">✓</text><text x="162" y="232" fill="#dbe2f1">Scout</text><text x="330" y="232" fill="#7f8aa3">done</text><text x="770" y="232" fill="#66718a">orienting the problem space</text>
     <text x="126" y="272" fill="#6ee7d4">✓</text><text x="162" y="272" fill="#dbe2f1">Architect</text><text x="330" y="272" fill="#7f8aa3">done</text><text x="770" y="272" fill="#66718a">shaping a practical plan</text>
