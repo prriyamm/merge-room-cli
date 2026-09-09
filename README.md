@@ -21,7 +21,7 @@ Loom is a small, dependency-free CLI for thinking with a team of agents. A defau
 
 ### Run a mission
 
-![Loom CLI multi-agent mission](docs/screenshots/loom-mission.svg)
+![Loom CLI multi-agent mission](docs/screenshots/loom-mission-cockpit.svg)
 
 The screenshots are captured representations of real Loom output in local demo mode. Demo mode is deterministic and needs no API key.
 
