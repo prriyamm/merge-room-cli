@@ -54,7 +54,7 @@ Open the conversational cockpit in local demo mode:
 merge-room
 ```
 
-The angular twin-rail mark appears once at startup. From then on, prompts, handoffs, and answers append to normal terminal history, so the conversation scrolls naturally instead of repainting the screen.
+The liquid-glass block mark appears once at startup. From then on, prompts, handoffs, and answers append to normal terminal history, so the conversation scrolls naturally instead of repainting the screen.
 
 Run a one-off mission without opening the cockpit:
 

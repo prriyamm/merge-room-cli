@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { DEFAULT_CONFIG, loadConfig, safeBaseUrl, VERSION } from '../src/config.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.js';
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from '../src/engine.js';
+import { liquidGlassLogoLines } from '../src/logo.js';
 import { createProvider, DemoProvider, OpenAICompatibleProvider } from '../src/providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
@@ -112,22 +113,26 @@ test('conversational cockpit prints its mark once and appends the chat', async (
   renderer.event(0)({ type: 'agent:done', agent: config.agents[0], text: 'Check CI.', telemetry: { total: 12, calls: 1 } });
   renderer.event(0)({ type: 'run:done', result: { answer: 'Ship after CI passes.', usage: { total: 24, calls: 2 } } });
   const output = lines.join('\n');
-  assert.equal((output.match(/Two rooms\. One continuous conversation\./g) || []).length, 1);
-  assert.equal((output.match(/◆/g) || []).length, 1);
+  assert.equal((output.match(/Merge Room\s+demo\/gpt-4o-mini · two rooms/g) || []).length, 1);
+  assert.equal((output.match(/▄█▀▀▀▀▀▀▀▄/g) || []).length, 1);
   assert.match(output, /Room 1 › Plan the release/);
   assert.match(output, /Scout is working/);
   assert.match(output, /Ship after CI passes\./);
   assert.doesNotMatch(output, /\x1b\[2J/);
 });
 
-test('startup mark matches the angular twin-rail reference silhouette', () => {
+test('startup mark preserves the supplied 60-column liquid-glass M', () => {
   const pattern = startupPatternLines();
-  assert.equal(pattern.length, 11);
-  assert.equal(pattern.at(-1).trim(), '◆');
-  assert.equal(pattern.every((line) => line.length <= 34), true);
-  assert.equal(pattern[0].trim(), '╲╲                  ╱╱');
-  assert.equal(pattern.some((line) => line.includes('◇')), true);
-  assert.equal(pattern.some((line) => line.includes('╳       ╳')), true);
+  const colored = liquidGlassLogoLines();
+  assert.equal(pattern.length, 21);
+  assert.equal(pattern.every((line) => line.length <= 60), true);
+  assert.equal(pattern[0], '     ▄█▀▀▀▀▀▀▀▄                              ▄▀▀▀▀▀▀▀▀▄');
+  assert.equal(pattern[8].includes('███████████████████████████'), true);
+  assert.equal(pattern[15].includes('             ▄▄▄▄             '), true);
+  assert.equal(pattern.at(-1).trim(), '▀███████████▀███▀                ▀███████████████▀');
+  assert.equal(colored.length, pattern.length);
+  assert.equal(colored.some((line) => line.includes('\x1b[38;5;159;48;5;152m')), true);
+  assert.equal(colored.some((line) => line.includes('\x1b[38;5;183;48;5;255m')), true);
 });
 
 test('completion scripts cover supported shells', () => {
@@ -159,8 +164,8 @@ test('themes expose named palettes and useful aliases', () => {
 test('documentation screenshots show the one-time mark and scrollable conversation', async () => {
   const started = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-started.svg'), 'utf8');
   const mission = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-mission-cockpit.svg'), 'utf8');
-  assert.match(started, /Two rooms\. One continuous conversation\./);
-  assert.match(started, /angular twin-rail Merge Room mark/);
+  assert.match(started, /demo\/merge-room-demo · two rooms ·/);
+  assert.match(started, /liquid-glass block Merge Room mark/);
   assert.match(mission, /Room 1 ›/);
   assert.match(mission, /Room 2 ›/);
   assert.match(mission, /scrollable conversation/);

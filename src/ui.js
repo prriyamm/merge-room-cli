@@ -1,4 +1,5 @@
 import readline from 'node:readline';
+import { liquidGlassLogoLines } from './logo.js';
 import { formatTokens } from './tokens.js';
 import { resolveTheme, themeSummaries } from './themes.js';
 import { applyCockpitEvent, createCockpitState } from './cockpit.js';
@@ -20,26 +21,15 @@ const wrap = (value, max) => String(value).split(/\s+/).reduce((lines, word) => 
   return lines;
 }, []);
 
-const STARTUP_PATTERN = Object.freeze([
-  Object.freeze({ text: '  ╲╲                  ╱╱', cyanEnd: 4 }),
-  Object.freeze({ text: '   ╲╲                ╱╱', cyanEnd: 5 }),
-  Object.freeze({ text: '    ╲╲      ◇       ╱╱', cyanEnd: 6 }),
-  Object.freeze({ text: '     ╲╲    ╱ ╲     ╱╱', cyanEnd: 7 }),
-  Object.freeze({ text: '      ╲╲  ╱   ╲   ╱╱', cyanEnd: 8 }),
-  Object.freeze({ text: '       ╲╲╱     ╲ ╱╱', cyanEnd: 9 }),
-  Object.freeze({ text: '        ╳       ╳', cyanEnd: 0 }),
-  Object.freeze({ text: '         ╲     ╱', cyanEnd: 0 }),
-  Object.freeze({ text: '          ╲   ╱', cyanEnd: 0 }),
-  Object.freeze({ text: '           ╲ ╱', cyanEnd: 0 }),
-  Object.freeze({ text: '            ◆', cyanEnd: 0 })
-]);
+const STARTUP_PATTERN = Object.freeze(liquidGlassLogoLines({ color: false }));
+const COLORED_STARTUP_PATTERN = Object.freeze(liquidGlassLogoLines({ color: true }));
 
 export function startupPatternLines() {
-  return STARTUP_PATTERN.map((item) => item.text);
+  return [...STARTUP_PATTERN];
 }
 
-function tintPattern(item) {
-  return `${color('teal', item.text.slice(0, item.cyanEnd))}${color('purple', item.text.slice(item.cyanEnd))}`;
+function tintPattern(value, index) {
+  return colorsEnabled ? COLORED_STARTUP_PATTERN[index] : value;
 }
 
 const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -49,18 +39,14 @@ export async function printCockpitWelcome({ provider, model, workspace = process
   if (motion) {
     for (let visible = 2; visible <= STARTUP_PATTERN.length; visible += 2) {
       clear();
-      write('');
-      for (let index = 0; index < STARTUP_PATTERN.length; index += 1) write(index < visible ? tintPattern(STARTUP_PATTERN[index]) : '');
+      for (let index = 0; index < STARTUP_PATTERN.length; index += 1) write(index < visible ? tintPattern(STARTUP_PATTERN[index], index) : '');
       await pause(42);
     }
     clear();
   }
+  for (const [index, item] of STARTUP_PATTERN.entries()) write(tintPattern(item, index));
   write('');
-  for (const item of STARTUP_PATTERN) write(tintPattern(item));
-  write('');
-  write(`  ${color('bold', 'Merge Room')}  ${color('gray', 'Two rooms. One continuous conversation.')}`);
-  write(`  ${color('gray', `${provider} · ${model} · ${crop(workspace, 58)}`)}`);
-  write(`  ${color('gray', 'Type a mission, or use')} ${color('teal', '/help')} ${color('gray', 'for cockpit commands.')}`);
+  write(`  ${color('bold', 'Merge Room')}  ${color('gray', `${provider}/${model} · two rooms ·`)} ${color('teal', '/help')}`);
   write('');
 }
 
