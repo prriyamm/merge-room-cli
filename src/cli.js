@@ -390,6 +390,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   }
 
   async function launch(request, requestNoticeSequence = noticeSequence) {
+    if (closing) return;
     const roomIndex = renderer.state.activeRoom;
     const existing = renderer.state.rooms[roomIndex];
     const previous = existing.result;
