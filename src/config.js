@@ -44,7 +44,7 @@ export async function loadConfig(cwd = process.cwd(), explicitPath) {
       if (error.code !== 'ENOENT') throw new Error(`Could not read ${path.basename(file)}: ${error.message}`);
     }
   }
-  return structuredClone(DEFAULT_CONFIG);
+  return mergeConfig(DEFAULT_CONFIG, {});
 }
 
 function mergeConfig(base, local) {
@@ -61,11 +61,13 @@ function mergeConfig(base, local) {
   if (local.agents !== undefined && !Array.isArray(local.agents)) throw new Error('merge-room.config.json `agents` must be a JSON array.');
   const providers = local.providers ?? base.providers ?? {};
   if (!providers || typeof providers !== 'object' || Array.isArray(providers)) throw new Error('merge-room.config.json `providers` must be a JSON object.');
+  validateProviderBaseUrl(local.baseUrl ?? base.baseUrl, 'baseUrl');
   for (const [id, profile] of Object.entries(providers)) {
     if (!/^[a-z0-9][a-z0-9_-]*$/i.test(id)) throw new Error(`Provider profile id \`${id}\` must use letters, numbers, hyphens, or underscores.`);
     if (!profile || typeof profile !== 'object' || Array.isArray(profile)) throw new Error(`Provider profile \`${id}\` must be a JSON object.`);
     if (!['openai-compatible', 'anthropic'].includes(profile.type)) throw new Error(`Provider profile \`${id}\` type must be \`openai-compatible\` or \`anthropic\`.`);
     for (const key of ['model', 'baseUrl', 'apiKeyEnv']) if (profile[key] !== undefined && (typeof profile[key] !== 'string' || !profile[key].trim())) throw new Error(`Provider profile \`${id}\` \`${key}\` must be a non-empty string.`);
+    validateProviderBaseUrl(profile.baseUrl ?? (profile.type === 'anthropic' ? 'https://api.anthropic.com' : local.baseUrl ?? base.baseUrl), `provider profile \`${id}\` baseUrl`);
     if (Object.keys(profile).some((key) => !['type', 'model', 'baseUrl', 'apiKeyEnv'].includes(key))) throw new Error(`Provider profile \`${id}\` has an unsupported field. Store credentials outside config and reference them with apiKeyEnv.`);
   }
   for (const key of ['defaultProvider', 'leadProvider']) if (local[key] != null && (typeof local[key] !== 'string' || !providers[local[key]])) throw new Error(`merge-room.config.json \`${key}\` must name a configured provider profile.`);
@@ -139,9 +141,27 @@ export function safeBaseUrl(value) {
     const url = new URL(raw);
     url.username = '';
     url.password = '';
-    for (const key of [...url.searchParams.keys()]) if (/(?:api[_-]?key|token|secret|password|credential)/i.test(key)) url.searchParams.set(key, '[redacted]');
+    for (const key of [...url.searchParams.keys()]) if (/(?:api[_-]?key|(?:^|[_-])key(?:$|[_-])|token|secret|password|credential)/i.test(key)) url.searchParams.set(key, '[redacted]');
     return url.toString();
   } catch {
     return raw.replace(/(https?:\/\/)([^\s/@:]+):([^\s/@]+)@/i, '$1[redacted]@').replace(/([?&](?:api[_-]?key|token|secret|password|credential)=)[^&\s]+/gi, '$1[redacted]');
   }
+}
+
+export function validateProviderBaseUrl(value, label = 'provider base URL') {
+  const raw = String(value);
+  if (!raw || raw !== raw.trim() || /\s/.test(raw)) throw new Error(`${label} must not contain whitespace.`);
+  if (/[?#]/.test(raw)) throw new Error(`${label} must not include a query string or fragment.`);
+  const authority = raw.match(/^[a-z][a-z\d+.-]*:\/\/([^/]+)/i)?.[1] || '';
+  if (authority.includes('@')) throw new Error(`${label} must not include embedded credentials.`);
+  let url;
+  try { url = new URL(raw); }
+  catch { throw new Error(`${label} must be an absolute HTTPS URL (HTTP is allowed only for localhost).`); }
+  if (!['https:', 'http:'].includes(url.protocol)) throw new Error(`${label} must use HTTPS (HTTP is allowed only for localhost).`);
+  if (url.username || url.password) throw new Error(`${label} must not include embedded credentials.`);
+  if (url.search || url.hash) throw new Error(`${label} must not include a query string or fragment.`);
+  const hostname = url.hostname.toLowerCase();
+  const loopback = ['localhost', '[::1]'].includes(hostname) || /^127(?:\.\d{1,3}){3}$/.test(hostname);
+  if (url.protocol === 'http:' && !loopback) throw new Error(`${label} must use HTTPS; plain HTTP is allowed only for localhost, 127.0.0.1, or ::1.`);
+  return url.toString().replace(/\/$/, '');
 }

@@ -1,4 +1,5 @@
 import { estimateTokens } from './tokens.js';
+import { validateProviderBaseUrl } from './config.js';
 
 export function createProvider(config) {
   const mode = String(config.provider || 'auto').trim().toLowerCase();
@@ -38,7 +39,7 @@ class ProviderRouter {
 }
 
 export class OpenAICompatibleProvider {
-  constructor(config, apiKey) { this.config = config; this.apiKey = apiKey; this.keyEnv = config.apiKeyEnv || 'OPENAI_API_KEY'; this.name = config.providerId || 'openai-compatible'; this.model = config.model || config.defaultModel; }
+  constructor(config, apiKey) { this.config = { ...config, baseUrl: validateProviderBaseUrl(config.baseUrl, 'OpenAI-compatible baseUrl') }; this.apiKey = apiKey; this.keyEnv = config.apiKeyEnv || 'OPENAI_API_KEY'; this.name = config.providerId || 'openai-compatible'; this.model = config.model || config.defaultModel; }
 
   async complete({ system, prompt, signal, onDelta, model: modelOverride }) {
     const url = `${this.config.baseUrl.replace(/\/$/, '')}/chat/completions`;
@@ -55,7 +56,7 @@ export class OpenAICompatibleProvider {
       if (signal?.aborted) controller.abort();
       let providerError = false;
       try {
-        const response = await fetch(url, { method: 'POST', signal: controller.signal, headers: { 'content-type': 'application/json', authorization: `Bearer ${this.apiKey}` }, body: JSON.stringify(payload) });
+        const response = await fetch(url, { method: 'POST', signal: controller.signal, redirect: 'error', headers: { 'content-type': 'application/json', authorization: `Bearer ${this.apiKey}` }, body: JSON.stringify(payload) });
         if (!response.ok) {
           providerError = true;
           const body = await response.json().catch(() => ({}));
@@ -86,10 +87,10 @@ export class OpenAICompatibleProvider {
 }
 
 export class AnthropicProvider {
-  constructor(config, apiKey) { this.config = config; this.apiKey = apiKey; this.keyEnv = config.apiKeyEnv || 'ANTHROPIC_API_KEY'; this.name = config.providerId || 'anthropic'; this.model = config.model || config.defaultModel; }
+  constructor(config, apiKey) { this.config = { ...config, baseUrl: validateProviderBaseUrl(config.baseUrl || 'https://api.anthropic.com', 'Anthropic baseUrl') }; this.apiKey = apiKey; this.keyEnv = config.apiKeyEnv || 'ANTHROPIC_API_KEY'; this.name = config.providerId || 'anthropic'; this.model = config.model || config.defaultModel; }
 
   async complete({ system, prompt, signal, onDelta, model: modelOverride }) {
-    const baseUrl = (this.config.baseUrl || 'https://api.anthropic.com').replace(/\/$/, '');
+    const baseUrl = this.config.baseUrl;
     const model = modelOverride || this.model;
     const streaming = typeof onDelta === 'function' && this.config.streaming !== false;
     const attempts = Math.max(0, Number(this.config.retries) || 0) + 1;
@@ -103,7 +104,7 @@ export class AnthropicProvider {
       let providerError = false;
       try {
         const response = await fetch(`${baseUrl}/v1/messages`, {
-          method: 'POST', signal: controller.signal,
+          method: 'POST', signal: controller.signal, redirect: 'error',
           headers: { 'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01' },
           body: JSON.stringify({ model, max_tokens: this.config.maxTokens, temperature: this.config.temperature, system, messages: [{ role: 'user', content: prompt }], ...(streaming ? { stream: true } : {}) })
         });
