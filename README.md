@@ -298,7 +298,7 @@ Type a mission to start the selected room. Use `/run <mission>` when the mission
 /context [on|off]      Show or change workspace context
 /history               Show recent saved missions
 /show <id|last>        Load a saved mission into the selected room
-/export <id> [md|json] Export a saved mission
+/export <id|last> [md|json] Export a saved mission
 /usage                 Show saved usage totals
 /help                  Show the common command summary
 /help more             Show command arguments and session commands
