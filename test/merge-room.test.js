@@ -3189,10 +3189,9 @@ test('opt-in Git context includes staged and unstaged changes from HEAD', async 
   }
 });
 
-test('opt-in Git diff includes safe untracked text files and excludes ignored or secret paths', async () => {
+test('opt-in Git diff excludes untracked files', async () => {
   try { await execFileAsync('git', ['--version']); } catch { return; }
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-git-untracked-diff-'));
-  const external = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-git-untracked-outside-'));
   try {
     await execFileAsync('git', ['init'], { cwd: root });
     await execFileAsync('git', ['config', 'user.name', 'Merge Room Test'], { cwd: root });
@@ -3207,74 +3206,12 @@ test('opt-in Git diff includes safe untracked text files and excludes ignored or
     await fs.writeFile(path.join(root, 'empty.js'), '', 'utf8');
     await fs.writeFile(path.join(root, 'ignored.js'), 'const IGNORED_UNTRACKED = true;\n', 'utf8');
     await fs.writeFile(path.join(root, 'credentials.js'), 'const SECRET_UNTRACKED = true;\n', 'utf8');
-    await fs.writeFile(path.join(external, 'outside.js'), 'const OUTSIDE_UNTRACKED_SECRET = true;\n', 'utf8');
-    try {
-      await fs.symlink(external, path.join(root, 'linked.js'), process.platform === 'win32' ? 'junction' : 'dir');
-    } catch (error) {
-      if (!['EPERM', 'EACCES', 'ENOTSUP', 'ENOSYS'].includes(error.code)) throw error;
-    }
     const context = await collectWorkspaceContext(root, { includeDiff: true });
-    assert.match(context.git.diff, /NEW_UNTRACKED_FEATURE/);
-    assert.match(context.git.diff, /@@ -0,0 \+1,1 @@\n\+const NEW_UNTRACKED_FEATURE/);
-    assert.match(context.git.diff, /\+\+\+ b\/empty\.js\n(?!(?:@@))/);
-    assert.doesNotMatch(context.git.diff, /\+\n/);
+    assert.doesNotMatch(context.git.diff, /NEW_UNTRACKED_FEATURE|LARGE_UNTRACKED|IGNORED_UNTRACKED|SECRET_UNTRACKED/);
     assert.ok(Buffer.byteLength(context.git.diff, 'utf8') <= 12000);
-    assert.doesNotMatch(context.git.diff, /IGNORED_UNTRACKED|SECRET_UNTRACKED|OUTSIDE_UNTRACKED_SECRET/);
-    assert.match(context.git.diff, /diff excerpt truncated/);
+    assert.equal(context.git.diff, '');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
-    await fs.rm(external, { recursive: true, force: true });
-  }
-});
-
-test('opt-in untracked diff rejects parent-directory symlink swaps during path validation and open', async () => {
-  try { await execFileAsync('git', ['--version']); } catch { return; }
-  for (const racePoint of ['lstat', 'open']) {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-untracked-swap-'));
-    const external = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-untracked-swap-outside-'));
-    const nested = path.join(root, 'nested');
-    const moved = path.join(root, 'nested-original');
-    const target = path.join(nested, 'new.js');
-    let swapped = false;
-    const originalOpen = fs.open;
-    const originalLstat = fs.lstat;
-    try {
-      await fs.mkdir(nested);
-      await fs.writeFile(target, 'const WORKSPACE_FILE = true;\n', 'utf8');
-      await fs.writeFile(path.join(external, 'new.js'), 'const OUTSIDE_FILE_SECRET = true;\n', 'utf8');
-      await execFileAsync('git', ['init'], { cwd: root });
-      await execFileAsync('git', ['config', 'user.name', 'Merge Room Test'], { cwd: root });
-      await execFileAsync('git', ['config', 'user.email', 'merge-room-test@example.invalid'], { cwd: root });
-      await fs.writeFile(path.join(root, 'tracked.txt'), 'tracked\n', 'utf8');
-      await execFileAsync('git', ['add', 'tracked.txt'], { cwd: root });
-      await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: root });
-
-      const swapParent = async () => {
-        swapped = true;
-        await fs.rename(nested, moved);
-        await fs.symlink(external, nested, process.platform === 'win32' ? 'junction' : 'dir');
-      };
-      const isTarget = (filePath) => path.resolve(String(filePath)).toLowerCase() === path.resolve(target).toLowerCase();
-      fs.open = async (filePath, ...args) => {
-        if (!swapped && racePoint === 'open' && isTarget(filePath)) await swapParent();
-        return originalOpen.call(fs, filePath, ...args);
-      };
-      fs.lstat = async (filePath, ...args) => {
-        if (!swapped && racePoint === 'lstat' && isTarget(filePath)) await swapParent();
-        return originalLstat.call(fs, filePath, ...args);
-      };
-      const context = await collectWorkspaceContext(root, { includeDiff: true });
-      assert.equal(swapped, true, `${racePoint} interleaving should be reached`);
-      // The rename keeps the original file inside the workspace under
-      // nested-original/, so Git may safely include it there. The security
-      // invariant is that the external symlink target is never read.
-      assert.doesNotMatch(context.git.diff, /OUTSIDE_FILE_SECRET/);
-    } finally {
-      fs.open = originalOpen;
-      fs.lstat = originalLstat;
-      await fs.rm(root, { recursive: true, force: true });
-      await fs.rm(external, { recursive: true, force: true });
-    }
   }
 });
 
