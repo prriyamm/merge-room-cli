@@ -1937,6 +1937,33 @@ test('session ids remain unique when time and Math.random collide', async () => 
   }
 });
 
+test('session id and savedAt use one timestamp across a millisecond boundary', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-timestamp-boundary-'));
+  const OriginalDate = globalThis.Date;
+  const firstInstant = OriginalDate.parse('2026-01-02T03:04:05.999Z');
+  let clockReads = 0;
+  globalThis.Date = class extends OriginalDate {
+    constructor(...args) {
+      if (args.length) {
+        super(...args);
+      } else {
+        super(firstInstant + clockReads++);
+      }
+    }
+  };
+  try {
+    const saved = await saveSession({ request: 'timestamp boundary' }, root, 'sessions');
+    const reopened = await readSession(saved.id, root, 'sessions');
+    const stamp = reopened.savedAt.replaceAll(':', '-').replaceAll('.', '-');
+    assert.equal(clockReads, 1);
+    assert.equal(reopened.savedAt, '2026-01-02T03:04:05.999Z');
+    assert.ok(saved.id.startsWith(`${stamp}-`));
+  } finally {
+    globalThis.Date = OriginalDate;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('session readers reject symbolic links that point outside the session directory', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-symlink-'));
   const sessions = path.join(root, 'sessions');
