@@ -79,7 +79,7 @@ test('cockpit renders a left activity rail and a focused room pane', () => {
   assert.match(output, /ROOMS/);
   assert.match(output, /Room 1/);
   assert.match(output, /Room 2/);
-  assert.match(output, /Scout\s+scope & risk/);
+  assert.match(output, /Scout\s+working · s/);
   assert.match(output, /│.*│.*ROOM 1/);
   assert.match(output, /LIVE HANDOFFS/);
 });
@@ -100,10 +100,24 @@ test('compact cockpit keeps an answer preview inside a short terminal', () => {
   assert.match(output, /Room 1: idle/);
   assert.match(output, /Room 2: idle/);
   assert.match(output, /Mission: Keep the release moving/);
-  assert.match(output, /Handoff: Build and review are aligned/);
-  assert.match(output, /Latest: Latest event: ready to ship/);
+  assert.match(output, /Handoff: Build and review/);
+  assert.match(output, /Latest: Latest event:/);
   assert.match(output, /Answer: Answer remains visible/);
-  assert.equal(lines.length, 8);
+  assert.equal(lines.length, 7);
+});
+
+test('compact cockpit crops wide characters to terminal cell width', () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
+  const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 14, rows: 8, write: (line) => lines.push(line) });
+  renderer.state.rooms[0].request = '界'.repeat(20);
+  renderer.render();
+
+  const cellWidth = (line) => [...line].reduce((width, character) => {
+    const codePoint = character.codePointAt(0);
+    return width + (codePoint >= 0x2e80 && codePoint <= 0xa4cf ? 2 : 1);
+  }, 0);
+  assert.ok(lines.every((line) => cellWidth(line) <= 14));
 });
 
 test('cockpit renderer exposes the conversation controls used by the terminal loop', async () => {

@@ -15,9 +15,17 @@ const line = (char = '─') => char.repeat(width());
 const crop = (value, max) => {
   const text = String(value).replace(/\s+/g, ' ');
   const limit = Math.max(0, Math.floor(max));
-  if (text.length <= limit) return text;
+  if (visibleLength(text) <= limit) return text;
   if (limit <= 0) return '';
-  return `${text.slice(0, limit - 1)}…`;
+  let output = '';
+  let used = 0;
+  for (const character of text) {
+    const width = characterWidth(character);
+    if (used + width > limit - 1) break;
+    output += character;
+    used += width;
+  }
+  return `${output}…`;
 };
 const wrap = (value, max) => String(value).split(/\s+/).reduce((lines, word) => {
   const current = lines.at(-1) || '';
@@ -176,12 +184,17 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       const activeRoom = state.rooms[state.activeRoom];
       const otherRoom = state.rooms[state.activeRoom === 0 ? 1 : 0];
       const lines = [];
-      if (activeRoom.request) lines.push(` Mission: ${crop(activeRoom.request, Math.max(0, terminalWidth - 10))}`);
       const latestNote = Object.entries(activeRoom.notes).at(-1);
-      if (latestNote) lines.push(` Handoff: ${crop(latestNote[1], Math.max(0, terminalWidth - 10))}`);
       const latestEvent = activeRoom.events.at(-1);
-      if (latestEvent) lines.push(` Latest: ${crop(latestEvent.message, Math.max(0, terminalWidth - 9))}`);
       const answer = activeRoom.final || activeRoom.answerDraft;
+      if (activeRoom.request) lines.push(` Mission: ${crop(activeRoom.request, Math.max(0, terminalWidth - 10))}`);
+      if (latestNote && latestEvent && answer && contentHeight <= 3) {
+        const detailWidth = Math.max(0, Math.floor((terminalWidth - 24) / 2));
+        lines.push(` Handoff: ${crop(latestNote[1], detailWidth)} · Latest: ${crop(latestEvent.message, detailWidth)}`);
+      } else {
+        if (latestNote) lines.push(` Handoff: ${crop(latestNote[1], Math.max(0, terminalWidth - 10))}`);
+        if (latestEvent) lines.push(` Latest: ${crop(latestEvent.message, Math.max(0, terminalWidth - 9))}`);
+      }
       if (answer && contentHeight === lines.length + 1) {
         lines.push(` Answer: ${crop(answer, Math.max(0, terminalWidth - 10))}`);
       } else if (answer && contentHeight > lines.length + 1) {
@@ -310,8 +323,8 @@ function cockpitSidebar(state, config, maxWidth, height) {
     for (const agent of visibleAgents) {
       const agentStatus = room.statuses[agent.id] || 'idle';
       const icon = agentStatus === 'done' ? color('green', '●') : agentStatus === 'working' ? color('yellow', '◌') : agentStatus === 'error' ? color('red', '×') : agentStatus === 'skipped' || agentStatus === 'cancelled' ? color('yellow', '–') : color('gray', '○');
-      const activity = agentStatus === 'working' ? agent.specialty : agentStatus;
-      section.push(`   ${icon} ${crop(agent.name, 10).padEnd(10)} ${color('gray', crop(activity, maxWidth - 18))}`);
+      const activity = agentStatus === 'working' ? `working · ${agent.specialty}` : agentStatus;
+      section.push(`   ${icon} ${crop(agent.name, 10).padEnd(10)} ${color('gray', crop(activity, maxWidth - 16))}`);
     }
     if (roomAgents.length > visibleAgents.length) section.push(`     ${color('gray', `+${roomAgents.length - visibleAgents.length} more agents`)}`);
     while (section.length < roomHeight) section.push('');
@@ -356,7 +369,23 @@ function cockpitMain(state, config, workspace, maxWidth, height) {
 }
 
 function visibleLength(value) {
-  return String(value).replace(/\x1b\[[0-9;]*m/g, '').length;
+  return [...String(value).replace(/\x1b\[[0-9;]*m/g, '')].reduce((width, character) => width + characterWidth(character), 0);
+}
+
+function characterWidth(character) {
+  const codePoint = character.codePointAt(0);
+  if (codePoint === 0x200d || /\p{Mark}/u.test(character)) return 0;
+  return codePoint >= 0x1100 && (
+    codePoint <= 0x115f || codePoint === 0x2329 || codePoint === 0x232a
+    || (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f)
+    || (codePoint >= 0xac00 && codePoint <= 0xd7a3)
+    || (codePoint >= 0xf900 && codePoint <= 0xfaff)
+    || (codePoint >= 0xfe10 && codePoint <= 0xfe19)
+    || (codePoint >= 0xfe30 && codePoint <= 0xfe6f)
+    || (codePoint >= 0xff00 && codePoint <= 0xff60)
+    || (codePoint >= 0xffe0 && codePoint <= 0xffe6)
+    || (codePoint >= 0x1f300 && codePoint <= 0x1faff)
+  ) ? 2 : 1;
 }
 
 function fit(value, max) {
