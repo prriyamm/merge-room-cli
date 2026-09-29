@@ -180,6 +180,20 @@ test('compact cockpit preserves an answer preview when one row shorter', () => {
   assert.equal(lines.length, 6);
 });
 
+test('compact Cockpit help fits all command syntax in a 46-column five-row terminal', () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
+  const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 46, rows: 5, write: (line) => lines.push(line) });
+  renderer.state.message = '/agents [id] /team <all|ids> /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage';
+
+  renderer.render();
+
+  const output = lines.join('\n');
+  assert.match(output, /\/export <id> \[md\|json\] \/usage/);
+  assert.equal(lines.length, 4);
+  assert.doesNotMatch(output, /Room 1:|\/new reset/);
+});
+
 test('compact cockpit crops wide characters to terminal cell width', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
