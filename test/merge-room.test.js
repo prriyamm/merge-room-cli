@@ -1072,12 +1072,20 @@ test('Anthropic adapter streams text and provider usage metadata', async () => {
     { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Claude' } },
     { type: 'message_delta', usage: { output_tokens: 4 } },
     { type: 'message_stop' }
-  ].map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
+  ].map((event) => `event: ${event.type}\rdata: ${JSON.stringify(event)}\r\r`).join('');
   globalThis.fetch = async (url, options) => {
     assert.equal(url, 'https://api.anthropic.com/v1/messages');
     assert.equal(options.redirect, 'error');
     assert.equal(JSON.parse(options.body).stream, true);
-    return new Response(events, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    const split = events.indexOf('\r\r') + 1;
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(events.slice(0, split)));
+        controller.enqueue(new TextEncoder().encode(events.slice(split)));
+        controller.close();
+      }
+    });
+    return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
   };
   try {
     const config = { ...DEFAULT_CONFIG, providers: { claude: { type: 'anthropic', model: 'claude-test', apiKeyEnv: 'MERGE_ROOM_TEST_ANTHROPIC' } } };
@@ -1294,12 +1302,18 @@ test('openai-compatible adapter streams lead text and usage', async () => {
     requestBody = JSON.parse(options.body);
     const encoder = new TextEncoder();
     const chunks = [
-      'data: {"choices":[{"delta":{"content":"hello "}}]}\n\n',
-      'data: {"choices":[{"delta":{"content":[{"type":"wrapper","content":[{"type":"text","text":"world"}]}]}}]}\n\n',
-      'data: {"choices":[],"usage":{"prompt_tokens":8,"completion_tokens":2}}\n\n',
-      'data: [DONE]\n\n'
+      'data: {"choices":[{"delta":{"content":"hello "}}]}\r\r',
+      'data: {"choices":[{"delta":{"content":[{"type":"wrapper","content":[{"type":"text","text":"world"}]}]}}]}\r\r',
+      'data: {"choices":[],"usage":{"prompt_tokens":8,"completion_tokens":2}}\r\r',
+      'data: [DONE]\r\r'
     ];
-    const body = new ReadableStream({ start(controller) { chunks.forEach((chunk) => controller.enqueue(encoder.encode(chunk))); controller.close(); } });
+    const body = new ReadableStream({ start(controller) {
+      const first = encoder.encode(chunks[0].slice(0, -1));
+      const second = encoder.encode(chunks[0].slice(-1) + chunks.slice(1).join(''));
+      controller.enqueue(first);
+      controller.enqueue(second);
+      controller.close();
+    } });
     return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
   };
   try {
