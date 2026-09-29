@@ -18,7 +18,9 @@ export async function saveSession(result, cwd = process.cwd(), directory = '.mer
  return { id, file };
 }
 
-export async function listSessions(cwd = process.cwd(), directory = '.merge-room/sessions') {
+export async function listSessions(cwd = process.cwd(), directory = '.merge-room/sessions', { limit } = {}) {
+  if (limit !== undefined && (!Number.isInteger(limit) || limit < 0)) throw new Error('Session list limit must be a non-negative integer.');
+  if (limit === 0) return [];
   const root = await resolveSessionDirectory(cwd, directory);
   if (!root) return [];
   let names;
@@ -33,6 +35,7 @@ export async function listSessions(cwd = process.cwd(), directory = '.merge-room
       if (contents === null) continue;
       const data = JSON.parse(contents);
       sessions.push({ id: data.id || name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request: data.request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) });
+      if (limit !== undefined && sessions.length >= limit) break;
     } catch { /* Ignore a partial or hand-edited session file. */ }
   }
   return sessions;
