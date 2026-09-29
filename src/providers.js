@@ -368,6 +368,7 @@ async function readAnthropicStream(body, onDelta) {
   const decoder = new TextDecoder();
   let buffer = '';
   let text = '';
+  let completed = false;
   let inputTokens;
   let outputTokens;
   const consume = (line) => {
@@ -377,6 +378,7 @@ async function readAnthropicStream(body, onDelta) {
     try {
       const event = JSON.parse(data);
       if (event.type === 'error') throw new Error(event.error?.message || 'Anthropic stream failed.');
+      if (event.type === 'message_stop') completed = true;
       if (event.type === 'message_start') inputTokens = event.message?.usage?.input_tokens;
       if (event.type === 'message_delta') outputTokens = event.usage?.output_tokens;
       const piece = event.type === 'content_block_delta' && event.delta?.type === 'text_delta' ? event.delta.text : '';
@@ -395,6 +397,7 @@ async function readAnthropicStream(body, onDelta) {
     if (done) break;
   }
   if (buffer) consume(buffer);
+  if (!completed) throw new Error('Anthropic stream ended before message_stop.');
   return { text: text.trim(), inputTokens, outputTokens };
 }
 
@@ -403,11 +406,14 @@ async function readStream(body, onDelta) {
   const decoder = new TextDecoder();
   let buffer = '';
   let text = '';
+  let completed = false;
   let usage;
   const consume = (line) => {
     if (!line.startsWith('data:')) return;
     const data = line.slice(5).trim();
-    if (!data || data === '[DONE]') return;
+    if (!data) return;
+    if (data === '[DONE]') { completed = true; return; }
+    if (completed) return;
     let parsed;
     try { parsed = JSON.parse(data); } catch { /* Ignore an incomplete or provider-specific SSE frame. */ return; }
     const piece = normalizeContent(parsed.choices?.[0]?.delta?.content);
@@ -423,5 +429,6 @@ async function readStream(body, onDelta) {
     if (done) break;
   }
   if (buffer) consume(buffer);
+  if (!completed) throw new Error('Provider stream ended before [DONE].');
   return { text: text.trim(), usage };
 }
