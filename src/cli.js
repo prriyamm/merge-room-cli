@@ -617,8 +617,20 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
   redraw();
   await new Promise((resolve) => {
-    const handleResize = () => { if (useDashboard && !closing) redraw(); };
-    const removeResizeListener = () => process.stdout.removeListener('resize', handleResize);
+    let resizeTimer = null;
+    const handleResize = () => {
+      if (!useDashboard || closing) return;
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null;
+        if (!closing) redraw();
+      }, 40);
+    };
+    const removeResizeListener = () => {
+      process.stdout.removeListener('resize', handleResize);
+      clearTimeout(resizeTimer);
+      resizeTimer = null;
+    };
     const shutdown = () => {
       if (closing) return;
       closing = true;
