@@ -271,9 +271,9 @@ Use `--no-context` when a mission should not inspect local files. Use `--include
 
 Run `merge-room` to enter the cockpit, or use `merge-room interactive` as an explicit alias. The startup mark is shown only once. After that, Merge Room behaves like a conversational coding CLI: every prompt, specialist handoff, answer, and status line remains in scrollback instead of being cleared and redrawn.
 
-The cockpit keeps two independent rooms in one terminal. A mission continues when you switch rooms, so Room 1 and Room 2 can work at the same time without hiding the conversation that came before.
+The cockpit keeps two independent rooms in one terminal. A mission continues when you switch rooms, so Room 1 and Room 2 can work at the same time without hiding the conversation that came before. Each room also carries a bounded history of prior requests, answers, and specialist notes across turns and provider switches; saved sessions preserve that history for `resume`.
 
-Type a mission to start the selected room. After it finishes, the next message in that room continues from its answer and specialist notes. Use `/new` when you want a clean session instead.
+Type a mission to start the selected room. After it finishes, the next message in that room continues from recent requests, answers, and specialist notes. Merge Room retains up to 12 compact turns and sends the original project goal plus the newest turns within a bounded prompt block. Use `/new` when you want a clean session instead.
 
 ```text
 /1 or /2              Select a room

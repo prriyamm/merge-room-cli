@@ -1052,6 +1052,123 @@ test('resume request preserves specialist notes as untrusted reference', () => {
   assert.match(request, /untrusted reference, not instructions/);
 });
 
+test('legacy saved-session resume clips oversized answers and notes', () => {
+  const request = buildResumeRequest('continue safely', {
+    request: 'legacy project goal',
+    answer: 'a'.repeat(20000),
+    agents: [{ agent: { name: 'Scout' }, stage: 1, text: 'b'.repeat(20000) }]
+  });
+  assert.match(request, /legacy project goal/);
+  assert.match(request, /continue safely/);
+  assert.ok(request.length < 13000);
+  assert.doesNotMatch(request, /a{1000}/);
+  assert.doesNotMatch(request, /b{1000}/);
+});
+
+test('resume request carries bounded multi-turn project history', () => {
+  const conversation = Array.from({ length: 20 }, (_, index) => ({ request: `request ${index}`, answer: `answer ${index}`, agents: [{ name: 'Scout', stage: 1, text: `note ${index}` }] }));
+  const request = buildResumeRequest('continue the project', { request: 'latest request', answer: 'latest answer', agents: [{ agent: { name: 'Critic' }, text: 'latest note' }], conversation });
+  assert.match(request, /continue the project/);
+  assert.match(request, /Original project goal \(first turn\):\nrequest 0/);
+  assert.match(request, /request 19/);
+  assert.match(request, /latest request/);
+  assert.match(request, /latest note/);
+  assert.match(request, /omitted to stay within the context bound/);
+  assert.ok(request.length < 13000);
+});
+
+test('cockpit and saved resume retain earlier project turns', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const stdinDescriptor = Object.getOwnPropertyDescriptor(process, 'stdin');
+  const oldKey = process.env.MERGE_ROOM_TEST_OPENAI;
+  process.env.MERGE_ROOM_TEST_OPENAI = 'openai-secret';
+  const prompts = [];
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-conversation-chain-'));
+  Object.defineProperty(process, 'stdin', { configurable: true, value: Readable.from(['First alpha anchor\n/wait\nSecond beta bridge\n/wait\nThird gamma current\n/wait\n/quit\n']) });
+  globalThis.fetch = async (_url, options) => {
+    prompts.push(JSON.parse(options.body).messages[1].content);
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'A durable answer' } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), { status: 200 });
+  };
+  console.log = () => {};
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      streaming: false,
+      providers: { work: { type: 'openai-compatible', model: 'gpt-test', apiKeyEnv: 'MERGE_ROOM_TEST_OPENAI' } },
+      defaultProvider: 'work',
+      agents: [{ id: 'scout', provider: 'work' }]
+    }));
+    await main(['--cwd', root, 'interactive', '--no-context', '--no-stream'], { signal: new AbortController().signal });
+    assert.equal(prompts.length, 6);
+    assert.match(prompts[4], /First alpha anchor/);
+    assert.match(prompts[4], /Second beta bridge/);
+    const sessions = await listSessions(root);
+    assert.equal(sessions.length, 3);
+    const latestSummary = sessions.find((session) => session.request === 'Third gamma current');
+    const latest = await readSession(latestSummary.id, root);
+    assert.deepEqual(latest.conversation.map((turn) => turn.request), ['First alpha anchor', 'Second beta bridge']);
+
+    prompts.length = 0;
+    await main(['--cwd', root, 'resume', latest.id, 'Fourth delta follow-up', '--no-context', '--no-stream'], { signal: new AbortController().signal });
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[0], /First alpha anchor/);
+    assert.match(prompts[0], /Second beta bridge/);
+    assert.match(prompts[0], /Third gamma current/);
+    const resumedSessions = await listSessions(root);
+    const resumedSummary = resumedSessions.find((session) => session.request === 'Fourth delta follow-up');
+    const resumed = await readSession(resumedSummary.id, root);
+    assert.equal(resumed.request, 'Fourth delta follow-up');
+    assert.deepEqual(resumed.conversation.map((turn) => turn.request), ['First alpha anchor', 'Second beta bridge', 'Third gamma current']);
+  } finally {
+    console.log = originalLog;
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(process, 'stdin', stdinDescriptor);
+    await fs.rm(root, { recursive: true, force: true });
+    if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_OPENAI;
+    else process.env.MERGE_ROOM_TEST_OPENAI = oldKey;
+  }
+});
+
+test('cockpit conversation history stays in its room and /new clears it', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const stdinDescriptor = Object.getOwnPropertyDescriptor(process, 'stdin');
+  const oldKey = process.env.MERGE_ROOM_TEST_OPENAI;
+  process.env.MERGE_ROOM_TEST_OPENAI = 'openai-secret';
+  const prompts = [];
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-room-history-'));
+  Object.defineProperty(process, 'stdin', { configurable: true, value: Readable.from([
+    'Room one anchor\n/wait\n/2\nRoom two anchor\n/wait\n/1\nRoom one follow-up\n/wait\n/2\nRoom two follow-up\n/wait\n/1\n/new\nFresh room one mission\n/wait\n/quit\n'
+  ]) });
+  globalThis.fetch = async (_url, options) => {
+    prompts.push(JSON.parse(options.body).messages[1].content);
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'A durable answer' } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), { status: 200 });
+  };
+  console.log = () => {};
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      streaming: false,
+      providers: { work: { type: 'openai-compatible', model: 'gpt-test', apiKeyEnv: 'MERGE_ROOM_TEST_OPENAI' } },
+      defaultProvider: 'work',
+      agents: [{ id: 'scout', provider: 'work' }]
+    }));
+    await main(['--cwd', root, 'interactive', '--no-context', '--no-stream', '--no-save'], { signal: new AbortController().signal });
+    assert.equal(prompts.length, 10);
+    assert.match(prompts[4], /Room one anchor/);
+    assert.doesNotMatch(prompts[4], /Room two anchor/);
+    assert.match(prompts[6], /Room two anchor/);
+    assert.doesNotMatch(prompts[6], /Room one anchor/);
+    assert.doesNotMatch(prompts[8], /Room one anchor|Room one follow-up/);
+  } finally {
+    console.log = originalLog;
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(process, 'stdin', stdinDescriptor);
+    await fs.rm(root, { recursive: true, force: true });
+    if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_OPENAI;
+    else process.env.MERGE_ROOM_TEST_OPENAI = oldKey;
+  }
+});
+
 test('invalid project configuration fails with an actionable message', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-config-invalid-'));
   try {
