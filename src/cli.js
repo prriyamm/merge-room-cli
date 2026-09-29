@@ -586,19 +586,27 @@ function validateOptions(args) {
 
 function createPlan(config, provider, request, context, workspace = process.cwd()) {
   const runPlan = buildRunPlan(config);
+  const profileIds = Object.keys(config.providers || {});
+  const defaultProvider = config.defaultProvider || profileIds[0] || null;
+  const leadProvider = config.leadProvider || defaultProvider;
+  const effectiveModel = (route, override) => override || provider.profiles?.get(route)?.model || provider.model || config.model;
+  const plannedAgent = ({ id, name, mark, color, specialty, stage, model, provider: route }) => {
+    const selectedProvider = route || defaultProvider || 'default';
+    return { id, name, mark, color, specialty, stage, provider: selectedProvider, model: effectiveModel(selectedProvider, model) };
+  };
   return {
     schemaVersion: SCHEMA_VERSION,
     kind: 'preflight',
     workspace,
     request,
     provider: provider.name,
-    model: provider.model || config.model,
+    model: effectiveModel(leadProvider),
     theme: config.theme,
-    defaultProvider: config.defaultProvider || Object.keys(config.providers || {})[0] || null,
-    leadProvider: config.leadProvider || config.defaultProvider || Object.keys(config.providers || {})[0] || null,
+    defaultProvider,
+    leadProvider,
     strategy: runPlan.strategy,
-    agents: config.agents.map(({ id, name, mark, color, specialty, stage, model, provider }) => ({ id, name, mark, color, specialty, stage, provider: provider || config.defaultProvider || Object.keys(config.providers || {})[0] || 'default', ...(model ? { model } : {}) })),
-    waves: runPlan.groups.map(({ stage, label, agents }) => ({ stage, label, agents: agents.map(({ id, name, mark, color, specialty, model, provider }) => ({ id, name, mark, color, specialty, provider: provider || config.defaultProvider || Object.keys(config.providers || {})[0] || 'default', ...(model ? { model } : {}) })) })),
+    agents: config.agents.map(plannedAgent),
+    waves: runPlan.groups.map(({ stage, label, agents }) => ({ stage, label, agents: agents.map(plannedAgent) })),
     limits: {
       maxCalls: config.maxCalls,
       maxConcurrency: config.maxConcurrency,

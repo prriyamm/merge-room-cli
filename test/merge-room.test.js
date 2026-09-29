@@ -1595,6 +1595,38 @@ test('CLI preflight plan is machine-readable and makes no session', async () => 
   }
 });
 
+test('CLI preflight plan resolves effective provider models for agents and lead', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-plan-routes-'));
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      providers: {
+        work: { type: 'openai-compatible', model: 'gpt-work' },
+        review: { type: 'anthropic', model: 'claude-review' }
+      },
+      defaultProvider: 'work',
+      leadProvider: 'review',
+      agents: [
+        { id: 'scout', name: 'Scout', stage: 1 },
+        { id: 'critic', name: 'Critic', stage: 3, provider: 'review' },
+        { id: 'maker', name: 'Maker', stage: 2, provider: 'review', model: 'custom-review' }
+      ]
+    }));
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
+    const { stdout } = await execFileAsync(process.execPath, [bin, '-C', root, 'plan', '--no-context', '--json', 'route audit'], { cwd: root, windowsHide: true });
+    const plan = JSON.parse(stdout);
+    assert.equal(plan.defaultProvider, 'work');
+    assert.equal(plan.leadProvider, 'review');
+    assert.equal(plan.model, 'claude-review');
+    assert.deepEqual(plan.agents.map(({ provider, model }) => [provider, model]), [
+      ['work', 'gpt-work'], ['review', 'claude-review'], ['review', 'custom-review']
+    ]);
+    assert.equal(plan.waves.flatMap((wave) => wave.agents).find((agent) => agent.id === 'critic').model, 'claude-review');
+    assert.deepEqual(await listSessions(root), []);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI preserves configured context includes unless a flag overrides them', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-configured-include-'));
   try {
