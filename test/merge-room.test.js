@@ -260,9 +260,10 @@ test('compact Cockpit more help pages reveal each command at widths 46, 40, and 
 });
 
 test('tiny Cockpit more help keeps the command and page navigation visible in five rows', () => {
+  const rows = 5;
   for (const columns of [8, 13, 17, 46]) {
     const lines = [];
-    const renderer = createCockpitRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' }, force: true, columns, rows: 5, write: (line) => lines.push(line) });
+    const renderer = createCockpitRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' }, force: true, columns, rows, write: (line) => lines.push(line) });
     renderer.state.message = cockpitHelpMorePage(columns, 0).message;
 
     renderer.render();
@@ -273,6 +274,7 @@ test('tiny Cockpit more help keeps the command and page navigation visible in fi
     assert.ok(compactOutput.includes('1/'), `page progress should be visible at ${columns} columns`);
     assert.ok(compactOutput.includes('/helpmore'), `page navigation should be visible at ${columns} columns`);
     assert.ok(lines.every((line) => line.length <= columns), `rendered lines should fit ${columns} columns`);
+    assert.ok(lines.length <= rows - 1, `rendered lines should fit the viewport at ${columns} columns`);
   }
 });
 

@@ -308,7 +308,7 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
         }
       }
       if (!lines.length && contentHeight > 0) lines.push(' Type a mission to start this room.');
-      safeWrite(fit(header, terminalWidth));
+      if (!tinyHelpUsesLastRow) safeWrite(fit(header, terminalWidth));
       if (showRoomStatus) {
         const compactStatus = (status) => ({ preparing: 'prep', working: 'work', cancelled: 'stop', degraded: 'degr', saving: 'save', queued: 'wait', idle: 'idle', done: 'done', error: 'fail' })[status] || status;
         const tinyStatus = (status) => ({ preparing: '.', working: '>', cancelled: 'x', degraded: '~', saving: 's', queued: 'q', idle: '-', done: '✓', error: '!' })[status] || '?';
