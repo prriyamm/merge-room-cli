@@ -383,7 +383,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     console.log(line);
   };
   const renderer = useDashboard
-    ? createCockpitRenderer({ config, provider, workspace, onRefresh: () => reprompt() })
+    ? createCockpitRenderer({ config, getConfig: () => activeConfig, provider, workspace, onRefresh: () => reprompt() })
     : createConversationRenderer({ config, provider, workspace, onRefresh: () => reprompt(), write: appendLine });
 
   function reprompt() {
