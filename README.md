@@ -219,6 +219,9 @@ Example `merge-room.config.json`:
       "type": "anthropic",
       "model": "claude-model-name",
       "apiKeyEnv": "ANTHROPIC_API_KEY"
+    },
+    "chatgpt-subscription": {
+      "type": "codex-cli"
     }
   },
   "theme": "ocean",
@@ -255,7 +258,7 @@ Example `merge-room.config.json`:
 }
 ```
 
-Agent stages are `1` (orientation), `2` (draft), and `3` (review). Each custom agent needs a unique id; `provider` selects a named profile and `model` can override its profile model. `leadProvider` optionally routes final synthesis; otherwise `defaultProvider` (or the first profile) is used. OpenAI-compatible profiles use `OPENAI_API_KEY` by default; Anthropic profiles use `ANTHROPIC_API_KEY`. Set `apiKeyEnv` to reference another environment variable for a separate API account. These profiles use provider API credentials; they do not use ChatGPT Plus or Claude Pro subscription sign-in. `maxCalls: 0` disables the call cap, while a positive value provides a hard per-run guard.
+Agent stages are `1` (orientation), `2` (draft), and `3` (review). Each custom agent needs a unique id; `provider` selects a named profile and `model` can override its profile model. `leadProvider` optionally routes final synthesis; otherwise `defaultProvider` (or the first profile) is used. OpenAI-compatible profiles use `OPENAI_API_KEY` by default; Anthropic profiles use `ANTHROPIC_API_KEY`. Set `apiKeyEnv` to reference another environment variable for a separate API account. The optional `codex-cli` profile runs the installed Codex CLI and uses its existing sign-in, including ChatGPT account sign-in; it has a read-only sandbox, no persistent native session, and bounded subprocess output. It does not read or copy Codex credentials. Merge Room's saved, bounded conversation history remains the cross-provider context layer. Install and sign in to `codex` before routing a specialist or the lead to this profile. `maxCalls: 0` disables the call cap, while a positive value provides a hard per-run guard.
 
 Configuration can also be supplied with environment variables or command-line flags. An explicitly supplied `--config` path must exist; Merge Room reports a clear error instead of silently falling back to defaults. `merge-room config` prints a safe effective view with provider URL credentials redacted. Provider endpoints must use HTTPS; plain HTTP is accepted only for loopback development servers. Merge Room rejects embedded URL credentials and does not follow redirects when sending API keys. A custom HTTPS endpoint still receives the selected profile's API key, so only use endpoints from configuration you trust. `--base-url` overrides the fallback OpenAI-compatible endpoint for a single run; an explicit `baseUrl` on a named profile takes precedence.
 

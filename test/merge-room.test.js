@@ -10,7 +10,7 @@ import { DEFAULT_CONFIG, loadConfig, safeBaseUrl, validateProviderBaseUrl, VERSI
 import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.js';
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from '../src/engine.js';
 import { liquidGlassLogoLines } from '../src/logo.js';
-import { AnthropicProvider, createProvider, DemoProvider, OpenAICompatibleProvider } from '../src/providers.js';
+import { AnthropicProvider, CodexCliProvider, createProvider, DemoProvider, OpenAICompatibleProvider, parseCodexOutput } from '../src/providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
 import { buildResumeRequest, main } from '../src/cli.js';
@@ -495,6 +495,68 @@ test('provider profiles route agents and lead across OpenAI and Anthropic', asyn
     if (oldOpenAI === undefined) delete process.env.MERGE_ROOM_TEST_OPENAI;
     else process.env.MERGE_ROOM_TEST_OPENAI = oldOpenAI;
   }
+});
+
+test('Codex CLI profiles use bounded JSONL with read-only permissions and local sign-in', async () => {
+  const oldPath = process.env.PATH;
+  const oldOpenAI = process.env.OPENAI_API_KEY;
+  const oldCodex = process.env.CODEX_API_KEY;
+  const oldCodexHome = process.env.CODEX_HOME;
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-codex-cli-'));
+  const bin = path.join(root, 'bin');
+  const probe = path.join(root, 'probe.json');
+  await fs.mkdir(bin);
+  process.env.PATH = `${bin}${path.delimiter}${oldPath || ''}`;
+  process.env.OPENAI_API_KEY = 'must-not-reach-the-cli';
+  process.env.CODEX_API_KEY = 'also-must-not-reach-the-cli';
+  process.env.CODEX_HOME = path.join(root, 'codex-home');
+  await fs.writeFile(path.join(bin, 'codex'), `#!/usr/bin/env node\nconst fs = require('node:fs');\nconst nl = String.fromCharCode(10);\nlet input = '';\nprocess.stdin.setEncoding('utf8');\nprocess.stdin.on('data', (chunk) => input += chunk);\nprocess.stdin.on('end', () => { const output = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'A read-only answer' } }) + nl + JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 12, output_tokens: 7 } }) + nl; fs.writeFileSync(${JSON.stringify(probe)}, JSON.stringify({ args: process.argv.slice(2), input, output, openai: process.env.OPENAI_API_KEY, codex: process.env.CODEX_API_KEY, codexHome: process.env.CODEX_HOME })); process.stdout.write(output); });\n`);
+  await fs.chmod(path.join(bin, 'codex'), 0o755);
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ providers: { chatgpt: { type: 'codex-cli', model: 'gpt-test' } }, defaultProvider: 'chatgpt', agents: [{ id: 'scout', provider: 'chatgpt' }] }));
+    const config = await loadConfig(root);
+    assert.equal(config.providers.chatgpt.type, 'codex-cli');
+    const provider = createProvider(config, root);
+    assert.ok(provider.profiles.get('chatgpt') instanceof CodexCliProvider);
+    let answer;
+    try { answer = await provider.complete({ provider: 'chatgpt', system: 'Stay focused.', prompt: 'inspect this project', model: 'gpt-override' }); }
+    catch (error) { const received = JSON.parse(await fs.readFile(probe, 'utf8')); assert.fail(`${error.message}; output=${received.output}`); }
+    const received = JSON.parse(await fs.readFile(probe, 'utf8'));
+    assert.equal(answer.text, 'A read-only answer');
+    assert.equal(answer.provider, 'chatgpt');
+    assert.equal(answer.model, 'gpt-override');
+    assert.equal(answer.inputTokens, 12);
+    assert.equal(answer.outputTokens, 7);
+    assert.ok(received.args.includes('--json'));
+    assert.ok(received.args.includes('--ephemeral'));
+    assert.ok(received.args.includes('--ignore-user-config'));
+    assert.ok(received.args.includes('mcp_servers={}'));
+    assert.deepEqual(received.args.slice(received.args.indexOf('--sandbox'), received.args.indexOf('--sandbox') + 2), ['--sandbox', 'read-only']);
+    assert.ok(received.args.includes('-'));
+    assert.match(received.input, /Stay focused\.[\s\S]*inspect this project/);
+    assert.equal(received.openai, undefined);
+    assert.equal(received.codex, undefined);
+    assert.equal(received.codexHome, process.env.CODEX_HOME);
+
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ providers: { chatgpt: { type: 'codex-cli', apiKeyEnv: 'OPENAI_API_KEY' } } }));
+    await assert.rejects(() => loadConfig(root), /codex-cli.*does not accept.*apiKeyEnv/);
+  } finally {
+    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+    if (oldOpenAI === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = oldOpenAI;
+    if (oldCodex === undefined) delete process.env.CODEX_API_KEY; else process.env.CODEX_API_KEY = oldCodex;
+    if (oldCodexHome === undefined) delete process.env.CODEX_HOME; else process.env.CODEX_HOME = oldCodexHome;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Codex JSONL parser keeps final assistant text and rejects malformed output', () => {
+  const output = [
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Final report' } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 21, output_tokens: 8 } })
+  ].join('\n');
+  assert.deepEqual(parseCodexOutput(output), { text: 'Final report', inputTokens: 21, outputTokens: 8 });
+  assert.throws(() => parseCodexOutput('{broken json}'), /malformed JSONL/);
+  assert.throws(() => parseCodexOutput(JSON.stringify({ type: 'turn.completed' })), /without a final assistant message/);
 });
 
 test('CLI profile override routes every agent and lead through the selected profile', async () => {
