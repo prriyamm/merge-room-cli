@@ -366,6 +366,7 @@ export function printHelp() {
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--events')}                stream newline-delimited JSON events`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--strict')}                exit 2 when a run is degraded`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--model=… --base-url=…')} override provider settings`);
+  console.log(`  ${color('teal', 'merge-room')} ${color('white', '--profile=<name>')}   route all agents and the lead through one profile`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--provider=demo')}         force local demo mode for CI or offline work`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--max-tokens=800')}         cap one provider response`);
   console.log(`  ${color('teal', 'merge-room')} ${color('white', '--temperature=0.2')}       tune response variance`);

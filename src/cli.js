@@ -73,7 +73,7 @@ export async function main(args = [], { signal } = {}) {
   if (providerValue !== null) config = { ...config, provider: normalizeProvider(providerValue) };
   if (profileValue !== null) {
     if (!config.providers?.[profileValue]) throw new Error(`Unknown provider profile \`${profileValue}\`. Try \`merge-room config\` to inspect configured profiles.`);
-    config = { ...config, defaultProvider: profileValue, leadProvider: profileValue };
+    config = selectProfile(config, profileValue);
   }
   if (themeValue !== null) config = { ...config, theme: setTheme(themeValue).id };
   else setTheme(config.theme);
@@ -217,6 +217,10 @@ async function readStdin(signal) {
   });
 }
 
+function selectProfile(config, profile) {
+  return { ...config, defaultProvider: profile, leadProvider: profile, agents: config.agents.map((agent) => ({ ...agent, provider: profile })) };
+}
+
 function selectTeam(config, value) {
   if (value.trim().toLowerCase() === 'all') return config;
   const requested = value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
@@ -285,6 +289,7 @@ function stripOptions(args, valueOptions, booleanOptions) {
 
 async function interactive(config, provider, noContext = false, noSave = false, signal, trace = false, workspace = process.cwd()) {
   let activeConfig = config;
+  let activeProfile = config.defaultProvider || Object.keys(config.providers || {})[0] || null;
   let contextEnabled = !noContext && config.context?.enabled !== false;
   let closing = false;
   let rl;
@@ -374,8 +379,18 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); await Promise.allSettled([...tasks.values()]); setMessage('Both rooms are ready.'); return true; }
-    if (request === '/help') { setMessage('Type a mission · /1 /2 /switch · /new · /team <ids> · /context on|off · /show <id> · /wait · /quit'); return true; }
+    if (request === '/help') { setMessage('Type a mission · /1 /2 /switch · /new · /team <ids> · /profile <name> · /profiles · /context on|off · /show <id> · /wait · /quit'); return true; }
     if (request === '/agents') { setMessage(`Agents: ${activeConfig.agents.map((agent) => `${agent.name} (${agent.specialty})`).join(', ')}`); return true; }
+    if (request === '/profiles') { const profiles = Object.keys(config.providers || {}); setMessage(profiles.length ? `Profiles: ${profiles.join(', ')}` : 'No provider profiles are configured.'); return true; }
+    if (request === '/profile') { setMessage(activeProfile ? `Provider profile ${activeProfile} is selected. Use /profile <name> to switch future turns.` : 'No provider profile is selected. Use /profiles to inspect configured profiles.'); return true; }
+    if (request.startsWith('/profile ')) {
+      const requested = request.slice('/profile '.length).trim();
+      if (!config.providers?.[requested]) { setMessage(`Unknown provider profile: ${requested}. Use /profiles to inspect configured profiles.`); return true; }
+      activeProfile = requested;
+      activeConfig = selectProfile(activeConfig, requested);
+      setMessage(`Provider profile ${requested} selected for future turns.`);
+      return true;
+    }
     if (request === '/history') {
       const sessions = activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : [];
       setMessage(sessions.length ? `Recent: ${sessions.slice(0, 3).map((item) => `${item.id} ${cropLabel(item.request, 18)}`).join(' · ')}` : 'No saved missions yet.');
@@ -388,9 +403,9 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     }
     if (request === '/context') { setMessage(contextEnabled ? `Context is on for ${workspace}` : 'Context is off. Use /context on to enable it.'); return true; }
     if (request === '/context on' || request === '/context off') { contextEnabled = request.endsWith('on'); setMessage(`Workspace context ${contextEnabled ? 'on' : 'off'} for new turns.`); return true; }
-    if (request === '/team all') { activeConfig = config; setMessage(`All ${activeConfig.agents.length} agents selected.`); return true; }
+    if (request === '/team all') { activeConfig = activeProfile ? selectProfile(config, activeProfile) : config; setMessage(`All ${activeConfig.agents.length} agents selected.`); return true; }
     if (request.startsWith('/team ')) {
-      try { activeConfig = selectTeam(config, request.slice('/team '.length)); setMessage(`Team: ${activeConfig.agents.map((agent) => agent.name).join(', ')}`); }
+      try { activeConfig = selectTeam(config, request.slice('/team '.length)); if (activeProfile) activeConfig = selectProfile(activeConfig, activeProfile); setMessage(`Team: ${activeConfig.agents.map((agent) => agent.name).join(', ')}`); }
       catch (error) { setMessage(error.message); }
       return true;
     }
