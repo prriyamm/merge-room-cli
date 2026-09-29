@@ -1324,7 +1324,10 @@ test('Anthropic adapter completes and cancels the stream at message_stop', async
   let cancelled = false;
   globalThis.fetch = async () => new Response(new ReadableStream({
     start(controller) { controller.enqueue(new TextEncoder().encode(events)); },
-    cancel() { cancelled = true; }
+    cancel() {
+      cancelled = true;
+      return new Promise(() => {});
+    }
   }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
   let timeoutId;
   try {

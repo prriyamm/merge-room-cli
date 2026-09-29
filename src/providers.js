@@ -410,7 +410,7 @@ async function readAnthropicStream(body, onDelta) {
       for (const line of lines) {
         consume(line);
         if (completed) {
-          try { await reader.cancel(); } catch {}
+          try { void reader.cancel().catch(() => {}); } catch {}
           return { text: text.trim(), inputTokens, outputTokens };
         }
       }
