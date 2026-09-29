@@ -10,7 +10,7 @@ export const THEMES = Object.freeze({
     id: 'merge-room',
     label: 'Merge Room',
     description: 'Teal, violet, and soft gray — the default cockpit palette.',
-    colors: palette({ cyan: '36', teal: '38;5;80', blue: '38;5;111', purple: '38;5;141', magenta: '38;5;141', yellow: '33', red: '31', green: '32', white: '97', gray: '38;5;245', bg: '48;5;235' })
+    colors: palette({ cyan: '36', teal: '38;5;80', blue: '38;5;111', purple: '38;5;141', magenta: '38;5;141', yellow: '33', red: '38;5;203', green: '32', white: '97', gray: '38;5;245', bg: '48;5;235' })
   }),
   ocean: Object.freeze({
     id: 'ocean',
