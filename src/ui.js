@@ -272,7 +272,7 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
             const labelWidth = Math.max(1, terminalWidth - 2 - reference.length - 1);
             return `${reference} ${crop(entry.request || '', labelWidth)}`;
           }),
-          'Use /show <ref>'
+          '/show @n'
         ]
         : null;
       const fullMessage = isHelpMessage ? state.message || '' : historyMessageLines ? historyMessageLines.join('\n') : crop(state.message || '', Math.max(0, terminalWidth - 4));

@@ -235,9 +235,9 @@ test('compact cockpit preserves an answer preview when one row shorter', () => {
 
 test('compact Cockpit history exposes short load references at 13 and 8 columns', () => {
   const historyEntries = [
-    { id: '2026-09-29T22-15-10-123-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaa1f0', reference: 'a1f0', request: 'Repair the parser' },
-    { id: '2026-09-29T22-15-10-456-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbb2e1', reference: 'b2e1', request: 'Review login flow' },
-    { id: '2026-09-29T22-15-11-789-cccccccc-cccc-4ccc-8ccc-ccccccccc3d2', reference: 'c3d2', request: 'Document release steps' }
+    { id: '2026-09-29T22-15-10-123-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaa1f0', reference: '@1', request: 'Repair the parser' },
+    { id: '2026-09-29T22-15-10-456-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbb2e1', reference: '@2', request: 'Review login flow' },
+    { id: '2026-09-29T22-15-11-789-cccccccc-cccc-4ccc-8ccc-ccccccccc3d2', reference: '@3', request: 'Document release steps' }
   ];
   for (const columns of [13, 8]) {
     const rows = 9;
@@ -251,7 +251,7 @@ test('compact Cockpit history exposes short load references at 13 and 8 columns'
     const output = lines.join('\n');
     const compactOutput = output.replace(/\s/g, '');
     for (const entry of historyEntries) assert.ok(compactOutput.includes(entry.reference), `history reference ${entry.reference} at ${columns} columns`);
-    assert.ok(compactOutput.includes('/show<ref>'), `load syntax should be visible at ${columns} columns`);
+    assert.ok(compactOutput.includes('/show@n'), `load syntax should be visible at ${columns} columns`);
     assert.ok(lines.every((line) => line.length <= columns), `history output should fit ${columns} columns`);
     assert.ok(lines.length <= rows - 1, `history output should fit the ${rows}-row viewport`);
   }
@@ -265,7 +265,7 @@ test('compact Cockpit history exposes short load references at 13 and 8 columns'
   assert.ok(wideLines.join('\n').includes(historyEntries[0].id), 'wide Cockpit should retain the existing full-ID history message');
 });
 
-test('Cockpit history short references load sessions and reject ambiguous suffixes', async () => {
+test('Cockpit history aliases load a listed session despite an older ID suffix collision', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-cockpit-history-short-ref-'));
   const sessionDir = path.join(root, '.merge-room', 'sessions');
   const stdinDescriptor = Object.getOwnPropertyDescriptor(process, 'stdin');
@@ -274,26 +274,20 @@ test('Cockpit history short references load sessions and reject ambiguous suffix
   const firstId = '2026-09-29T22-15-10-123-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaa1f0';
   const secondId = '2026-09-29T22-15-10-456-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbb2e1';
   const thirdId = '2026-09-29T22-15-11-789-cccccccc-cccc-4ccc-8ccc-ccccccccc3d2';
+  const olderCollisionId = '2026-09-29T22-14-00-000-dddddddd-dddd-4ddd-8ddd-aaaaaaaaa1f0';
   try {
     await fs.mkdir(sessionDir, { recursive: true });
-    for (const [id, request] of [[firstId, 'Repair the parser'], [secondId, 'Review login flow'], [thirdId, 'Document release steps']]) {
+    for (const [id, request] of [[firstId, 'Repair the parser'], [secondId, 'Review login flow'], [thirdId, 'Document release steps'], [olderCollisionId, 'Older hidden collision']]) {
       await fs.writeFile(path.join(sessionDir, `${id}.json`), JSON.stringify({ id, request, answer: `Loaded ${request}`, agents: [] }), 'utf8');
     }
-    Object.defineProperty(process, 'stdin', { configurable: true, value: Readable.from(['/history\n/show a1f0\n/quit\n']) });
+    Object.defineProperty(process, 'stdin', { configurable: true, value: Readable.from(['/history\n/show @3\n/history\n/export @3 json\n/quit\n']) });
     console.log = (...args) => output.push(args.join(' '));
 
     await main(['--cwd', root, 'interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream']);
 
     assert.match(output.join('\n'), /Loaded Repair the parser/);
-
-    const collisionId = '2026-09-29T22-15-12-000-dddddddd-dddd-4ddd-8ddd-aaaaaaaaa1f0';
-    await fs.writeFile(path.join(sessionDir, `${collisionId}.json`), JSON.stringify({ id: collisionId, request: 'Ambiguous suffix' }), 'utf8');
-    const invalidInput = Object.getOwnPropertyDescriptor(process, 'stdin');
-    Object.defineProperty(process, 'stdin', { configurable: true, value: Readable.from(['/show a1f0\n/quit\n']) });
-    output.length = 0;
-    await main(['--cwd', root, 'interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream']);
-    assert.match(output.join('\n'), /Session prefix is ambiguous/);
-    Object.defineProperty(process, 'stdin', invalidInput);
+    const exported = JSON.parse(await fs.readFile(path.join(root, `merge-room-${firstId}.json`), 'utf8'));
+    assert.equal(exported.request, 'Repair the parser');
   } finally {
     console.log = originalLog;
     Object.defineProperty(process, 'stdin', stdinDescriptor);

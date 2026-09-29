@@ -368,6 +368,8 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   let closing = false;
   let noticeSequence = 0;
   let helpMorePage = 0;
+  let historyAliasSessionDir = null;
+  let historyAliases = new Map();
   let rl;
   const tasks = new Map();
   const controllers = new Map();
@@ -410,6 +412,15 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     renderer.notice(message);
     reprompt();
     return true;
+  }
+
+  function isHistoryAlias(value) {
+    return historyAliasSessionDir === activeConfig.sessionDir && historyAliases.has(value);
+  }
+
+  async function resolveInteractiveSessionId(value, sessionConfig) {
+    if (historyAliasSessionDir === sessionConfig.sessionDir && historyAliases.has(value)) return historyAliases.get(value);
+    return resolveSessionId(value, sessionConfig, workspace);
   }
 
   async function launch(request, requestNoticeSequence = noticeSequence, targetRoomIndex = renderer.state.activeRoom) {
@@ -550,11 +561,9 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       try {
         const sessions = activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir, { limit: 3 }) : [];
         const recent = sessions.slice(0, 3);
-        const historyEntries = recent.map((item) => ({
-          id: item.id,
-          reference: shortSessionReference(item.id, recent),
-          request: item.request || '(empty mission)'
-        }));
+        historyAliasSessionDir = activeConfig.sessionDir;
+        historyAliases = new Map(recent.map((item, index) => [`@${index + 1}`, item.id]));
+        const historyEntries = recent.map((item, index) => ({ id: item.id, reference: `@${index + 1}`, request: item.request || '(empty mission)' }));
         setMessage(recent.length ? `Recent: ${recent.map((item) => `${item.id} ${cropLabel(item.request, 18)}`).join(' · ')}` : 'No saved missions yet.', inputNoticeSequence, historyEntries);
       } catch (error) { setMessage(`History unavailable: ${error.message}`, inputNoticeSequence); }
       return true;
@@ -593,7 +602,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         if (closing) return true;
         if (!sessionConfig.sessionDir) throw new Error('Session history is disabled.');
         if (targetRoom.running) throw new Error(`Room ${roomIndex + 1} is working. Switch rooms before loading a saved mission.`);
-        const sessionId = await resolveSessionId(value, sessionConfig, workspace);
+        const sessionId = await resolveInteractiveSessionId(value, sessionConfig);
         if (closing || showRequests.get(roomIndex) !== showRequestId) return true;
         const session = await readSessionFn(sessionId, workspace, sessionConfig.sessionDir);
         if (!session) throw new Error(`Session not found: ${value}`);
@@ -628,7 +637,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       const parts = request.slice('/export'.length).trim().split(/\s+/).filter(Boolean);
       if (!parts[0]) { setMessage('Use /export <id> [md|json].'); return true; }
       if (parts.length > 2) { setMessage('Use /export <id> [md|json].'); return true; }
-      if (!/^[a-zA-Z0-9_-]+$/.test(parts[0])) {
+      if (!/^[a-zA-Z0-9_-]+$/.test(parts[0]) && !isHistoryAlias(parts[0])) {
         setMessage('Session ids may only contain letters, numbers, underscores, and dashes.');
         return true;
       }
@@ -639,7 +648,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       try {
         const sessionConfig = activeConfig;
         if (!sessionConfig.sessionDir) throw new Error('Session history is disabled.');
-        const sessionId = await resolveSessionId(parts[0], sessionConfig, workspace);
+        const sessionId = await resolveInteractiveSessionId(parts[0], sessionConfig);
         const session = await readSession(sessionId, workspace, sessionConfig.sessionDir);
         if (!session) throw new Error(`Session not found: ${parts[0]}`);
         const extension = String(parts[1] || 'md').toLowerCase() === 'json' ? 'json' : 'md';
@@ -759,19 +768,10 @@ async function resolveSessionId(value, config, workspace = process.cwd()) {
   const sessions = await listSessions(workspace, config.sessionDir);
   const exact = sessions.find((session) => session.id === value);
   if (exact) return exact.id;
-  const matches = sessions.filter((session) => session.id.startsWith(value) || session.id.endsWith(value));
+  const matches = sessions.filter((session) => session.id.startsWith(value));
   if (matches.length === 1) return matches[0].id;
   if (matches.length > 1) throw new Error(`Session prefix is ambiguous: ${matches.map((session) => session.id).join(', ')}`);
   return value;
-}
-
-function shortSessionReference(id, sessions) {
-  for (let length = 4; length <= id.length; length += 1) {
-    const reference = id.slice(-length);
-    const matches = sessions.filter((session) => session.id.startsWith(reference) || session.id.endsWith(reference));
-    if (matches.length === 1 && matches[0].id === id) return reference;
-  }
-  return id;
 }
 
 export function buildResumeRequest(followup, prior) {
