@@ -410,7 +410,6 @@ async function readAnthropicStream(body, onDelta) {
       for (const line of lines) {
         consume(line);
         if (completed) {
-          try { void reader.cancel().catch(() => {}); } catch {}
           return { text: text.trim(), inputTokens, outputTokens };
         }
       }
@@ -420,6 +419,9 @@ async function readAnthropicStream(body, onDelta) {
     if (!completed) throw new Error('Anthropic stream ended before message_stop.');
     return { text: text.trim(), inputTokens, outputTokens };
   } finally {
+    // Releasing a reader leaves an unfinished response body flowing. Cancel on
+    // success and every exceptional exit so fetch can close the underlying stream.
+    try { void reader.cancel().catch(() => {}); } catch { /* Keep the stream result or error. */ }
     reader.releaseLock();
   }
 }
