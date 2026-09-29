@@ -10,10 +10,23 @@ let activeTheme = resolveTheme(process.env.MERGE_ROOM_THEME || 'merge-room');
 const color = (name, text) => colorsEnabled ? `${activeTheme.colors[name] || activeTheme.colors.gray}${text}${activeTheme.colors.reset}` : String(text);
 const surface = (text) => colorsEnabled ? `${activeTheme.colors.bg}${String(text).replaceAll(activeTheme.colors.reset, `${activeTheme.colors.reset}${activeTheme.colors.bg}`)}${activeTheme.colors.reset}` : String(text);
 const clear = () => { if (live) process.stdout.write('\x1b[2J\x1b[H'); };
+const stripUnsafeTerminalControls = (value) => String(value)
+  .replace(/\x1B\](?:[^\x07\x1B]|\x1B(?!\\))*(?:\x07|\x1B\\|$)/g, '')
+  .replace(/\x1B[PX^_][\s\S]*?(?:\x1B\\|$)/g, '')
+  .replace(/\x1B\[(?![0-?]*[ -/]*m)[0-?]*[ -/]*[@-~]/g, '')
+  .replace(/\x1B(?!\[)/g, '')
+  .replace(/[\x00-\x08\x0B\x0C\x0E-\x1A\x1C-\x1F\x7F-\x9F]/g, '')
+  .replace(/[\r\n]+/g, ' ');
+const sanitizeUntrustedText = (value) => String(value)
+  .replace(/\x1B\](?:[^\x07\x1B]|\x1B(?!\\))*(?:\x07|\x1B\\|$)/g, '')
+  .replace(/\x1B[PX^_][\s\S]*?(?:\x1B\\|$)/g, '')
+  .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
+  .replace(/\x1B./gs, '')
+  .replace(/[\x00-\x09\x0B-\x1F\x7F-\x9F]/g, ' ');
 const width = () => Math.max(48, Math.min(process.stdout.columns || 92, 118) - 2);
 const line = (char = '─') => char.repeat(width());
 const crop = (value, max) => {
-  const text = String(value).replace(/\s+/g, ' ');
+  const text = sanitizeUntrustedText(value).replace(/\s+/g, ' ');
   const limit = Math.max(0, Math.floor(max));
   if (visibleLength(text) <= limit) return text;
   if (limit <= 0) return '';
@@ -67,7 +80,7 @@ const wrap = (value, max) => {
       currentWidth = partWidth;
     }
   };
-  for (const word of String(value).split(/\s+/).filter(Boolean)) pushWord(word);
+  for (const word of sanitizeUntrustedText(value).split(/\s+/).filter(Boolean)) pushWord(word);
   if (current) lines.push(current);
   return lines;
 };
@@ -97,7 +110,7 @@ export async function printCockpitWelcome({ provider, model, workspace = process
   }
   for (const [index, item] of STARTUP_PATTERN.entries()) write(tintPattern(item, index));
   write('');
-  write(`  ${color('bold', 'Merge Room')}  ${color('gray', `${provider}/${model} · two rooms ·`)} ${color('teal', '/help')}`);
+  write(`  ${color('bold', 'Merge Room')}  ${color('gray', `${sanitizeUntrustedText(provider)}/${sanitizeUntrustedText(model)} · two rooms ·`)} ${color('teal', '/help')}`);
   write('');
 }
 
@@ -114,7 +127,9 @@ export function printBanner({ provider, model }) {
   const w = width();
   console.log('');
   console.log(`  ${color('teal', '╭─')} ${color('bold', 'MERGE ROOM')} ${color('gray', '· agent command cockpit')} ${color('teal', '─'.repeat(Math.max(8, w - 35)))}╮`);
-  console.log(`  ${color('teal', '│')} ${color('white', 'A quiet place to make complicated things move.')} ${color('gray', `provider ${provider}  ·  ${model}`)}${' '.repeat(Math.max(1, w - 66 - provider.length - model.length))}${color('teal', '│')}`);
+  const safeProvider = sanitizeUntrustedText(provider);
+  const safeModel = sanitizeUntrustedText(model);
+  console.log(`  ${color('teal', '│')} ${color('white', 'A quiet place to make complicated things move.')} ${color('gray', `provider ${safeProvider}  ·  ${safeModel}`)}${' '.repeat(Math.max(1, w - 66 - safeProvider.length - safeModel.length))}${color('teal', '│')}`);
   console.log(`  ${color('teal', '╰')}${color('teal', '─'.repeat(Math.max(8, w - 4)))}${color('teal', '╯')}`);
   console.log('');
 }
@@ -135,14 +150,14 @@ export function createRenderer({ config, provider, context = null }) {
       const status = state.statuses.get(agent.id) || 'queued';
       const icon = status === 'done' ? color('green', '●') : status === 'error' ? color('red', '×') : status === 'skipped' ? color('yellow', '–') : status === 'working' ? color('yellow', '◌') : color('gray', '○');
       const label = status === 'working' ? color('yellow', 'working') : status === 'skipped' ? color('yellow', 'skipped') : status;
-      console.log(`  ${icon} ${color(agent.color, agent.mark)} ${color('bold', agent.name.padEnd(12))} ${color('gray', agent.specialty.padEnd(23))} ${label}`);
+      console.log(`  ${icon} ${color(agent.color, sanitizeUntrustedText(agent.mark))} ${color('bold', sanitizeUntrustedText(agent.name).padEnd(12))} ${color('gray', sanitizeUntrustedText(agent.specialty).padEnd(23))} ${label}`);
     }
     const notes = [...state.notes.entries()].slice(-2);
     if (notes.length) {
       console.log(`  ${color('bold', 'HANDOFF NOTES')}`);
       for (const [agentId, note] of notes) {
         const agent = config.agents.find((item) => item.id === agentId);
-        console.log(`  ${color(agent?.color || 'gray', agent?.mark || '·')} ${color('gray', crop(note, width() - 9))}`);
+        console.log(`  ${color(agent?.color || 'gray', sanitizeUntrustedText(agent?.mark || '·'))} ${color('gray', crop(note, width() - 9))}`);
       }
     }
     console.log(`  ${color('gray', line('·'))}`);
@@ -166,37 +181,38 @@ export function createRenderer({ config, provider, context = null }) {
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     if (payload.type === 'run:start') state.request = payload.request;
     if (payload.type === 'agents:dispatch') state.events.push({ time: now, message: `${color('teal', 'wave')} ${color('gray', `${payload.stageLabel} · ${payload.agentCount} specialist${payload.agentCount === 1 ? '' : 's'}`)}` });
-    if (payload.type === 'agent:start') { state.statuses.set(payload.agent.id, 'working'); state.events.push({ time: now, message: `${color(payload.agent.color, payload.agent.name)} ${color('gray', 'picked up the thread')}` }); }
-    if (payload.type === 'agent:done') { state.statuses.set(payload.agent.id, 'done'); state.notes.set(payload.agent.id, payload.text || 'note received'); state.events.push({ time: now, message: `${color('green', 'done')} ${color('gray', `${payload.agent.name || payload.agent?.name || 'specialist'} returned a note`)}` }); }
+    if (payload.type === 'agent:start') { state.statuses.set(payload.agent.id, 'working'); state.events.push({ time: now, message: `${color(payload.agent.color, sanitizeUntrustedText(payload.agent.name))} ${color('gray', 'picked up the thread')}` }); }
+    if (payload.type === 'agent:done') { state.statuses.set(payload.agent.id, 'done'); state.notes.set(payload.agent.id, payload.text || 'note received'); state.events.push({ time: now, message: `${color('green', 'done')} ${color('gray', `${sanitizeUntrustedText(payload.agent.name || payload.agent?.name || 'specialist')} returned a note`)}` }); }
     if (payload.type === 'agent:error') { state.statuses.set(payload.agent.id, 'error'); state.events.push({ time: now, message: `${color('red', 'error')} ${color('gray', crop(payload.error, width() - 20))}` }); }
     if (payload.type === 'agent:skipped') { state.statuses.set(payload.agent.id, 'skipped'); state.events.push({ time: now, message: `${color('yellow', 'skip')} ${color('gray', crop(payload.error, width() - 20))}` }); }
    if (payload.type === 'synthesis:start') state.events.push({ time: now, message: `${color('teal', 'merge-room')} ${color('gray', 'is weaving the notes together')}` });
     if (payload.type === 'synthesis:error') state.events.push({ time: now, message: `${color('yellow', 'fallback')} ${color('gray', 'lead synthesis unavailable; preserving specialist notes')}` });
-    if (payload.type === 'run:cancelled') state.events.push({ time: now, message: `${color('yellow', 'paused')} ${color('gray', payload.error || 'mission cancelled')}` });
+    if (payload.type === 'run:cancelled') state.events.push({ time: now, message: `${color('yellow', 'paused')} ${color('gray', sanitizeUntrustedText(payload.error || 'mission cancelled'))}` });
    if (payload.type === 'synthesis:delta') state.answerDraft += payload.delta;
     if (payload.type === 'run:done') state.final = payload.result.answer;
     const deltaDue = payload.type !== 'synthesis:delta' || Date.now() - state.lastRenderAt >= 80;
     if (live && deltaDue) render();
-    else if (payload.type === 'run:start') console.log(`Merge Room · ${payload.request}`);
-    else if (payload.type === 'agent:done') console.log(`  ${payload.agent.name} done`);
-    else if (payload.type === 'agent:error') console.log(`  ${payload.agent.name} error: ${payload.error}`);
-    else if (payload.type === 'agent:skipped') console.log(`  ${payload.agent.name} skipped: ${payload.error}`);
-    else if (payload.type === 'synthesis:error') console.log(`  Lead synthesis unavailable: ${payload.error}`);
-    else if (payload.type === 'run:cancelled') console.log(`  Mission cancelled: ${payload.error || 'Mission cancelled.'}`);
-   else if (payload.type === 'run:done') console.log(`\n${payload.result.answer}\n`);
+    else if (payload.type === 'run:start') console.log(`Merge Room · ${sanitizeUntrustedText(payload.request)}`);
+    else if (payload.type === 'agent:done') console.log(`  ${sanitizeUntrustedText(payload.agent.name)} done`);
+    else if (payload.type === 'agent:error') console.log(`  ${sanitizeUntrustedText(payload.agent.name)} error: ${sanitizeUntrustedText(payload.error)}`);
+    else if (payload.type === 'agent:skipped') console.log(`  ${sanitizeUntrustedText(payload.agent.name)} skipped: ${sanitizeUntrustedText(payload.error)}`);
+    else if (payload.type === 'synthesis:error') console.log(`  Lead synthesis unavailable: ${sanitizeUntrustedText(payload.error)}`);
+    else if (payload.type === 'run:cancelled') console.log(`  Mission cancelled: ${sanitizeUntrustedText(payload.error || 'Mission cancelled.')}`);
+   else if (payload.type === 'run:done') console.log(`\n${sanitizeUntrustedText(payload.result.answer)}\n`);
   };
   return { event, render, state };
 }
 
 export function createCockpitRenderer({ config, provider, workspace = process.cwd(), onRefresh = () => {}, force = false, columns, rows, write = (line) => console.log(line) }) {
   const state = createCockpitState(config.agents);
+  const safeWrite = (line = '') => write(stripUnsafeTerminalControls(line));
   let lastRenderAt = 0;
   const refresh = () => { render(); onRefresh(); };
   const event = (roomIndex) => (payload) => {
     applyCockpitEvent(state, roomIndex, payload);
     if (payload.type !== 'synthesis:delta' || Date.now() - lastRenderAt >= 80) refresh();
   };
-  const start = (options) => printCockpitWelcome({ provider: provider.name, model: config.model, workspace, write, ...options });
+  const start = (options) => printCockpitWelcome({ provider: provider.name, model: config.model, workspace, ...options, write: safeWrite });
   const user = (roomIndex, request) => {
     state.activeRoom = roomIndex;
     state.rooms[roomIndex].request = request;
@@ -211,7 +227,7 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     const terminalWidth = Math.max(1, Math.min(columns || process.stdout.columns || 108, 140));
     const terminalRows = Math.max(1, rows || process.stdout.rows || 32);
     const terminalHeight = Math.max(1, terminalRows - 1);
-    const header = ` ${color('bold', 'MERGE ROOM')} ${color('gray', `· ${provider.name} · two live sessions`)}`;
+    const header = ` ${color('bold', 'MERGE ROOM')} ${color('gray', `· ${sanitizeUntrustedText(provider.name)} · two live sessions`)}`;
     const help = ' /1 /2 switch · /new reset · /cancel turn · /help · /quit';
     if (terminalWidth < 84 || terminalRows < 24) {
       const showRoomStatus = terminalHeight >= 3;
@@ -243,11 +259,11 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
         }
       }
       if (!lines.length && contentHeight > 0) lines.push(' Type a mission to start this room.');
-      write(fit(header, terminalWidth));
-      if (showRoomStatus) write(surface(fit(` Room ${activeRoom.id}: ${activeRoom.status} · Room ${otherRoom.id}: ${otherRoom.status}`, terminalWidth)));
-      for (const item of lines.slice(0, contentHeight)) write(surface(fit(item, terminalWidth)));
-      if (showHelp) write(surface(fit(help, terminalWidth)));
-      if (showMessage) write(surface(fit(` ${state.message}`, terminalWidth)));
+      safeWrite(fit(header, terminalWidth));
+      if (showRoomStatus) safeWrite(surface(fit(` Room ${activeRoom.id}: ${activeRoom.status} · Room ${otherRoom.id}: ${otherRoom.status}`, terminalWidth)));
+      for (const item of lines.slice(0, contentHeight)) safeWrite(surface(fit(item, terminalWidth)));
+      if (showHelp) safeWrite(surface(fit(help, terminalWidth)));
+      if (showMessage) safeWrite(surface(fit(` ${sanitizeUntrustedText(state.message)}`, terminalWidth)));
       return;
     }
     const sidebarWidth = Math.min(34, Math.max(27, Math.floor(terminalWidth * 0.3)));
@@ -255,13 +271,13 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     const contentHeight = Math.max(0, terminalHeight - 4);
     const sidebar = cockpitSidebar(state, config, sidebarWidth, contentHeight);
     const main = cockpitMain(state, config, workspace, mainWidth, contentHeight);
-    write(`${color('teal', '╭')}${fit(header, terminalWidth - 2)}${color('teal', '╮')}`);
+    safeWrite(`${color('teal', '╭')}${fit(header, terminalWidth - 2)}${color('teal', '╮')}`);
     for (let index = 0; index < contentHeight; index += 1) {
-      write(`${color('teal', '│')}${fit(sidebar[index] || '', sidebarWidth)}${color('teal', '│')}${fit(main[index] || '', mainWidth)}${color('teal', '│')}`);
+      safeWrite(`${color('teal', '│')}${fit(sidebar[index] || '', sidebarWidth)}${color('teal', '│')}${fit(main[index] || '', mainWidth)}${color('teal', '│')}`);
     }
-    write(`${color('teal', '╰')}${'─'.repeat(sidebarWidth)}${color('teal', '┴')}${'─'.repeat(mainWidth)}${color('teal', '╯')}`);
-    write(surface(fit(` ${color('gray', '/1 /2 switch · /new reset · /cancel turn · /help commands · /quit leave')}`, terminalWidth)));
-    write(surface(fit(` ${color('teal', state.message)}`, terminalWidth)));
+    safeWrite(`${color('teal', '╰')}${'─'.repeat(sidebarWidth)}${color('teal', '┴')}${'─'.repeat(mainWidth)}${color('teal', '╯')}`);
+    safeWrite(surface(fit(` ${color('gray', '/1 /2 switch · /new reset · /cancel turn · /help commands · /quit leave')}`, terminalWidth)));
+    safeWrite(surface(fit(` ${color('teal', sanitizeUntrustedText(state.message))}`, terminalWidth)));
   };
   return { state, start, user, loaded, notice, event, render, refresh };
 }
@@ -270,23 +286,23 @@ export function createConversationRenderer({ config, provider, workspace = proce
   const state = createCockpitState(config.agents);
   const enabled = Boolean((process.stdin.isTTY && process.stdout.isTTY) || force);
   let started = false;
-  const emit = (line = '') => { if (enabled) write(line); };
+  const emit = (line = '') => { if (enabled) write(stripUnsafeTerminalControls(line)); };
   const refresh = () => onRefresh();
   const loaded = (session) => {
     emit('');
-    emit(`  ${color('teal', session.id || 'session')}  ${color('gray', session.savedAt || '')}`);
-    emit(`  ${color('bold', 'MISSION')}  ${session.request || ''}`);
+    emit(`  ${color('teal', sanitizeUntrustedText(session.id || 'session'))}  ${color('gray', sanitizeUntrustedText(session.savedAt || ''))}`);
+    emit(`  ${color('bold', 'MISSION')}  ${sanitizeUntrustedText(session.request || '')}`);
     const degraded = Boolean(session.degraded || session.status === 'degraded');
     const status = degraded ? 'degraded' : session.status || 'complete';
     const durationMs = Number(session.durationMs);
     const duration = session.durationMs != null && Number.isFinite(durationMs) && durationMs >= 0 && durationMs <= Date.now() ? `${(durationMs / 1000).toFixed(1)}s` : '';
     const agentCount = Array.isArray(session.agents) ? session.agents.length : Number(session.agents) || 0;
     const waveSummary = Array.isArray(session.waves) && session.waves.length ? session.waves.map((wave) => `${wave.label}:${wave.agentIds?.length || 0}`).join(' \u2192 ') : '';
-    const summary = [status, session.strategy, duration, agentCount ? `${agentCount} agents` : '', waveSummary, session.runId ? `run ${session.runId}` : ''].filter(Boolean).join(' \u00b7 ');
+    const summary = [status, session.strategy, duration, agentCount ? `${agentCount} agents` : '', waveSummary, session.runId ? `run ${session.runId}` : ''].filter(Boolean).map(sanitizeUntrustedText).join(' \u00b7 ');
     emit(`  ${color(degraded ? 'yellow' : 'gray', summary)}`);
     emit('');
     if (degraded) emit(`  ${color('yellow', '\u25b3 Best-effort run: one or more specialists were unavailable.')}`);
-    if (session.synthesisError) emit(`  ${color('gray', `Synthesis: ${session.synthesisError}`)}`);
+    if (session.synthesisError) emit(`  ${color('gray', `Synthesis: ${sanitizeUntrustedText(session.synthesisError)}`)}`);
     for (const paragraph of String(session.answer || '').split(/\n+/)) {
       for (const item of wrap(paragraph, Math.max(44, width() - 8))) emit(`  ${color('white', item)}`);
     }
@@ -294,9 +310,9 @@ export function createConversationRenderer({ config, provider, workspace = proce
       emit('');
       emit(`  ${color('bold', 'SPECIALIST ROUTES')}`);
       for (const item of session.agents) {
-        const name = item.agent?.name || item.agent?.id || 'Specialist';
-        const route = [item.provider, item.model].filter(Boolean).join(' \u00b7 ');
-        emit(`  ${name}${item.stage ? ` \u00b7 stage ${item.stage}` : ''}${route ? ` \u00b7 ${route}` : ''}`);
+        const name = sanitizeUntrustedText(item.agent?.name || item.agent?.id || 'Specialist');
+        const route = [item.provider, item.model].filter(Boolean).map(sanitizeUntrustedText).join(' \u00b7 ');
+        emit(`  ${name}${item.stage ? ` \u00b7 stage ${sanitizeUntrustedText(item.stage)}` : ''}${route ? ` \u00b7 ${route}` : ''}`);
       }
     }
     if (session.usage) {
@@ -314,21 +330,21 @@ export function createConversationRenderer({ config, provider, workspace = proce
   };
   const user = (roomIndex, request) => {
     emit('');
-    emit(`  ${color('teal', `Room ${roomIndex + 1} ›`)} ${color('white', request)}`);
+    emit(`  ${color('teal', `Room ${roomIndex + 1} ›`)} ${color('white', sanitizeUntrustedText(request))}`);
   };
-  const notice = (message) => emit(`  ${color('gray', '·')} ${color('teal', message)}`);
+  const notice = (message) => emit(`  ${color('gray', '·')} ${color('teal', sanitizeUntrustedText(message))}`);
   const event = (roomIndex) => (payload) => {
     applyCockpitEvent(state, roomIndex, payload);
     if (!enabled) return;
     let visibleUpdate = false;
     const prefix = color('gray', `room ${roomIndex + 1}`);
-    if (payload.type === 'agent:start') { emit(`  ${color('gray', '○')} ${color(payload.agent.color, payload.agent.name)} ${color('gray', 'is working')}`); visibleUpdate = true; }
-    if (payload.type === 'agent:done') { emit(`  ${color('green', '✓')} ${color(payload.agent.color, payload.agent.name)} ${color('gray', 'handed back a note')}`); visibleUpdate = true; }
+    if (payload.type === 'agent:start') { emit(`  ${color('gray', '○')} ${color(payload.agent.color, sanitizeUntrustedText(payload.agent.name))} ${color('gray', 'is working')}`); visibleUpdate = true; }
+    if (payload.type === 'agent:done') { emit(`  ${color('green', '✓')} ${color(payload.agent.color, sanitizeUntrustedText(payload.agent.name))} ${color('gray', 'handed back a note')}`); visibleUpdate = true; }
     if (payload.type === 'agent:error') { emit(`  ${color('red', '×')} ${prefix} ${color('red', crop(payload.error, 76))}`); visibleUpdate = true; }
     if (payload.type === 'agent:skipped') { emit(`  ${color('yellow', '–')} ${prefix} ${color('gray', crop(payload.error, 76))}`); visibleUpdate = true; }
     if (payload.type === 'synthesis:start') { emit(`  ${color('purple', '◇')} ${color('gray', 'Merging the room’s notes…')}`); visibleUpdate = true; }
     if (payload.type === 'synthesis:error') { emit(`  ${color('yellow', '△')} ${color('gray', 'Lead synthesis unavailable; keeping the specialist notes.')}`); visibleUpdate = true; }
-    if (payload.type === 'run:cancelled') { emit(`  ${color('yellow', '△')} ${prefix} ${color('gray', payload.error || 'Mission cancelled.')}`); visibleUpdate = true; }
+    if (payload.type === 'run:cancelled') { emit(`  ${color('yellow', '△')} ${prefix} ${color('gray', sanitizeUntrustedText(payload.error || 'Mission cancelled.'))}`); visibleUpdate = true; }
     if (payload.type === 'run:done') {
       visibleUpdate = true;
       emit('');
@@ -389,7 +405,7 @@ function cockpitMain(state, config, workspace, maxWidth, height) {
   if (!notes.length) lines.push(` ${color('gray', room.running ? 'Specialists are getting oriented…' : 'No handoffs yet.')}`);
   for (const [agentId, note] of notes) {
     const agent = config.agents.find((item) => item.id === agentId);
-    lines.push(` ${color(agent?.color || 'gray', agent?.mark || '·')} ${color('gray', crop(note, maxWidth - 5))}`);
+    lines.push(` ${color(agent?.color || 'gray', sanitizeUntrustedText(agent?.mark || '·'))} ${color('gray', crop(note, maxWidth - 5))}`);
   }
   lines.push('', ` ${color('bold', 'RUN LOG')}`);
   if (!room.events.length) lines.push(` ${color('gray', 'Waiting for work.')}`);
@@ -463,20 +479,20 @@ export function printResult(result, { trace = false } = {}) {
   if (trace) {
     console.log(`  ${color('bold', 'SPECIALIST TRACE')}`);
     for (const item of result.agents || []) {
-      console.log(`  ${color(item.agent.color, item.agent.mark)} ${color('bold', item.agent.name)} ${color('gray', `· stage ${item.stage} · ${item.model} · ${item.status} · ${((item.durationMs || 0) / 1000).toFixed(1)}s`)}`);
-      console.log(`  ${color('white', item.text)}\n`);
+      console.log(`  ${color(item.agent.color, sanitizeUntrustedText(item.agent.mark))} ${color('bold', sanitizeUntrustedText(item.agent.name))} ${color('gray', `· stage ${sanitizeUntrustedText(item.stage)} · ${sanitizeUntrustedText(item.model)} · ${sanitizeUntrustedText(item.status)} · ${((item.durationMs || 0) / 1000).toFixed(1)}s`)}`);
+      console.log(`  ${color('white', sanitizeUntrustedText(item.text))}\n`);
     }
   }
   const statusIcon = result.degraded ? color('yellow', '△') : color('green', '✓');
  const statusLabel = result.degraded ? 'Mission complete · best effort' : 'Mission complete';
  console.log(`  ${statusIcon} ${color('bold', statusLabel)} ${color('gray', `in ${(result.durationMs / 1000).toFixed(1)}s`)}`);
-  if (result.synthesisError) console.log(`  ${color('gray', 'reason')} ${result.synthesisError}`);
+  if (result.synthesisError) console.log(`  ${color('gray', 'reason')} ${sanitizeUntrustedText(result.synthesisError)}`);
  const input = `${result.usage.estimatedInput ? '~' : ''}${formatTokens(result.usage.input)}`;
  const output = `${result.usage.estimatedOutput ? '~' : ''}${formatTokens(result.usage.output)}`;
   const total = `${result.usage.estimatedInput || result.usage.estimatedOutput ? '~' : ''}${formatTokens(result.usage.total)}`;
   const budget = result.maxCalls ? ` · cap ${result.maxCalls} calls` : '';
   console.log(`  ${color('gray', 'usage')} ${color('yellow', `${total} burned`)} · ${input} in · ${output} out · ${result.usage.calls || 0} calls · ${result.agents?.length || 0} agents${budget}`);
-  if (result.sessionId) console.log(`  ${color('gray', 'saved')} ${color('teal', `merge-room show ${result.sessionId}`)}`);
+  if (result.sessionId) console.log(`  ${color('gray', 'saved')} ${color('teal', `merge-room show ${sanitizeUntrustedText(result.sessionId)}`)}`);
   console.log('');
 }
 
@@ -493,12 +509,12 @@ export function printPlan(plan) {
   printBanner({ provider: plan.provider, model: plan.model });
   console.log(`  ${color('bold', 'RUN PREFLIGHT')}  ${color('gray', 'no provider calls made')}\n`);
   console.log(`  ${color('white', crop(plan.request, width() - 4))}\n`);
-  console.log(`  ${color('gray', 'workspace')} ${color('white', plan.workspace)}`);
-  console.log(`  ${color('gray', 'strategy')} ${color('teal', plan.strategy)}  ${color('gray', 'agents')} ${plan.agents.length}  ${color('gray', 'context')} ${plan.context ? `${plan.context.fileCount} files` : 'off'}`);
+  console.log(`  ${color('gray', 'workspace')} ${color('white', sanitizeUntrustedText(plan.workspace))}`);
+  console.log(`  ${color('gray', 'strategy')} ${color('teal', sanitizeUntrustedText(plan.strategy))}  ${color('gray', 'agents')} ${plan.agents.length}  ${color('gray', 'context')} ${plan.context ? `${plan.context.fileCount} files` : 'off'}`);
   console.log(`  ${color('gray', 'limits')} max ${plan.limits.maxCalls ? `${plan.limits.maxCalls} calls` : 'unlimited'} · ${plan.limits.maxConcurrency} concurrent · ${plan.limits.maxTokens} output tokens/call\n`);
   for (const wave of plan.waves) {
-    const names = wave.agents.map((agent) => `${agent.mark} ${agent.name}`).join('  ');
-    console.log(`  ${color('teal', `${wave.stage}.`)} ${color('bold', wave.label.padEnd(13))} ${color('white', names)}`);
+    const names = wave.agents.map((agent) => `${sanitizeUntrustedText(agent.mark)} ${sanitizeUntrustedText(agent.name)}`).join('  ');
+    console.log(`  ${color('teal', `${sanitizeUntrustedText(wave.stage)}.`)} ${color('bold', sanitizeUntrustedText(wave.label).padEnd(13))} ${color('white', names)}`);
   }
   console.log(`\n  ${color('gray', 'Run the mission without `plan` when this shape looks right.')}\n`);
 }
@@ -544,7 +560,7 @@ export function printHelp() {
 export function printAgents(config) {
   printBanner({ provider: 'configured', model: config.model });
   console.log(`  ${color('bold', 'SPECIALIST ROSTER')}\n`);
-  for (const agent of config.agents) console.log(`  ${color(agent.color, agent.mark)} ${color('bold', agent.name.padEnd(13))} ${color('gray', `${agent.specialty} · stage ${agent.stage}${agent.provider ? ` · ${agent.provider}` : ''}`)}${agent.model ? ` ${color('purple', `· ${agent.model}`)}` : ''}\n     ${color('dim', agent.prompt)}\n`);
+  for (const agent of config.agents) console.log(`  ${color(agent.color, sanitizeUntrustedText(agent.mark))} ${color('bold', sanitizeUntrustedText(agent.name).padEnd(13))} ${color('gray', `${sanitizeUntrustedText(agent.specialty)} · stage ${sanitizeUntrustedText(agent.stage)}${agent.provider ? ` · ${sanitizeUntrustedText(agent.provider)}` : ''}`)}${agent.model ? ` ${color('purple', `· ${sanitizeUntrustedText(agent.model)}`)}` : ''}\n     ${color('dim', sanitizeUntrustedText(agent.prompt))}\n`);
 }
 
 export function printConfig(config) {
@@ -552,10 +568,11 @@ export function printConfig(config) {
   console.log(`  ${color('bold', 'EFFECTIVE CONFIG')}\n`);
   for (const [key, value] of Object.entries(config)) {
     if (key === 'agents' || key === 'context') continue;
-    console.log(`  ${color('gray', key.padEnd(18))} ${typeof value === 'object' ? JSON.stringify(value) : value}`);
+    const rendered = typeof value === 'string' ? sanitizeUntrustedText(value) : typeof value === 'object' ? sanitizeUntrustedText(JSON.stringify(value)) : value;
+    console.log(`  ${color('gray', sanitizeUntrustedText(key).padEnd(18))} ${rendered}`);
   }
-  console.log(`\n  ${color('bold', 'AGENTS')}  ${config.agents.map((agent) => agent.id).join(', ')}`);
-  console.log(`  ${color('bold', 'CONTEXT')} ${JSON.stringify(config.context)}\n`);
+  console.log(`\n  ${color('bold', 'AGENTS')}  ${config.agents.map((agent) => sanitizeUntrustedText(agent.id)).join(', ')}`);
+  console.log(`  ${color('bold', 'CONTEXT')} ${sanitizeUntrustedText(JSON.stringify(config.context))}\n`);
 }
 
 export function printHistory(sessions) {
@@ -565,8 +582,8 @@ export function printHistory(sessions) {
    const when = session.savedAt ? new Date(session.savedAt).toLocaleString() : 'unknown time';
     const usage = session.usage || {};
     const burned = usage.total != null ? `${usage.estimatedInput || usage.estimatedOutput ? '~' : ''}${formatTokens(usage.total)} burned` : 'usage unavailable';
-    const details = `${session.agents || 0} agents · ${burned}${session.status === 'degraded' || session.degraded ? ' · degraded' : ''}${session.runId ? ` · run ${session.runId}` : ''}`;
-    console.log(`  ${color('teal', session.id)}  ${color('gray', when)}\n  ${color('gray', details)}\n  ${color('white', crop(session.request, width() - 4))}\n`);
+    const details = `${sanitizeUntrustedText(session.agents || 0)} agents · ${burned}${session.status === 'degraded' || session.degraded ? ' · degraded' : ''}${session.runId ? ` · run ${sanitizeUntrustedText(session.runId)}` : ''}`;
+    console.log(`  ${color('teal', sanitizeUntrustedText(session.id))}  ${color('gray', sanitizeUntrustedText(when))}\n  ${color('gray', details)}\n  ${color('white', crop(session.request, width() - 4))}\n`);
  }
 }
 
@@ -586,31 +603,31 @@ export function printUsage(usage) {
     console.log(`  ${color('bold', 'BY MODEL')}\n`);
     for (const [model, values] of models) {
       const estimated = values.estimatedInput || values.estimatedOutput;
-      console.log(`  ${color('teal', model)}  ${values.sessions} missions · ${estimated ? '~' : ''}${formatTokens(values.total)} burned · ${values.calls || 0} calls`);
+      console.log(`  ${color('teal', sanitizeUntrustedText(model))}  ${values.sessions} missions · ${estimated ? '~' : ''}${formatTokens(values.total)} burned · ${values.calls || 0} calls`);
     }
     console.log('');
   }
 }
 
 export function printSession(session) {
-  console.log(`\n  ${color('teal', session.id || 'session')}  ${color('gray', session.savedAt || '')}`);
- console.log(`  ${color('bold', 'MISSION')}  ${session.request || ''}\n`);
+  console.log(`\n  ${color('teal', sanitizeUntrustedText(session.id || 'session'))}  ${color('gray', sanitizeUntrustedText(session.savedAt || ''))}`);
+ console.log(`  ${color('bold', 'MISSION')}  ${sanitizeUntrustedText(session.request || '')}\n`);
   const degraded = Boolean(session.degraded || session.status === 'degraded');
   const durationMs = Number(session.durationMs);
   const duration = session.durationMs != null && Number.isFinite(durationMs) && durationMs >= 0 && durationMs <= Date.now() ? `${(durationMs / 1000).toFixed(1)}s` : '';
-  const waveSummary = session.waves?.length ? session.waves.map((wave) => `${wave.label}:${wave.agentIds?.length || 0}`).join(' → ') : '';
+  const waveSummary = session.waves?.length ? session.waves.map((wave) => `${sanitizeUntrustedText(wave.label)}:${wave.agentIds?.length || 0}`).join(' → ') : '';
   const agentCount = Array.isArray(session.agents) ? session.agents.length : Number(session.agents) || 0;
-  const runSummary = [degraded ? 'degraded' : session.status || 'complete', session.strategy, duration, agentCount ? `${agentCount} agents` : '', waveSummary, session.runId ? `run ${session.runId}` : ''].filter(Boolean).join(' · ');
+  const runSummary = [degraded ? 'degraded' : session.status || 'complete', session.strategy, duration, agentCount ? `${agentCount} agents` : '', waveSummary, session.runId ? `run ${sanitizeUntrustedText(session.runId)}` : ''].filter(Boolean).map(sanitizeUntrustedText).join(' · ');
   if (runSummary) console.log(`  ${color('gray', runSummary)}\n`);
- console.log(`  ${color('bold', 'MERGE ROOM SAYS')}\n  ${session.answer || ''}\n`);
+ console.log(`  ${color('bold', 'MERGE ROOM SAYS')}\n  ${sanitizeUntrustedText(session.answer || '')}\n`);
   if (degraded) console.log(`  ${color('yellow', '△')} ${color('gray', 'Best-effort run: one or more specialists were unavailable.')}\n`);
-  if (session.synthesisError) console.log(`  ${color('gray', 'reason')} ${session.synthesisError}\n`);
+  if (session.synthesisError) console.log(`  ${color('gray', 'reason')} ${sanitizeUntrustedText(session.synthesisError)}\n`);
   if (Array.isArray(session.agents) && session.agents.length) {
     console.log(`  ${color('bold', 'SPECIALIST ROUTES')}`);
     for (const item of session.agents) {
-      const name = item.agent?.name || item.agent?.id || 'Specialist';
-      const route = [item.provider, item.model].filter(Boolean).join(' · ');
-      console.log(`  ${name}${item.stage ? ` · stage ${item.stage}` : ''}${route ? ` · ${route}` : ''}`);
+      const name = sanitizeUntrustedText(item.agent?.name || item.agent?.id || 'Specialist');
+      const route = [item.provider, item.model].filter(Boolean).map(sanitizeUntrustedText).join(' · ');
+      console.log(`  ${name}${item.stage ? ` · stage ${sanitizeUntrustedText(item.stage)}` : ''}${route ? ` · ${route}` : ''}`);
     }
     console.log('');
   }
