@@ -106,6 +106,22 @@ test('compact cockpit keeps an answer preview inside a short terminal', () => {
   assert.equal(lines.length, 7);
 });
 
+test('compact cockpit preserves an answer preview when one row shorter', () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };
+  const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 60, rows: 7, write: (line) => lines.push(line) });
+  const room = renderer.state.rooms[0];
+  room.request = 'Keep the release moving';
+  room.notes[config.agents[0].id] = 'Build and review are aligned';
+  room.events.push({ message: 'Latest event: ready to ship' });
+  room.final = 'Answer remains visible';
+
+  renderer.render();
+
+  assert.match(lines.join('\n'), /Answer: Answer remains visible/);
+  assert.equal(lines.length, 6);
+});
+
 test('compact cockpit crops wide characters to terminal cell width', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };

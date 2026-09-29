@@ -195,12 +195,15 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
         if (latestNote) lines.push(` Handoff: ${crop(latestNote[1], Math.max(0, terminalWidth - 10))}`);
         if (latestEvent) lines.push(` Latest: ${crop(latestEvent.message, Math.max(0, terminalWidth - 9))}`);
       }
-      if (answer && contentHeight === lines.length + 1) {
-        lines.push(` Answer: ${crop(answer, Math.max(0, terminalWidth - 10))}`);
-      } else if (answer && contentHeight > lines.length + 1) {
-        lines.push(` ${color('bold', 'MERGE ROOM SAYS')}`);
-        const answerRows = Math.max(0, contentHeight - lines.length);
-        if (answerRows > 0) lines.push(...wrap(answer, Math.max(1, terminalWidth - 2)).slice(-answerRows).map((item) => ` ${color('white', item)}`));
+      if (answer && contentHeight > 0) {
+        lines.splice(Math.max(0, contentHeight - 1));
+        if (contentHeight === lines.length + 1) {
+          lines.push(` Answer: ${crop(answer, Math.max(0, terminalWidth - 10))}`);
+        } else {
+          lines.push(` ${color('bold', 'MERGE ROOM SAYS')}`);
+          const answerRows = Math.max(0, contentHeight - lines.length);
+          if (answerRows > 0) lines.push(...wrap(answer, Math.max(1, terminalWidth - 2)).slice(-answerRows).map((item) => ` ${color('white', item)}`));
+        }
       }
       if (!lines.length && contentHeight > 0) lines.push(' Type a mission to start this room.');
       write(fit(header, terminalWidth));
