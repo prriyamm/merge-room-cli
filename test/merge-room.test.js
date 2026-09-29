@@ -2697,6 +2697,27 @@ test('CLI resolves unique session id prefixes', async () => {
   }
 });
 
+test('CLI resume resolves filename prefixes when saved JSON embeds another ID', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-resume-canonical-id-'));
+  const sessionDir = path.join(root, '.merge-room', 'sessions');
+  try {
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(path.join(sessionDir, 'first.json'), JSON.stringify({ id: 'second', request: 'first file request', answer: 'first file answer' }), 'utf8');
+    await fs.writeFile(path.join(sessionDir, 'second.json'), JSON.stringify({ id: 'second', request: 'second file request', answer: 'second file answer' }), 'utf8');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
+    const { stdout } = await execFileAsync(process.execPath, [bin, 'resume', 'fir', 'follow-up', '--provider=demo', '--no-context', '--no-stream', '--json'], { cwd: root, windowsHide: true });
+    const resumed = JSON.parse(stdout);
+
+    assert.deepEqual(resumed.conversation.map(({ request, answer }) => ({ request, answer })), [
+      { request: 'first file request', answer: 'first file answer' }
+    ]);
+    assert.doesNotMatch(JSON.stringify(resumed.conversation), /second file request|second file answer/);
+    assert.equal(JSON.parse(await fs.readFile(path.join(sessionDir, 'first.json'), 'utf8')).id, 'second');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI show and export keep filename IDs when saved JSON embeds another ID', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-spoofed-id-'));
   const sessionDir = path.join(root, '.merge-room', 'sessions');
