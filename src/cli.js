@@ -468,7 +468,8 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); await waitForCockpitTasks(tasks); setMessage('Both rooms are ready.'); return true; }
-    if (request === '/help') { setMessage('Type a mission or /run <mission> · /1 /2 /switch · /new /clear /wait /cancel · /agents /team /profile /profiles · /context · /history /show /export /usage · /help /quit /exit'); return true; }
+    if (request === '/help more') { setMessage('Cockpit help: /agents [id] /team <all|ids> · /profile <name> /profiles · /context [on|off] · /history /show <id|last> /export <id> [md|json] /usage'); return true; }
+    if (request === '/help') { setMessage('Cockpit help: mission or /run <mission> · rooms /1 /2 /switch · turns /new /clear /wait /cancel · /help more · /quit /exit'); return true; }
     if (request === '/agents') {
       setMessage(`Team of ${activeConfig.agents.length}. Use /agents <id> for a specialist's details; run merge-room agents for the full roster.`);
       return true;
