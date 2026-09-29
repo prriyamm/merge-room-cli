@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { execFile, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Readable } from 'node:stream';
 import { DEFAULT_CONFIG, loadConfig, safeBaseUrl, validateProviderBaseUrl, VERSION, writeStarterConfig } from '../src/config.js';
@@ -687,8 +687,39 @@ test('completion scripts offer values after spaced theme and format options', ()
   assert.match(zsh, /words\[CURRENT-1\].*--theme/);
   assert.match(zsh, /words\[CURRENT-1\].*--format/);
   const powershell = completionScript('powershell');
-  assert.match(powershell, /elements\[-2\].*--theme/);
-  assert.match(powershell, /elements\[-2\].*--format/);
+  assert.match(powershell, /elements\[-1\].*--theme.*--format/);
+  assert.match(powershell, /previous.*--theme/);
+  assert.match(powershell, /previous.*--format/);
+});
+
+test('PowerShell completion handles blank and partially typed option values when PowerShell is available', async (t) => {
+  const powershell = ['pwsh', 'pwsh.exe', 'powershell.exe'].find((candidate) => {
+    try { execFileSync(candidate, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'], { windowsHide: true, stdio: 'ignore' }); return true; } catch { return false; }
+  });
+  if (!powershell) return t.skip('PowerShell is not installed');
+
+  const completion = completionScript('powershell');
+  const script = `
+function Register-ArgumentCompleter { param($CommandName, $ScriptBlock) $global:mergeRoomCompleter = $ScriptBlock }
+${completion}
+function Get-OptionCompletions([string]$line) {
+  $tokens = $null; $errors = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseInput($line, [ref]$tokens, [ref]$errors)
+  $command = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))[0]
+  @(& $global:mergeRoomCompleter '' $command $line.Length | ForEach-Object { $_.CompletionText })
+}
+if ((Get-OptionCompletions 'merge-room --theme ') -notcontains 'ocean') { exit 1 }
+if ((Get-OptionCompletions 'merge-room --theme o') -notcontains 'ocean') { exit 2 }
+if ((Get-OptionCompletions 'merge-room --format ') -notcontains 'json') { exit 3 }
+if ((Get-OptionCompletions 'merge-room --format j') -notcontains 'json') { exit 4 }
+`;
+  const scriptPath = path.join(os.tmpdir(), `merge-room-completion-${process.pid}.ps1`);
+  await fs.writeFile(scriptPath, script, 'utf8');
+  try {
+    await execFileAsync(powershell, ['-NoProfile', '-NonInteractive', '-File', scriptPath], { windowsHide: true });
+  } finally {
+    await fs.rm(scriptPath, { force: true });
+  }
 });
 
 test('themes expose named palettes and useful aliases', () => {
