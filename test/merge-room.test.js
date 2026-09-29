@@ -145,6 +145,9 @@ test('completion scripts cover supported shells', () => {
   assert.match(completionScript('bash'), /--cwd=/);
   assert.match(completionScript('bash'), /--prompt-file=/);
   assert.match(completionScript('bash'), /theme/);
+  assert.match(completionScript('bash'), /providers/);
+  assert.match(completionScript('zsh'), /providers/);
+  assert.match(completionScript('powershell'), /providers/);
 });
 
 test('themes expose named palettes and useful aliases', () => {
