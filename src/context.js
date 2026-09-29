@@ -11,6 +11,7 @@ const DEFAULT_IGNORES = new Set([
 ]);
 const SECRET_NAMES = /(^|[._-])(env|secret|secrets|token|password|passwd|credential|credentials)([._-]|$)|id_rsa|\.pem$/i;
 const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.json', '.md', '.txt', '.css', '.html', '.yml', '.yaml', '.toml', '.py', '.go', '.rs', '.java', '.rb', '.sql', '.sh', '.ps1']);
+const MAX_IGNORE_FILE_BYTES = 256 * 1024;
 
 export async function collectWorkspaceContext(cwd = process.cwd(), options = {}) {
   ensureActive(options.signal);
@@ -22,7 +23,7 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
   const excerpts = [];
   const seenFiles = new Set();
   const seenDirectories = new Set();
-  const ignoreRules = await readIgnoreRules(workspaceRoot);
+  const ignoreRules = await readIgnoreRules(workspaceRoot, '', options.signal);
   let totalBytes = 0;
 
   async function captureFile(fullPath, relative, depth) {
@@ -73,7 +74,7 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
     let stat;
     try { stat = await fs.stat(fullPath); } catch { continue; }
     if (stat.isDirectory()) {
-      const requestedRules = await readIgnoreRulesForPath(workspaceRoot, fullPath, true);
+      const requestedRules = await readIgnoreRulesForPath(workspaceRoot, fullPath, options.signal);
       const ignored = isIgnored(relative, requestedRules);
       if (!ignored || hasNegatedDescendant(relative, requestedRules)) await visit(fullPath, 0, requestedRules);
     }
@@ -87,7 +88,7 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
     if (depth > (options.maxDepth ?? 3) || entries.length >= maxFiles) return;
     const directoryRules = directory === workspaceRoot
       ? inheritedIgnoreRules
-      : inheritedIgnoreRules.concat(await readIgnoreRules(directory, path.relative(workspaceRoot, directory)));
+      : inheritedIgnoreRules.concat(await readIgnoreRules(directory, path.relative(workspaceRoot, directory), options.signal));
     let children;
     try { children = await fs.readdir(directory, { withFileTypes: true }); } catch { return; }
     children.sort((a, b) => a.name.localeCompare(b.name));
@@ -148,15 +149,58 @@ function redactSecrets(text) {
   return text.replace(/((?:api[_-]?key|access[_-]?token|auth(?:orization)?|password|passwd|secret)["']?\s*[=:]\s*["']?)([^\s"'`,}]+)/gi, '$1[redacted]');
 }
 
-async function readIgnoreRules(cwd, base = '') {
+async function readIgnoreRules(cwd, base = '', signal) {
+  ensureActive(signal);
+  const normalizedBase = base.replaceAll('\\', '/').replace(/^\.\/$/, '');
+  const ignoreFile = path.join(cwd, '.gitignore');
+  let handle;
   let source;
-  try { source = await fs.readFile(path.join(cwd, '.gitignore'), 'utf8'); } catch { return []; }
+  try {
+    handle = await fs.open(ignoreFile, 'r');
+    const stat = await handle.stat();
+    if (stat.size > MAX_IGNORE_FILE_BYTES) return [ignoreEverythingRule(normalizedBase)];
+    const buffer = Buffer.alloc(MAX_IGNORE_FILE_BYTES + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    ensureActive(signal);
+    if (bytesRead > MAX_IGNORE_FILE_BYTES) return [ignoreEverythingRule(normalizedBase)];
+    source = buffer.subarray(0, bytesRead).toString('utf8');
+  } catch (error) {
+    if (error.name === 'AbortError' || signal?.aborted) ensureActive(signal);
+    if (error.code === 'ENOENT') return [];
+    return [ignoreEverythingRule(normalizedBase)];
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+  ensureActive(signal);
   return source.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#')).map((rawPattern) => {
     const negate = rawPattern.startsWith('!');
     const value = (negate ? rawPattern.slice(1) : rawPattern).replaceAll('\\', '/');
     const pattern = value.replace(/^\//, '').replace(/\/$/, '');
-    return { negate, base: base.replaceAll('\\', '/').replace(/^\.\/$/, ''), directoryOnly: value.endsWith('/'), pattern, regex: ignorePatternRegex(pattern) };
+    return { negate, base: normalizedBase, directoryOnly: value.endsWith('/'), pattern, regex: ignorePatternRegex(pattern) };
   });
+}
+
+function ignoreEverythingRule(base) {
+  return { negate: false, base, directoryOnly: false, pattern: '**', regex: /^[\s\S]*$/ };
+}
+
+async function readIgnoreRulesForPath(workspaceRoot, targetPath, signal) {
+  const targetDirectory = path.dirname(targetPath);
+  const relative = path.relative(workspaceRoot, targetDirectory);
+  const directories = [workspaceRoot];
+  if (relative && relative !== '.') {
+    let current = workspaceRoot;
+    for (const part of relative.split(path.sep)) {
+      current = path.join(current, part);
+      directories.push(current);
+    }
+  }
+  const rules = [];
+  for (const directory of directories) {
+    ensureActive(signal);
+    rules.push(...await readIgnoreRules(directory, path.relative(workspaceRoot, directory), signal));
+  }
+  return rules;
 }
 
 function isIgnored(relative, rules) {
@@ -208,12 +252,14 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
       } catch { /* A repository can be readable even when its diff is unavailable. */ }
     }
     ensureActive(signal);
-    const ignoreRules = await readIgnoreRules(cwd, signal);
     const pathArgs = [];
     let pathArgsBytes = 0;
     for (const relative of changedPaths) {
       ensureActive(signal);
-      if (!isSafeDiffPath(relative, ignoreRules)) continue;
+      const normalized = relative.replaceAll('\\', '/').replace(/^\.\//, '');
+      if (!isSafeDiffPath(normalized)) continue;
+      const ignoreRules = await readIgnoreRulesForPath(cwd, path.resolve(cwd, relative), signal);
+      if (isIgnored(normalized, ignoreRules)) continue;
       const argument = `:(literal)${relative}`;
       const argumentBytes = Buffer.byteLength(argument, 'utf8') + 1;
       if (pathArgs.length >= 256 || pathArgsBytes + argumentBytes > 12000) break;
@@ -228,7 +274,7 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
     let diff = '';
     if (includeDiff && pathArgs.length) {
       try {
-        const diffArgs = ['diff', ...(diffBase ? [diffBase] : []), '--no-ext-diff', '--no-renames', '--unified=2', '--', ...pathArgs];
+        const diffArgs = ['diff', ...(diffBase ? [diffBase] : []), '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=2', '--', ...pathArgs];
         const diffResult = await execFileAsync('git', diffArgs, { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
         diff = redactSecrets(diffResult.stdout.trim().slice(0, 12000));
       } catch { /* A diff is optional context; status and stats remain useful without it. */ }
@@ -242,7 +288,7 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
 
 async function getDiffStat(cwd, base, pathArgs, signal) {
   try {
-    const args = ['diff', ...(base ? [base] : []), '--stat', '--no-ext-diff', '--no-renames', '--', ...pathArgs];
+    const args = ['diff', ...(base ? [base] : []), '--stat', '--no-ext-diff', '--no-textconv', '--no-renames', '--', ...pathArgs];
     const result = await execFileAsync('git', args, { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 20000 });
     return result.stdout.trim();
   } catch (error) {
@@ -251,9 +297,9 @@ async function getDiffStat(cwd, base, pathArgs, signal) {
   }
 }
 
-function isSafeDiffPath(relative, ignoreRules) {
+function isSafeDiffPath(relative) {
   const normalized = relative.replaceAll('\\', '/').replace(/^\.\//, '');
   const parts = normalized.split('/');
   if (!normalized || parts.some((part) => !part || part.startsWith('.') || DEFAULT_IGNORES.has(part) || SECRET_NAMES.test(part))) return false;
-  return !isIgnored(normalized, false, ignoreRules);
+  return TEXT_EXTENSIONS.has(path.extname(normalized).toLowerCase());
 }
