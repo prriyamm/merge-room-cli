@@ -238,12 +238,12 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     const terminalRows = Math.max(1, rows || process.stdout.rows || 32);
     const terminalHeight = Math.max(1, terminalRows - 1);
     const header = ` ${color('bold', 'MERGE ROOM')} ${color('gray', `· ${sanitizeUntrustedText(provider.name)} · two live sessions`)}`;
-    const help = ' /1 /2 switch · /new reset · /cancel turn · /help · /quit';
+    const help = ' /1 /2 switch · /new reset · /cancel [1|2] · /help · /quit';
     if (terminalWidth < 84 || terminalRows < 24) {
       const isHelpMessage = state.message.startsWith('Help:') || state.message.startsWith('/agents [id] /team');
       const isPrimaryHelp = state.message.startsWith('Help: mission');
       const shortHelp = terminalWidth >= 60
-        ? isPrimaryHelp ? 'Help: /run /1 /2 /new /wait /cancel /help more' : 'Help: /agents /team /profile /context /history /show …'
+        ? isPrimaryHelp ? 'Help: /run /1 /2 /new /wait /cancel [1|2] /help more' : 'Help: /agents /team /profile /context /history /show …'
         : terminalWidth >= 40
           ? isPrimaryHelp ? 'Help: /run /1 /2 /new /wait /help more' : 'Help: /agents /team /profile /show …'
         : terminalWidth >= 30
@@ -332,7 +332,7 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       safeWrite(`${color('teal', '│')}${fit(sidebar[index] || '', sidebarWidth)}${color('teal', '│')}${fit(main[index] || '', mainWidth)}${color('teal', '│')}`);
     }
     safeWrite(`${color('teal', '╰')}${'─'.repeat(sidebarWidth)}${color('teal', '┴')}${'─'.repeat(mainWidth)}${color('teal', '╯')}`);
-    safeWrite(surface(fit(` ${color('gray', '/1 /2 switch · /new reset · /cancel turn · /help commands · /quit leave')}`, terminalWidth)));
+    safeWrite(surface(fit(` ${color('gray', '/1 /2 switch · /new reset · /cancel [1|2] · /help commands · /quit leave')}`, terminalWidth)));
     for (const line of messageLines) safeWrite(surface(fit(` ${color('teal', line)}`, terminalWidth)));
   };
   return { state, start, user, loaded, notice, event, render, refresh };

@@ -290,7 +290,7 @@ Type a mission to start the selected room. Use `/run <mission>` when the mission
 /new or /clear         Reset the selected room
 /wait                  Wait for both rooms to finish
 /run <mission>         Run a mission that starts with a slash
-/cancel                Cancel the selected room and keep the cockpit open
+/cancel [1|2]          Cancel selected room or target a room directly without switching
 /agents [id]           Show team size or one specialist's details
 /team <all|ids>        Change the team for future turns
 /profile <name>        Switch the provider profile for future turns

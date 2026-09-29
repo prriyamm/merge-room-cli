@@ -459,8 +459,13 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (request === '/quit' || request === '/exit') return false;
     if (request === '/1' || request === '/2') { const room = selectCockpitRoom(renderer.state, request.slice(1)); setMessage(`Switched to Room ${room.id}.`); return true; }
     if (request === '/switch') { const room = selectCockpitRoom(renderer.state, renderer.state.activeRoom === 0 ? 2 : 1); setMessage(`Switched to Room ${room.id}.`); return true; }
-    if (request === '/cancel') {
-      const roomIndex = renderer.state.activeRoom;
+    if (/^\/cancel(?:\s|$)/.test(request)) {
+      const parts = request.split(/\s+/);
+      if (parts.length > 2 || (parts[1] && !['1', '2'].includes(parts[1]))) {
+        setMessage('Use /cancel [1|2].');
+        return true;
+      }
+      const roomIndex = parts[1] ? Number(parts[1]) - 1 : renderer.state.activeRoom;
       const controller = controllers.get(roomIndex);
       const message = renderer.state.rooms[roomIndex].status === 'saving'
         ? `Room ${roomIndex + 1} is saving its result.`
@@ -476,8 +481,8 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); const waitingSequence = noticeSequence; await waitForCockpitTasks(tasks); setMessage('Both rooms are ready.', waitingSequence); return true; }
-    if (request === '/help more') { setMessage('/agents [id] /team <all|ids> /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage'); return true; }
-    if (request === '/help') { setMessage('Help: mission or /run <mission> · rooms /1 /2 /switch · turns /new /clear /wait /cancel · /help more · /quit /exit'); return true; }
+    if (request === '/help more') { setMessage('/cancel [1|2] /agents [id] /team <all|ids> /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage'); return true; }
+    if (request === '/help') { setMessage('Help: mission or /run <mission> · rooms /1 /2 /switch · turns /new /clear /wait /cancel [1|2] · /help more · /quit /exit'); return true; }
     if (request === '/agents') {
       setMessage(`Team of ${activeConfig.agents.length}. Use /agents <id> for a specialist's details; run merge-room agents for the full roster.`);
       return true;
