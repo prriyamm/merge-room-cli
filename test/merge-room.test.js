@@ -35,9 +35,9 @@ function runCliWithInput(args, input, cwd = process.cwd(), timeoutMs = 30_000) {
     let stderr = '';
     let settled = false;
     const timeout = setTimeout(() => {
-      if (settled || child.exitCode !== null || child.signalCode !== null) return;
+      if (settled) return;
       settled = true;
-      child.kill();
+      if (child.exitCode === null && child.signalCode === null) child.kill();
       reject(new Error(`CLI timed out after ${timeoutMs}ms. Args: ${JSON.stringify(args)}\nStdout: ${stdout}\nStderr: ${stderr}`));
     }, timeoutMs);
     const finish = (error, result) => {
