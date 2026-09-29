@@ -34,7 +34,7 @@ export function cockpitHelpMorePage(width = 80, currentPage = 0) {
   };
 }
 
-export async function main(args = [], { signal, readSessionFn = readSession } = {}) {
+export async function main(args = [], { signal, readSessionFn = readSession, listSessionsFn = listSessions } = {}) {
   const separator = args.indexOf('--');
   const optionArgs = separator < 0 ? args : args.slice(0, separator);
   const literalArgs = separator < 0 ? [] : args.slice(separator + 1);
@@ -203,7 +203,7 @@ export async function main(args = [], { signal, readSessionFn = readSession } = 
     else printPlan(plan);
     return;
   }
-  if (cockpitByDefault || command === 'interactive' || command === 'chat') return interactive(runConfig, provider, noContext, noSave, signal, trace, workspace, readSessionFn, configuredRun);
+  if (cockpitByDefault || command === 'interactive' || command === 'chat') return interactive(runConfig, provider, noContext, noSave, signal, trace, workspace, readSessionFn, configuredRun, listSessionsFn);
   const requestParts = command === 'run' || command === 'ask' || command === 'resume' || command === 'review' || command === 'brainstorm' ? cleanArgs.slice(1) : cleanArgs;
   const request = await readMissionInput(requestParts, promptFileValue, workspace, signal);
   if (!request) return printHelp();
@@ -359,7 +359,7 @@ function stripOptions(args, valueOptions, booleanOptions) {
   return args.filter((_, index) => !skip.has(index));
 }
 
-async function interactive(config, provider, noContext = false, noSave = false, signal, trace = false, workspace = process.cwd(), readSessionFn = readSession, allTeamsConfig = config) {
+async function interactive(config, provider, noContext = false, noSave = false, signal, trace = false, workspace = process.cwd(), readSessionFn = readSession, allTeamsConfig = config, listSessionsFn = listSessions) {
   if (signal?.aborted) throw abortError();
   let activeConfig = config;
   let activeProfile = config.defaultProvider || Object.keys(config.providers || {})[0] || null;
@@ -403,8 +403,9 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     reprompt();
   }
 
-  function setMessage(message, expectedSequence = null, historyEntries = null) {
+  function setMessage(message, expectedSequence = null, historyEntries = null, onFresh = null) {
     if (expectedSequence !== null && noticeSequence !== expectedSequence) return false;
+    onFresh?.();
     noticeSequence += 1;
     renderer.state.message = message;
     renderer.state.historyEntries = historyEntries;
@@ -559,12 +560,14 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     }
     if (request === '/history') {
       try {
-        const sessions = activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir, { limit: 3 }) : [];
+        const sessions = activeConfig.sessionDir ? await listSessionsFn(workspace, activeConfig.sessionDir, { limit: 3 }) : [];
         const recent = sessions.slice(0, 3);
-        historyAliasSessionDir = activeConfig.sessionDir;
-        historyAliases = new Map(recent.map((item, index) => [`@${index + 1}`, item.id]));
+        const nextHistoryAliases = new Map(recent.map((item, index) => [`@${index + 1}`, item.id]));
         const historyEntries = recent.map((item, index) => ({ id: item.id, reference: `@${index + 1}`, request: item.request || '(empty mission)' }));
-        setMessage(recent.length ? `Recent: ${recent.map((item) => `${item.id} ${cropLabel(item.request, 18)}`).join(' · ')}` : 'No saved missions yet.', inputNoticeSequence, historyEntries);
+        setMessage(recent.length ? `Recent: ${recent.map((item) => `${item.id} ${cropLabel(item.request, 18)}`).join(' · ')}` : 'No saved missions yet.', inputNoticeSequence, historyEntries, () => {
+          historyAliasSessionDir = activeConfig.sessionDir;
+          historyAliases = nextHistoryAliases;
+        });
       } catch (error) { setMessage(`History unavailable: ${error.message}`, inputNoticeSequence); }
       return true;
     }
