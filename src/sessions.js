@@ -86,6 +86,7 @@ async function createSessionDirectory(cwd, directory) {
   const requestedRoot = path.resolve(base, directory);
   let current = path.parse(requestedRoot).root;
   const components = path.relative(current, requestedRoot).split(path.sep).filter(Boolean);
+  let requestedRootInfo;
   for (const component of components) {
     current = path.join(current, component);
     try {
@@ -93,8 +94,9 @@ async function createSessionDirectory(cwd, directory) {
     } catch (error) {
       if (error.code !== 'EEXIST') throw error;
     }
-    const info = await fs.lstat(current);
+    const info = await fs.lstat(current, { bigint: true });
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Session directory must not contain symbolic links.');
+    if (current === requestedRoot) requestedRootInfo = info;
   }
   const root = await resolveSessionDirectory(base, requestedRoot);
   if (!root) throw new Error('Session directory must not contain symbolic links.');
@@ -104,9 +106,35 @@ async function createSessionDirectory(cwd, directory) {
     && !relativeRoot.startsWith(`..${path.sep}`)
     && !path.isAbsolute(relativeRoot);
   if (process.platform !== 'win32' && rootIsWithinWorkspace) {
-    await fs.chmod(root, 0o700);
+    await chmodSessionDirectory(root, requestedRootInfo);
   }
   return root;
+}
+
+async function chmodSessionDirectory(directory, validatedInfo) {
+  if (!validatedInfo?.isDirectory() || validatedInfo.isSymbolicLink()) {
+    throw new Error('Session directory must not contain symbolic links.');
+  }
+
+  const noFollow = constants.O_NOFOLLOW;
+  const directoryOnly = constants.O_DIRECTORY;
+  if (!noFollow || !directoryOnly) {
+    throw new Error('This platform cannot securely open the session directory.');
+  }
+
+  const handle = await fs.open(directory, constants.O_RDONLY | noFollow | directoryOnly);
+  try {
+    const opened = await handle.stat({ bigint: true });
+    const sameDirectory = opened.isDirectory()
+      && opened.dev === validatedInfo.dev
+      && opened.ino === validatedInfo.ino;
+    if (!sameDirectory) {
+      throw new Error('Session directory changed while being opened.');
+    }
+    await handle.chmod(0o700);
+  } finally {
+    await handle.close();
+  }
 }
 
 async function readRegularFile(file) {
