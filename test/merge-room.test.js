@@ -2620,6 +2620,32 @@ test('CLI resolves unique session id prefixes', async () => {
   }
 });
 
+test('CLI show and export keep filename IDs when saved JSON embeds another ID', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-spoofed-id-'));
+  const sessionDir = path.join(root, '.merge-room', 'sessions');
+  try {
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(path.join(sessionDir, 'first.json'), JSON.stringify({ id: 'second', request: 'first file request', answer: 'first file answer' }), 'utf8');
+    await fs.writeFile(path.join(sessionDir, 'second.json'), JSON.stringify({ id: 'second', request: 'second file request', answer: 'second file answer' }), 'utf8');
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
+
+    const shown = await execFileAsync(process.execPath, [bin, 'show', 'first', '--json'], { cwd: root, windowsHide: true });
+    const shownSession = JSON.parse(shown.stdout);
+    assert.equal(shownSession.id, 'first');
+    assert.equal(shownSession.request, 'first file request');
+    assert.equal(shownSession.answer, 'first file answer');
+
+    await execFileAsync(process.execPath, [bin, 'export', 'first', '--format=json', '--output', 'first-export.json'], { cwd: root, windowsHide: true });
+    const exportedSession = JSON.parse(await fs.readFile(path.join(root, 'first-export.json'), 'utf8'));
+    assert.equal(exportedSession.id, 'first');
+    assert.equal(exportedSession.request, 'first file request');
+    assert.equal(exportedSession.answer, 'first file answer');
+    assert.equal(JSON.parse(await fs.readFile(path.join(sessionDir, 'first.json'), 'utf8')).id, 'second');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('completion command remains available with an invalid project profile', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-completion-recovery-'));
   try {
