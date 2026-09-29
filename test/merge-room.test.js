@@ -73,12 +73,12 @@ test('cockpit agent lookup prefers an exact ID over another agent name', () => {
     { id: 'first', name: 'Scout' },
     { id: 'scout', name: 'Researcher' },
     { id: 'indexer', name: 'Indexer' },
-    { id: 'ipek', name: 'Ä°pek' }
+    { id: 'ipek', name: 'İpek' }
   ];
   assert.equal(resolveAgentReference(agents, 'SCOUT')?.name, 'Researcher');
   assert.equal(resolveAgentReference(agents, 'researcher')?.id, 'scout');
   assert.equal(resolveAgentReference(agents, 'INDEXER')?.id, 'indexer');
-  assert.equal(resolveAgentReference(agents, 'Ä°PEK')?.id, 'ipek');
+  assert.equal(resolveAgentReference(agents, 'İPEK')?.id, 'ipek');
   assert.equal(resolveAgentReference(agents, 'unknown'), null);
 });
 
@@ -137,8 +137,8 @@ test('cockpit renders a left activity rail and a focused room pane', () => {
   assert.match(output, /ROOMS/);
   assert.match(output, /Room 1/);
   assert.match(output, /Room 2/);
-  assert.match(output, /Scout\s+working Â· s/);
-  assert.match(output, /â”‚.*â”‚.*ROOM 1/);
+  assert.match(output, /Scout\s+working · s/);
+  assert.match(output, /│.*│.*ROOM 1/);
   assert.match(output, /LIVE HANDOFFS/);
 });
 
@@ -227,7 +227,7 @@ test('compact Cockpit primary help keeps /again discoverable in a narrow termina
     const lines = [];
     const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
     const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns, rows: 5, write: (line) => lines.push(line) });
-    renderer.state.message = 'Help: mission or /run <mission> Â· rooms /1 /2 /switch Â· repeat /again Â· turns /new /clear /wait /cancel [1|2] Â· /help more Â· /quit /exit';
+    renderer.state.message = 'Help: mission or /run <mission> · rooms /1 /2 /switch · repeat /again · turns /new /clear /wait /cancel [1|2] · /help more · /quit /exit';
 
     renderer.render();
 
@@ -275,7 +275,7 @@ test('compact cockpit crops wide characters to terminal cell width', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
   const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 14, rows: 8, write: (line) => lines.push(line) });
-  renderer.state.rooms[0].request = 'ç•Œ'.repeat(20);
+  renderer.state.rooms[0].request = '界'.repeat(20);
   renderer.render();
 
   const cellWidth = (line) => [...line].reduce((width, character) => {
@@ -301,19 +301,19 @@ test('compact cockpit honors text presentation selectors for emoji-presentation 
   const emojiPresentationKeycap = '1\ufe0f\u20e3';
   const joinedTextPresentation = '\u231a\ufe0e\u200d\u231a';
   assert.equal(renderMission(textPresentationWatch.repeat(3)).trimEnd(), ` Mission: ${textPresentationWatch.repeat(3)}`);
-  assert.equal(renderMission(emojiPresentationWatch.repeat(3)).trimEnd(), ` Mission: ${emojiPresentationWatch}â€¦`);
+  assert.equal(renderMission(emojiPresentationWatch.repeat(3)).trimEnd(), ` Mission: ${emojiPresentationWatch}…`);
   assert.equal(renderMission(textPresentationKeycap.repeat(3)).trimEnd(), ` Mission: ${textPresentationKeycap.repeat(3)}`);
-  assert.equal(renderMission(emojiPresentationKeycap.repeat(3)).trimEnd(), ` Mission: ${emojiPresentationKeycap}â€¦`);
-  assert.equal(renderMission(joinedTextPresentation.repeat(3)).trimEnd(), ` Mission: ${joinedTextPresentation}â€¦`);
+  assert.equal(renderMission(emojiPresentationKeycap.repeat(3)).trimEnd(), ` Mission: ${emojiPresentationKeycap}…`);
+  assert.equal(renderMission(joinedTextPresentation.repeat(3)).trimEnd(), ` Mission: ${joinedTextPresentation}…`);
 });
 
 test('compact cockpit fits keycap notices to terminal cell width', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
   const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 40, rows: 8, write: (line) => lines.push(line) });
-  renderer.notice('Use 1ï¸âƒ£ to select the first room.');
+  renderer.notice('Use 1️⃣ to select the first room.');
 
-  const notice = lines.find((line) => line.includes('Use 1ï¸âƒ£'));
+  const notice = lines.find((line) => line.includes('Use 1️⃣'));
   const cellWidth = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(notice)]
     .reduce((width, { segment }) => width + (segment.includes('\u20e3') ? 2 : [...segment].reduce((cells, character) => {
       const codePoint = character.codePointAt(0);
@@ -326,13 +326,13 @@ test('compact cockpit wraps long unbroken answers by terminal cell width', () =>
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
   const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 20, rows: 16, write: (line) => lines.push(line) });
-  const answer = 'ç•Œ'.repeat(30);
+  const answer = '界'.repeat(30);
   renderer.state.rooms[0].final = answer;
 
   renderer.render();
 
-  assert.equal(lines.join('').match(/ç•Œ/g)?.length, answer.length);
-  assert.ok(lines.every((line) => [...line].reduce((width, character) => width + (character === 'ç•Œ' ? 2 : 1), 0) <= 20));
+  assert.equal(lines.join('').match(/界/g)?.length, answer.length);
+  assert.ok(lines.every((line) => [...line].reduce((width, character) => width + (character === '界' ? 2 : 1), 0) <= 20));
 });
 
 test('cockpit renderer exposes the conversation controls used by the terminal loop', async () => {
@@ -413,23 +413,19 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
       child.stdout.on('data', (chunk) => {
         stdout += chunk;
         const visibleOutput = stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-        if (!started && /Room 1|Start a mission/i.test(visibleOutput)) {
+        if (!started && /Start a mission|Room 1.*ready|room 1\s*›/i.test(stdout)) {
           started = true;
           child.stdin.write('First room mission\n');
-        }
-        if (started && !commandsSent && /Scout\s+working/i.test(visibleOutput)) {
+        } else if (started && !commandsSent && /Scout.*working/i.test(visibleOutput)) {
           commandsSent = true;
           child.stdin.write('/2\n');
-        }
-        if (commandsSent && !cancelSent && visibleOutput.includes('Switched to Room 2.')) {
+        } else if (commandsSent && !cancelSent && visibleOutput.includes('Switched to Room 2.')) {
           cancelSent = true;
           child.stdin.write('/cancel 1\n');
-        }
-        if (cancelSent && !missionSent && visibleOutput.includes('Cancellation requested for Room 1.')) {
+        } else if (cancelSent && !missionSent && visibleOutput.includes('Cancellation requested for Room 1.')) {
           missionSent = true;
           child.stdin.write('Second room mission\n');
-        }
-        if (missionSent && !quitSent && visibleOutput.includes('Room 2 finished. Continue there or switch rooms.')) {
+        } else if (missionSent && !quitSent && visibleOutput.includes('Room 2 finished. Continue there or switch rooms.')) {
           quitSent = true;
           child.stdin.write('/quit\n');
         }
@@ -445,7 +441,8 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
     const output = `${stdout}\n${stderr}`.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
     assert.match(output, /Cancellation requested for Room 1\./i);
     assert.match(output, /Room 1 cancelled\./i);
-    assert.match(output, /Room 2\s*›\s*Second room mission/i);
+    assert.match(output, /Room 2[^\n]*\n[^\n]*Second room mission/i);
+    assert.doesNotMatch(output, /Room 1[^\n]*\n[^\n]*Second room mission/i);
     assert.match(output, /Room 2 finished\. Continue there or switch rooms\./i);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
@@ -543,9 +540,9 @@ test('conversational cockpit prints its mark once and appends the chat', async (
   renderer.event(0)({ type: 'agent:done', agent: config.agents[0], text: 'Check CI.', telemetry: { total: 12, calls: 1 } });
   renderer.event(0)({ type: 'run:done', result: { answer: 'Ship after CI passes.', usage: { total: 24, calls: 2 } } });
   const output = lines.join('\n');
-  assert.equal((output.match(/Merge Room\s+demo\/gpt-4o-mini Â· two rooms/g) || []).length, 1);
-  assert.equal((output.match(/â–„â–ˆâ–€â–€â–€â–€â–€â–€â–€â–„/g) || []).length, 1);
-  assert.match(output, /Room 1 â€º Plan the release/);
+  assert.equal((output.match(/Merge Room\s+demo\/gpt-4o-mini · two rooms/g) || []).length, 1);
+  assert.equal((output.match(/▄█▀▀▀▀▀▀▀▄/g) || []).length, 1);
+  assert.match(output, /Room 1 › Plan the release/);
   assert.match(output, /Scout is working/);
   assert.match(output, /Ship after CI passes\./);
   assert.doesNotMatch(output, /\x1b\[2J/);
@@ -604,10 +601,10 @@ test('startup mark preserves the supplied 60-column liquid-glass M', () => {
   const colored = liquidGlassLogoLines();
   assert.equal(pattern.length, 21);
   assert.equal(pattern.every((line) => line.length <= 60), true);
-  assert.equal(pattern[0], '     â–„â–ˆâ–€â–€â–€â–€â–€â–€â–€â–„                              â–„â–€â–€â–€â–€â–€â–€â–€â–€â–„');
-  assert.equal(pattern[8].includes('â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆ'), true);
-  assert.equal(pattern[15].includes('             â–„â–„â–„â–„             '), true);
-  assert.equal(pattern.at(-1).trim(), 'â–€â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–€â–ˆâ–ˆâ–ˆâ–€                â–€â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–€');
+  assert.equal(pattern[0], '     ▄█▀▀▀▀▀▀▀▄                              ▄▀▀▀▀▀▀▀▀▄');
+  assert.equal(pattern[8].includes('███████████████████████████'), true);
+  assert.equal(pattern[15].includes('             ▄▄▄▄             '), true);
+  assert.equal(pattern.at(-1).trim(), '▀███████████▀███▀                ▀███████████████▀');
   assert.equal(colored.length, pattern.length);
   assert.equal(colored.some((line) => line.includes('\x1b[38;5;159;48;5;152m')), true);
   assert.equal(colored.some((line) => line.includes('\x1b[38;5;183;48;5;255m')), true);
@@ -694,7 +691,7 @@ test('themes expose named palettes and useful aliases', () => {
 test('documentation screenshots show the one-time mark and split cockpit dashboard', async () => {
   const started = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-started.svg'), 'utf8');
   const mission = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-mission-cockpit.svg'), 'utf8');
-  assert.match(started, /demo\/merge-room-demo Â· two rooms Â·/);
+  assert.match(started, /demo\/merge-room-demo · two rooms ·/);
   assert.match(started, /liquid-glass block Merge Room mark/);
   assert.match(mission, /two-room cockpit dashboard/);
   assert.match(mission, /LIVE HANDOFFS/);
@@ -712,7 +709,7 @@ test('human result footer exposes input, output, and total burned usage', () => 
   const originalLog = console.log;
   console.log = (...values) => lines.push(values.join(' '));
   try {
-    printResult({ durationMs: 1000, agents: [{ agent: { color: 'cyan', mark: 'â—‡', name: 'Scout' } }], usage: { input: 1200, output: 300, total: 1500, calls: 1, estimatedInput: true, estimatedOutput: false } });
+    printResult({ durationMs: 1000, agents: [{ agent: { color: 'cyan', mark: '◇', name: 'Scout' } }], usage: { input: 1200, output: 300, total: 1500, calls: 1, estimatedInput: true, estimatedOutput: false } });
   } finally {
     console.log = originalLog;
   }
@@ -793,12 +790,12 @@ test('saved specialist reports identify their provider profile and model', async
   ] };
   try {
     const markdown = formatSessionMarkdown(session);
-    assert.match(markdown, /Scout Â· stage 1 Â· work Â· gpt-main/);
-    assert.match(markdown, /Critic Â· stage 3 Â· claude Â· claude-sonnet/);
-    assert.match(markdown, /### Legacy Â· stage 2/);
+    assert.match(markdown, /Scout · stage 1 · work · gpt-main/);
+    assert.match(markdown, /Critic · stage 3 · claude · claude-sonnet/);
+    assert.match(markdown, /### Legacy · stage 2/);
     printSession(session);
-    assert.ok(lines.some((line) => line.includes('Scout Â· stage 1 Â· work Â· gpt-main')));
-    assert.ok(lines.some((line) => line.includes('Critic Â· stage 3 Â· claude Â· claude-sonnet')));
+    assert.ok(lines.some((line) => line.includes('Scout · stage 1 · work · gpt-main')));
+    assert.ok(lines.some((line) => line.includes('Critic · stage 3 · claude · claude-sonnet')));
     assert.ok(!lines.join('\n').includes('OPENAI_API_KEY'));
   } finally {
     console.log = originalLog;
@@ -809,9 +806,9 @@ test('session markdown preserves orchestration metadata', () => {
   const markdown = formatSessionMarkdown({ strategy: 'staged', durationMs: 1250, waves: [{ label: 'orientation', agentIds: ['scout'] }], agents: [{ agent: { name: 'Scout' }, stage: 1, status: 'done', durationMs: 300, text: 'note' }] });
   assert.match(markdown, /Duration:\*\* 1\.3s/);
   assert.match(markdown, /Waves:\*\* orientation \(scout\)/);
-  assert.match(markdown, /Scout Â· stage 1 Â· done Â· 0\.3s/);
-  assert.match(formatSessionMarkdown({ context: { fileCount: 2, excerptCount: 1, diff: true } }), /Workspace context:\*\* 2 files Â· 1 excerpts Â· diff included/);
-  assert.match(formatSessionMarkdown({ usage: { input: 3, output: 1, total: 4, calls: 2, byModel: { scout: { total: 3, calls: 1 } } } }), /scout: 3 total Â· 1 calls/);
+  assert.match(markdown, /Scout · stage 1 · done · 0\.3s/);
+  assert.match(formatSessionMarkdown({ context: { fileCount: 2, excerptCount: 1, diff: true } }), /Workspace context:\*\* 2 files · 1 excerpts · diff included/);
+  assert.match(formatSessionMarkdown({ usage: { input: 3, output: 1, total: 4, calls: 2, byModel: { scout: { total: 3, calls: 1 } } } }), /scout: 3 total · 1 calls/);
 });
 
 test('demo provider returns a usable bounded note', async () => {
@@ -1171,7 +1168,7 @@ test('Codex CLI profiles use bounded JSONL with read-only permissions and local 
   process.env.OPENAI_API_KEY = 'must-not-reach-the-cli';
   process.env.CODEX_API_KEY = 'also-must-not-reach-the-cli';
   process.env.CODEX_HOME = path.join(root, 'codex-home');
-  await fs.writeFile(path.join(bin, 'codex'), `#!/usr/bin/env node\nconst fs = require('node:fs');\nconst nl = String.fromCharCode(10);\nlet input = '';\nprocess.stdin.setEncoding('utf8');\nprocess.stdin.on('data', (chunk) => input += chunk);\nprocess.stdin.on('end', () => { const output = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'A read-only ðŸ™‚ answer' } }) + nl + JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 12, output_tokens: 7 } }) + nl; fs.writeFileSync(${JSON.stringify(probe)}, JSON.stringify({ args: process.argv.slice(2), input, output, openai: process.env.OPENAI_API_KEY, codex: process.env.CODEX_API_KEY, codexHome: process.env.CODEX_HOME })); const bytes = Buffer.from(output); const split = bytes.indexOf(Buffer.from('ðŸ™‚')) + 2; process.stdout.write(bytes.subarray(0, split)); setTimeout(() => process.stdout.write(bytes.subarray(split)), 5); });\n`);
+  await fs.writeFile(path.join(bin, 'codex'), `#!/usr/bin/env node\nconst fs = require('node:fs');\nconst nl = String.fromCharCode(10);\nlet input = '';\nprocess.stdin.setEncoding('utf8');\nprocess.stdin.on('data', (chunk) => input += chunk);\nprocess.stdin.on('end', () => { const output = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'A read-only 🙂 answer' } }) + nl + JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 12, output_tokens: 7 } }) + nl; fs.writeFileSync(${JSON.stringify(probe)}, JSON.stringify({ args: process.argv.slice(2), input, output, openai: process.env.OPENAI_API_KEY, codex: process.env.CODEX_API_KEY, codexHome: process.env.CODEX_HOME })); const bytes = Buffer.from(output); const split = bytes.indexOf(Buffer.from('🙂')) + 2; process.stdout.write(bytes.subarray(0, split)); setTimeout(() => process.stdout.write(bytes.subarray(split)), 5); });\n`);
   await fs.chmod(path.join(bin, 'codex'), 0o755);
   try {
     await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ providers: { chatgpt: { type: 'codex-cli', model: 'gpt-test' } }, defaultProvider: 'chatgpt', agents: [{ id: 'scout', provider: 'chatgpt' }] }));
@@ -1183,7 +1180,7 @@ test('Codex CLI profiles use bounded JSONL with read-only permissions and local 
     try { answer = await provider.complete({ provider: 'chatgpt', system: 'Stay focused.', prompt: 'inspect this project', model: 'gpt-override' }); }
     catch (error) { const received = JSON.parse(await fs.readFile(probe, 'utf8')); assert.fail(`${error.message}; output=${received.output}`); }
     const received = JSON.parse(await fs.readFile(probe, 'utf8'));
-    assert.equal(answer.text, 'A read-only ðŸ™‚ answer');
+    assert.equal(answer.text, 'A read-only 🙂 answer');
     assert.equal(answer.provider, 'chatgpt');
     assert.equal(answer.model, 'gpt-override');
     assert.equal(answer.inputTokens, 12);
@@ -2235,7 +2232,7 @@ test('workspace excerpts and opt-in Git diffs redact complete Authorization head
 test('workspace excerpt caps are measured in UTF-8 bytes', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-context-utf8-'));
   try {
-    await fs.writeFile(path.join(root, 'unicode.md'), 'ðŸ™‚'.repeat(120), 'utf8');
+    await fs.writeFile(path.join(root, 'unicode.md'), '🙂'.repeat(120), 'utf8');
     const context = await collectWorkspaceContext(root, { maxBytes: 100, maxExcerptBytes: 400 });
     const excerptBytes = context.excerpts.reduce((sum, item) => sum + Buffer.byteLength(item.text, 'utf8'), 0);
     assert.ok(excerptBytes <= 100);
@@ -2764,7 +2761,7 @@ test('custom agents receive stable ids and inherited defaults', async () => {
     const config = await loadConfig(root);
     assert.equal(config.agents[0].id, 'security-watch');
     assert.equal(config.agents[0].name, 'Security Watch');
-    assert.equal(config.agents[0].mark, 'â—‡');
+    assert.equal(config.agents[0].mark, '◇');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
