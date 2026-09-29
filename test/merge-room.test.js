@@ -10,7 +10,7 @@ import { DEFAULT_CONFIG, loadConfig, safeBaseUrl, validateProviderBaseUrl, VERSI
 import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.js';
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from '../src/engine.js';
 import { liquidGlassLogoLines } from '../src/logo.js';
-import { createProvider, DemoProvider, OpenAICompatibleProvider } from '../src/providers.js';
+import { AnthropicProvider, createProvider, DemoProvider, OpenAICompatibleProvider } from '../src/providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
 import { buildResumeRequest, main } from '../src/cli.js';
@@ -809,6 +809,52 @@ test('openai-compatible adapter streams lead text and usage', async () => {
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+test('provider stream failures do not retry after emitting partial output', async () => {
+  const originalFetch = globalThis.fetch;
+  const cases = [
+    {
+      provider: new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.openai.com/v1', retries: 2 }, 'openai-secret'),
+      frame: 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n',
+      recovered: 'data: {"choices":[{"delta":{"content":"recovered"}}]}\n\n'
+    },
+    {
+      provider: new AnthropicProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.anthropic.com', retries: 2 }, 'anthropic-secret'),
+      frame: 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"partial"}}\n\n',
+      recovered: 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"recovered"}}\n\n'
+    }
+  ];
+  try {
+    for (const { provider, frame, recovered } of cases) {
+      let calls = 0;
+      const deltas = [];
+      globalThis.fetch = async () => {
+        calls += 1;
+        let sent = false;
+        const body = new ReadableStream({ pull(controller) { if (!sent) { sent = true; controller.enqueue(new TextEncoder().encode(frame)); } else controller.error(new Error('stream disconnected')); } }, { highWaterMark: 0 });
+        return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      };
+      await assert.rejects(() => provider.complete({ system: 'system', prompt: 'prompt', onDelta: (delta) => deltas.push(delta) }), /stream disconnected/);
+      assert.equal(calls, 1);
+      assert.deepEqual(deltas, ['partial']);
+
+      calls = 0;
+      deltas.length = 0;
+      globalThis.fetch = async () => {
+        calls += 1;
+        if (calls === 1) {
+          const body = new ReadableStream({ pull(controller) { controller.error(new Error('early stream disconnect')); } }, { highWaterMark: 0 });
+          return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        }
+        return new Response(`${recovered}\n`, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      };
+      const response = await provider.complete({ system: 'system', prompt: 'prompt', onDelta: (delta) => deltas.push(delta) });
+      assert.equal(calls, 2);
+      assert.equal(response.text, 'recovered');
+      assert.deepEqual(deltas, ['recovered']);
+    }
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test('openai-compatible adapter can disable streaming for older servers', async () => {
