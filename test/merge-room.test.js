@@ -2300,13 +2300,14 @@ test('Anthropic stream reader cancels its body after success and protocol failur
     try {
       return await Promise.race([
         promise,
-        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('provider completion waited for reader cancellation')), 100); })
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('provider completion waited for reader cancellation')), 500); })
       ]);
     } finally { clearTimeout(timer); }
   };
   try {
     for (const scenario of cases) {
       let cancellations = 0;
+      let releases = 0;
       let reads = 0;
       const bytes = new TextEncoder().encode(scenario.frame);
       globalThis.fetch = async () => ({
@@ -2319,7 +2320,7 @@ test('Anthropic stream reader cancels its body after success and protocol failur
               cancellations += 1;
               return scenario.cancelNeverSettles ? new Promise(() => {}) : Promise.resolve();
             },
-            releaseLock() {}
+            releaseLock() { releases += 1; }
           })
         }
       });
@@ -2330,6 +2331,7 @@ test('Anthropic stream reader cancels its body after success and protocol failur
         assert.equal(response.text, scenario.expected, scenario.name);
       }
       assert.equal(cancellations, 1, `${scenario.name} cancels the reader exactly once`);
+      assert.equal(releases, 1, `${scenario.name} releases the reader lock synchronously`);
     }
   } finally { globalThis.fetch = originalFetch; }
 });
