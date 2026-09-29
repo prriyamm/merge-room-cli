@@ -9,7 +9,7 @@ import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from './engine.js';
 import { createProvider } from './providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from './sessions.js';
 import { themeSummaries } from './themes.js';
-import { createCockpitRenderer, createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme, stripUnsafeTerminalControls } from './ui.js';
+import { createCockpitRenderer, createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, printCockpitPartialAnswer, setTheme, stripUnsafeTerminalControls } from './ui.js';
 
 const VALUE_OPTIONS = ['--cwd', '-C', '--prompt-file', '--config', '--team', '--provider', '--profile', '--model', '--base-url', '--max-tokens', '--temperature', '--concurrency', '--timeout', '--retries', '--max-calls', '--run-id', '--theme', '--include', '--limit', '--format', '--output'];
 const BOOLEAN_OPTIONS = ['--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict'];
@@ -422,6 +422,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
           renderer.event(roomIndex)({ type: 'run:cancelled', error: error.message || 'Mission cancelled.' });
         }
         finishCockpitTurn(renderer.state, roomIndex, null, error);
+        if (!isTerminal) printCockpitPartialAnswer(renderer.state.rooms[roomIndex].final || renderer.state.rooms[roomIndex].answerDraft);
         renderer.refresh();
         if (error.name === 'AbortError') {
           if (!isTerminal) console.log(`  Room ${roomIndex + 1} cancelled.`);
@@ -436,6 +437,13 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       }
     })();
     tasks.set(roomIndex, task);
+  }
+
+  async function waitForActiveRoom() {
+    if (!isTerminal) {
+      const pendingTask = tasks.get(renderer.state.activeRoom);
+      if (pendingTask) await pendingTask;
+    }
   }
 
   async function handleInput(value) {
@@ -567,13 +575,14 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (/^\/run(?:\s|$)/.test(request)) {
       const mission = request.slice('/run'.length).trim();
       if (!mission) setMessage('Use /run <mission>.');
-      else await launch(mission);
+      else { await waitForActiveRoom(); await launch(mission); }
       return true;
     }
     if (request.startsWith('/')) {
       setMessage(`Unknown command: ${request.split(/\s+/, 1)[0]}. Type /help to see available commands.`);
       return true;
     }
+    await waitForActiveRoom();
     await launch(request);
     return true;
   }
