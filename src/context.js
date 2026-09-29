@@ -12,17 +12,27 @@ const DEFAULT_IGNORES = new Set([
 const SECRET_NAMES = /(^|[._-])(env|secret|secrets|token|password|passwd|credential|credentials)([._-]|$)|id_rsa|\.pem$/i;
 const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.json', '.md', '.txt', '.css', '.html', '.yml', '.yaml', '.toml', '.py', '.go', '.rs', '.java', '.rb', '.sql', '.sh', '.ps1']);
 const MAX_IGNORE_FILE_BYTES = 256 * 1024;
+const CONTEXT_TRAVERSAL_BATCH_SIZE = 128;
 
 export async function collectWorkspaceContext(cwd = process.cwd(), options = {}) {
   ensureActive(options.signal);
   const workspaceRoot = await fs.realpath(cwd).catch(() => path.resolve(cwd));
   const maxFiles = options.maxFiles ?? 180;
+  const maxDepth = options.maxDepth ?? 3;
+  // A negated rule can make us walk an ignored tree even when none of its
+  // files can be returned. Bound that work separately from the output cap.
+  const maxTraversalEntries = Math.max(1, maxFiles) * 20;
   const maxBytes = options.maxBytes ?? 18000;
   const maxExcerptBytes = options.maxExcerptBytes ?? 2400;
   const entries = [];
   const excerpts = [];
   const seenFiles = new Set();
   const seenDirectories = new Set();
+  let traversedEntries = 0;
+  let bufferedDirents = 0;
+  let traversalTruncated = false;
+  let outputTruncated = false;
+  let stopTraversal = false;
   const ignoreRules = await readIgnoreRules(workspaceRoot, '', options.signal);
   let totalBytes = 0;
 
@@ -83,38 +93,107 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
 
   async function visit(directory, depth, inheritedIgnoreRules = ignoreRules) {
     ensureActive(options.signal);
-    if (seenDirectories.has(directory)) return;
+    if (stopTraversal || seenDirectories.has(directory)) return;
     seenDirectories.add(directory);
-    if (depth > (options.maxDepth ?? 3) || entries.length >= maxFiles) return;
+    if (depth > maxDepth) return;
     const directoryRules = directory === workspaceRoot
       ? inheritedIgnoreRules
       : inheritedIgnoreRules.concat(await readIgnoreRules(directory, path.relative(workspaceRoot, directory), options.signal));
-    let children;
-    try { children = await fs.readdir(directory, { withFileTypes: true }); } catch { return; }
-    children.sort((a, b) => a.name.localeCompare(b.name));
-    for (const child of children) {
-      ensureActive(options.signal);
-      if (entries.length >= maxFiles) break;
-      if (child.name.startsWith('.') && child.name !== '.github') continue;
-      if (DEFAULT_IGNORES.has(child.name) || SECRET_NAMES.test(child.name)) continue;
-      const fullPath = path.join(directory, child.name);
-      const relative = path.relative(workspaceRoot, fullPath) || child.name;
-      const ignored = isIgnored(relative, directoryRules, child.isDirectory());
-      if (ignored && !(child.isDirectory() && hasNegatedDescendant(relative, directoryRules))) continue;
-      if (child.isDirectory()) {
-        if (!ignored) entries.push(`${relative.replaceAll('\\', '/')}/`);
-        await visit(fullPath, depth + 1, directoryRules);
-        continue;
+    let handle;
+    try { handle = await fs.opendir(directory); } catch { return; }
+    let directoryEnded = false;
+    try {
+      while (!directoryEnded && !stopTraversal) {
+        ensureActive(options.signal);
+        if (entries.length >= maxFiles) {
+          if (traversedEntries >= maxTraversalEntries) {
+            traversalTruncated = true;
+          } else if (bufferedDirents >= CONTEXT_TRAVERSAL_BATCH_SIZE) {
+            outputTruncated = true;
+            stopTraversal = true;
+          } else {
+            const next = await handle.read().catch(() => null);
+            if (next) {
+              traversedEntries += 1;
+              bufferedDirents += 1;
+              outputTruncated = true;
+              bufferedDirents -= 1;
+              stopTraversal = true;
+            } else {
+              directoryEnded = true;
+            }
+          }
+          break;
+        }
+        if (traversedEntries >= maxTraversalEntries) {
+          traversalTruncated = true;
+          stopTraversal = true;
+          break;
+        }
+
+        if (bufferedDirents >= CONTEXT_TRAVERSAL_BATCH_SIZE) {
+          traversalTruncated = true;
+          stopTraversal = true;
+          break;
+        }
+        const batch = [];
+        const remainingLevels = Math.max(1, maxDepth - depth + 1);
+        const batchLimit = Math.max(1, Math.floor((CONTEXT_TRAVERSAL_BATCH_SIZE - bufferedDirents) / remainingLevels));
+        while (batch.length < batchLimit
+          && bufferedDirents < CONTEXT_TRAVERSAL_BATCH_SIZE
+          && traversedEntries < maxTraversalEntries) {
+          ensureActive(options.signal);
+          const child = await handle.read();
+          if (!child) {
+            directoryEnded = true;
+            break;
+          }
+          batch.push(child);
+          traversedEntries += 1;
+          bufferedDirents += 1;
+        }
+        batch.sort((a, b) => a.name.localeCompare(b.name));
+        for (let index = 0; index < batch.length; index += 1) {
+          const child = batch[index];
+          bufferedDirents -= 1;
+          ensureActive(options.signal);
+          if (entries.length >= maxFiles) {
+            outputTruncated = true;
+            stopTraversal = true;
+            bufferedDirents -= batch.length - index - 1;
+            break;
+          }
+          if (child.name.startsWith('.') && child.name !== '.github') continue;
+          if (DEFAULT_IGNORES.has(child.name) || SECRET_NAMES.test(child.name)) continue;
+          const fullPath = path.join(directory, child.name);
+          const relative = path.relative(workspaceRoot, fullPath) || child.name;
+          const ignored = isIgnored(relative, directoryRules, child.isDirectory());
+          if (ignored && !(child.isDirectory() && hasNegatedDescendant(relative, directoryRules))) continue;
+          if (child.isDirectory()) {
+            if (!ignored) entries.push(`${relative.replaceAll('\\', '/')}/`);
+            await visit(fullPath, depth + 1, directoryRules);
+            if (stopTraversal) break;
+            continue;
+          }
+          if (!child.isFile()) continue;
+          await captureFile(fullPath, relative, depth);
+        }
+        if (traversedEntries >= maxTraversalEntries && !directoryEnded && !stopTraversal) {
+          traversalTruncated = true;
+          stopTraversal = true;
+        }
       }
-      if (!child.isFile()) continue;
-      await captureFile(fullPath, relative, depth);
+    } catch (error) {
+      if (error?.name === 'AbortError') throw error;
+    } finally {
+      await handle.close().catch(() => {});
     }
   }
 
   await visit(workspaceRoot, 0, ignoreRules);
   const git = await readGitSnapshot(cwd, options.includeDiff === true, options.signal);
   ensureActive(options.signal);
-  return { cwd, entries, excerpts, fileCount: entries.filter((entry) => !entry.endsWith('/')).length, truncated: entries.length >= maxFiles, git };
+  return { cwd, entries, excerpts, fileCount: entries.filter((entry) => !entry.endsWith('/')).length, truncated: traversalTruncated || outputTruncated, git };
 }
 
 function ensureActive(signal) {
