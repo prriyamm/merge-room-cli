@@ -49,6 +49,8 @@ export async function loadConfig(cwd = process.cwd(), explicitPath) {
 
 function mergeConfig(base, local) {
   if (!local || typeof local !== 'object' || Array.isArray(local)) throw new Error('merge-room.config.json must contain a JSON object at the top level.');
+  const unknownKeys = Object.keys(local).filter((key) => !Object.hasOwn(base, key));
+  if (unknownKeys.length) throw new Error(`merge-room.config.json contains unknown option${unknownKeys.length === 1 ? '' : 's'}: ${unknownKeys.map((key) => `\`${key}\``).join(', ')}.`);
   if (local.context !== undefined && (!local.context || typeof local.context !== 'object' || Array.isArray(local.context))) throw new Error('merge-room.config.json `context` must be a JSON object.');
   for (const key of ['streaming', 'streamUsage']) if (local[key] !== undefined && typeof local[key] !== 'boolean') throw new Error(`merge-room.config.json \`${key}\` must be true or false.`);
   if (local.context?.enabled !== undefined && typeof local.context.enabled !== 'boolean') throw new Error('merge-room.config.json `context.enabled` must be true or false.');

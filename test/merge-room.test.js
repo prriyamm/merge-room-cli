@@ -1436,6 +1436,20 @@ test('invalid project configuration fails with an actionable message', async () 
   }
 });
 
+test('project configuration rejects unknown top-level options', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-config-unknown-'));
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ maxConcurency: 2 }), 'utf8');
+    await assert.rejects(() => loadConfig(root), /unknown option: `maxConcurency`/);
+
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify(DEFAULT_CONFIG), 'utf8');
+    const config = await loadConfig(root);
+    assert.equal(config.maxConcurrency, DEFAULT_CONFIG.maxConcurrency);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI can load an explicit project profile', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-config-profile-'));
   try {
