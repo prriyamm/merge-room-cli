@@ -282,13 +282,14 @@ When the terminal is narrower than 84 columns or shorter than 24 rows, the cockp
 
 The cockpit keeps two independent rooms in one terminal. A mission continues when you switch rooms, so Room 1 and Room 2 can work at the same time without hiding the conversation that came before. Each room also carries a bounded history of prior requests, answers, and specialist notes across turns and provider switches; saved sessions preserve that history for `resume`.
 
-Type a mission to start the selected room. After it finishes, the next message in that room continues from recent requests, answers, and specialist notes. Merge Room retains up to 12 compact turns and sends the original project goal plus the newest turns within a bounded prompt block. Use `/new` when you want a clean session instead.
+Type a mission to start the selected room. Use `/run <mission>` when the mission itself starts with `/`, since other slash-prefixed inputs are cockpit commands. After it finishes, the next message in that room continues from recent requests, answers, and specialist notes. Merge Room retains up to 12 compact turns and sends the original project goal plus the newest turns within a bounded prompt block. Use `/new` when you want a clean session instead.
 
 ```text
 /1 or /2              Select a room
 /switch               Move to the other room
 /new                   Reset the selected room
 /wait                  Wait for both rooms to finish
+/run <mission>         Run a mission that starts with a slash
 /cancel                Cancel the selected room and keep the cockpit open
 /agents                Show team size and how to inspect a specialist
 /agents scout          Show one specialist's details

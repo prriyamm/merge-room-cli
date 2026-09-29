@@ -263,6 +263,18 @@ test('interactive CLI accepts work in both rooms from one process', async () => 
   assert.equal((stdout.match(/Mission complete/g) || []).length, 2);
 });
 
+test('cockpit /run accepts slash-prefixed missions and unknown commands show guidance', async () => {
+  const { stdout } = await runCliWithInput(
+    ['interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream', '--team=scout'],
+    '/run\n/not-a-cockpit-command\n/run /review the release checklist\n/2\nPlan the launch\n/wait\n/quit\n'
+  );
+  assert.match(stdout, /Use \/run <mission>/);
+  assert.match(stdout, /Unknown command: \/not-a-cockpit-command\. Type \/help/);
+  assert.match(stdout, /\[Room 1\] \/review the release checklist/);
+  assert.match(stdout, /\[Room 2\] Plan the launch/);
+  assert.equal((stdout.match(/Mission complete/g) || []).length, 2);
+});
+
 test('bare merge-room command opens the cockpit', async () => {
   const { stdout } = await runCliWithInput(
     ['--provider=demo', '--no-context', '--no-save', '--no-stream', '--team=scout'],
