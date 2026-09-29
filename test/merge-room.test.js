@@ -564,6 +564,11 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
     assertRoomOneMission(secondTurnOutputStart, thirdTurnOutputStart, 'First room mission');
     assertRoomOneMission(thirdTurnOutputStart, fourthTurnOutputStart, 'Third room mission');
     assertRoomOneMission(fourthTurnOutputStart, undefined, 'Fourth room mission');
+    const secondTurnOutput = stripTerminalControls(stdout.slice(secondTurnOutputStart, thirdTurnOutputStart));
+    assert.ok(
+      secondTurnOutput.lastIndexOf('› Room 2') > secondTurnOutput.lastIndexOf('› Room 1'),
+      'Room 2 should remain selected while the repeated Room 1 mission completes'
+    );
     assert.doesNotMatch(stripTerminalControls(stdout), /Room 2 started turn 1/i);
     assert.doesNotMatch(stderr, /Error|AssertionError/i);
   } finally {
