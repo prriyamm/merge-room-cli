@@ -606,6 +606,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         if (closing || showRequests.get(roomIndex) !== showRequestId) return true;
         const session = await readSessionFn(sessionId, workspace, sessionConfig.sessionDir);
         if (!session) throw new Error(`Session not found: ${value}`);
+        if (noticeSequence !== inputNoticeSequence) return true;
         if (closing || showRequests.get(roomIndex) !== showRequestId || renderer.state.rooms[roomIndex] !== targetRoom || targetRoom.running || targetRoom.turn !== targetTurn) {
           if (closing) return true;
           throw new Error(`Room ${roomIndex + 1} changed while loading. Switch to it and try /show again.`);

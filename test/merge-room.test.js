@@ -4311,6 +4311,82 @@ test('Cockpit ignores a saved-session load that finishes after quit', async () =
   }
 });
 
+test('Cockpit does not load a saved mission into a room after the user switches away during the read', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-show-after-switch-'));
+  try {
+    const sessionDir = path.join(root, '.merge-room', 'sessions');
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(path.join(sessionDir, 'delayed-show.json'), JSON.stringify({ id: 'delayed-show', request: 'saved room request', answer: 'saved room answer', agents: [] }), 'utf8');
+    const cliUrl = new URL('../src/cli.js', import.meta.url).href;
+    const script = `
+      process.stdin.isTTY = true;
+      process.stdout.isTTY = true;
+      process.env.TERM = 'xterm-256color';
+      const { main } = await import(${JSON.stringify(cliUrl)});
+      const { existsSync } = await import('node:fs');
+      main(['--cwd', ${JSON.stringify(root)}, 'interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream'], {
+        readSessionFn: async () => {
+          process.stderr.write('READ_STARTED\\n');
+          while (!existsSync(${JSON.stringify(path.join(root, 'release-read'))})) await new Promise((resolve) => setTimeout(resolve, 10));
+          process.stderr.write('READ_RESOLVED\\n');
+          return { id: 'delayed-show', request: 'saved room request', answer: 'saved room answer', agents: [] };
+        }
+      }).catch((error) => { console.error(error); process.exitCode = 1; });
+    `;
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      let showSent = false;
+      let switchRequested = false;
+      let switchDisplayed = false;
+      let readResolved = false;
+      let roomReselected = false;
+      const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for delayed Cockpit show switch test. stdout=${stdout} stderr=${stderr}`)); }, 10000);
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+        if (!showSent && stdout.includes('MERGE ROOM')) {
+          showSent = true;
+          child.stdin.write('/show delayed-show\n');
+        }
+        if (switchRequested && !switchDisplayed && stdout.includes('Switched to Room 2.')) {
+          switchDisplayed = true;
+          fs.writeFile(path.join(root, 'release-read'), 'ready').catch(reject);
+        }
+        if (readResolved && !roomReselected && stdout.includes('Switched to Room 1.')) {
+          roomReselected = true;
+          child.stdin.end('/quit\n');
+        }
+      });
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk;
+        if (!switchRequested && stderr.includes('READ_STARTED')) {
+          switchRequested = true;
+          child.stdin.write('/2\n');
+        }
+        if (!readResolved && stderr.includes('READ_RESOLVED')) {
+          readResolved = true;
+          child.stdin.write('/1\n');
+        }
+      });
+      child.once('error', (error) => { clearTimeout(timeout); reject(error); });
+      child.once('close', (code) => {
+        clearTimeout(timeout);
+        code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`CLI exited ${code}: ${stderr}`));
+      });
+    });
+
+    const cleanOutput = stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+    assert.match(stderr, /READ_STARTED[\s\S]*READ_RESOLVED/);
+    assert.match(cleanOutput, /Both rooms closed/);
+    assert.doesNotMatch(cleanOutput, /saved room answer|Loaded delayed-show into Room 1/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI no-save mode leaves no session artifact', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-no-save-'));
   try {
