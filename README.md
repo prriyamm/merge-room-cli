@@ -140,7 +140,7 @@ Useful options:
 --team=scout,critic             Choose a focused team
 --trace                         Show specialist notes after the answer
 --model=<name>                  Override the model
---base-url=<url>                Override the provider endpoint
+--base-url=<url>                Override the fallback OpenAI-compatible endpoint for this run
 --max-tokens=800                Cap one provider response
 --max-calls=8                   Cap provider calls (0 = unlimited)
 --temperature=0.2               Tune response variance
@@ -257,7 +257,7 @@ Example `merge-room.config.json`:
 
 Agent stages are `1` (orientation), `2` (draft), and `3` (review). Each custom agent needs a unique id; `provider` selects a named profile and `model` can override its profile model. `leadProvider` optionally routes final synthesis; otherwise `defaultProvider` (or the first profile) is used. OpenAI-compatible profiles use `OPENAI_API_KEY` by default; Anthropic profiles use `ANTHROPIC_API_KEY`. Set `apiKeyEnv` to reference another environment variable for a separate API account. These profiles use provider API credentials; they do not use ChatGPT Plus or Claude Pro subscription sign-in. `maxCalls: 0` disables the call cap, while a positive value provides a hard per-run guard.
 
-Configuration can also be supplied with environment variables or command-line flags. An explicitly supplied `--config` path must exist; Merge Room reports a clear error instead of silently falling back to defaults. `merge-room config` prints a safe effective view with provider URL credentials redacted.
+Configuration can also be supplied with environment variables or command-line flags. An explicitly supplied `--config` path must exist; Merge Room reports a clear error instead of silently falling back to defaults. `merge-room config` prints a safe effective view with provider URL credentials redacted. Provider endpoints must use HTTPS; plain HTTP is accepted only for loopback development servers. Merge Room rejects embedded URL credentials and does not follow redirects when sending API keys. A custom HTTPS endpoint still receives the selected profile's API key, so only use endpoints from configuration you trust. `--base-url` overrides the fallback OpenAI-compatible endpoint for a single run; an explicit `baseUrl` on a named profile takes precedence.
 
 Use `--cwd <path>` (or `-C <path>`) to target a different project. Relative config paths, session history, context discovery, initialization, and export destinations are resolved from that workspace, while help, version, and completion generation remain available even if a workspace is unavailable.
 

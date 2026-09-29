@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Readable } from 'node:stream';
-import { DEFAULT_CONFIG, loadConfig, safeBaseUrl, VERSION } from '../src/config.js';
+import { DEFAULT_CONFIG, loadConfig, safeBaseUrl, validateProviderBaseUrl, VERSION } from '../src/config.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.js';
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from '../src/engine.js';
 import { liquidGlassLogoLines } from '../src/logo.js';
@@ -196,6 +196,7 @@ test('diagnostic URLs redact embedded credentials and secret queries', () => {
   const safe = safeBaseUrl('https://user:password@example.com/v1?api_key=secret&region=west');
   assert.equal(safe.includes('password'), false);
   assert.equal(safe.includes('secret'), false);
+  assert.equal(safeBaseUrl('https://example.com/v1?key=secret').includes('secret'), false);
   assert.match(safe, /region=west/);
 });
 
@@ -589,6 +590,7 @@ test('named OpenAI profile uses its endpoint, API key, and model', async () => {
   globalThis.fetch = async (url, options) => {
     assert.equal(url, 'https://openai.test/v1/chat/completions');
     assert.equal(options.headers.authorization, 'Bearer openai-secret');
+    assert.equal(options.redirect, 'error');
     assert.equal(JSON.parse(options.body).model, 'gpt-profile');
     return new Response(JSON.stringify({ choices: [{ message: { content: 'OpenAI response' } }], usage: { prompt_tokens: 3, completion_tokens: 2 } }), { status: 200 });
   };
@@ -616,7 +618,9 @@ test('Anthropic adapter streams text and provider usage metadata', async () => {
     { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Claude' } },
     { type: 'message_delta', usage: { output_tokens: 4 } }
   ].map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
-  globalThis.fetch = async (_url, options) => {
+  globalThis.fetch = async (url, options) => {
+    assert.equal(url, 'https://api.anthropic.com/v1/messages');
+    assert.equal(options.redirect, 'error');
     assert.equal(JSON.parse(options.body).stream, true);
     return new Response(events, { status: 200, headers: { 'content-type': 'text/event-stream' } });
   };
@@ -678,6 +682,69 @@ test('provider profiles reject inline keys and unknown agent routes', async () =
     await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ providers: { claude: { type: 'anthropic' } }, agents: [{ id: 'scout', provider: 'missing' }] }));
     await assert.rejects(() => loadConfig(root), /must name a configured provider profile/);
   } finally { await fs.rm(root, { recursive: true, force: true }); }
+});
+
+test('provider endpoints require secure transport and reject URL credentials', async () => {
+  for (const url of ['http://api.example.test/v1', 'ftp://api.example.test/v1', 'https://user:secret@example.test/v1', 'https://@api.example.test/v1', 'https://api.example.test/v1?token=secret', 'https://api.example.test/v1?', 'https://api.example.test/v1#fragment', 'https://api.example.test/v1#', ' https://api.example.test/v1']) {
+    assert.throws(() => validateProviderBaseUrl(url, 'profile endpoint'));
+  }
+  assert.equal(validateProviderBaseUrl('https://gateway.example.test/company/v1/'), 'https://gateway.example.test/company/v1');
+  assert.equal(validateProviderBaseUrl('http://localhost:8000/v1'), 'http://localhost:8000/v1');
+  assert.equal(validateProviderBaseUrl('http://127.0.0.2:8000/v1'), 'http://127.0.0.2:8000/v1');
+  assert.equal(validateProviderBaseUrl('http://[::1]:8000/v1'), 'http://[::1]:8000/v1');
+
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-profile-endpoint-'));
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ providers: { untrusted: { type: 'anthropic', baseUrl: 'http://api.example.test' } } }));
+    await assert.rejects(() => loadConfig(root), /provider profile `untrusted` baseUrl.*HTTPS/);
+  } finally { await fs.rm(root, { recursive: true, force: true }); }
+  assert.throws(() => new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, baseUrl: 'http://api.example.test/v1' }, 'secret'), /HTTPS/);
+
+  const loadConfigScript = "import('./src/config.js').then(({loadConfig}) => loadConfig(process.argv[1]))";
+  await assert.rejects(
+    () => execFileAsync(process.execPath, ['--input-type=module', '-e', loadConfigScript, root], { cwd: process.cwd(), windowsHide: true, env: { ...process.env, MERGE_ROOM_BASE_URL: 'http://api.example.test/v1' } }),
+    (error) => /HTTPS/.test(error.stderr)
+  );
+});
+
+test('CLI base-url overrides fallback endpoints while named profile endpoints take precedence', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const oldKey = process.env.MERGE_ROOM_TEST_OPENAI;
+  const oldAnthropic = process.env.MERGE_ROOM_TEST_ANTHROPIC;
+  process.env.MERGE_ROOM_TEST_OPENAI = 'openai-secret';
+  const requests = [];
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-profile-base-override-'));
+  globalThis.fetch = async (url, options) => {
+    requests.push(url);
+    const body = url.endsWith('/v1/messages')
+      ? { content: [{ type: 'text', text: 'override worked' }] }
+      : { choices: [{ message: { content: 'override worked' } }] };
+    return new Response(JSON.stringify(body), { status: 200 });
+  };
+  console.log = () => {};
+  try {
+    process.env.MERGE_ROOM_TEST_ANTHROPIC = 'anthropic-secret';
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      providers: {
+        work: { type: 'openai-compatible', model: 'gpt-test', apiKeyEnv: 'MERGE_ROOM_TEST_OPENAI' },
+        claude: { type: 'anthropic', model: 'claude-test', baseUrl: 'https://anthropic.example', apiKeyEnv: 'MERGE_ROOM_TEST_ANTHROPIC' }
+      },
+      defaultProvider: 'work', leadProvider: 'claude',
+      agents: [{ id: 'scout', provider: 'claude' }, { id: 'critic', provider: 'work', stage: 3 }]
+    }));
+    await main(['--cwd', root, '--base-url=https://override.example/v1', '--no-context', '--no-save', '--no-stream', 'override endpoint'], { signal: new AbortController().signal });
+    assert.equal(requests.length, 3);
+    assert.deepEqual(requests, ['https://anthropic.example/v1/messages', 'https://override.example/v1/chat/completions', 'https://anthropic.example/v1/messages']);
+  } finally {
+    console.log = originalLog;
+    globalThis.fetch = originalFetch;
+    await fs.rm(root, { recursive: true, force: true });
+    if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_OPENAI;
+    else process.env.MERGE_ROOM_TEST_OPENAI = oldKey;
+    if (oldAnthropic === undefined) delete process.env.MERGE_ROOM_TEST_ANTHROPIC;
+    else process.env.MERGE_ROOM_TEST_ANTHROPIC = oldAnthropic;
+  }
 });
 
 test('openai-compatible adapter preserves provider usage metadata', async () => {
