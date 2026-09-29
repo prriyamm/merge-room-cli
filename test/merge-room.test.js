@@ -1364,7 +1364,7 @@ test('workspace context prioritizes files inside explicitly included directories
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-include-directory-'));
   try {
     await fs.mkdir(path.join(root, 'z-scope', 'private'), { recursive: true });
-    await fs.writeFile(path.join(root, '.gitignore'), 'z-scope/ignored.js\nprivate\n!z-scope/private/\nz-scope/private/*\n!z-scope/private/keep.md\n', 'utf8');
+    await fs.writeFile(path.join(root, '.gitignore'), 'z-scope/ignored.js\nprivate/\n!z-scope/private/\nz-scope/private/*\n!**/keep.md\n', 'utf8');
     await fs.writeFile(path.join(root, 'a-notes.md'), 'discovered first\n', 'utf8');
     await fs.writeFile(path.join(root, 'z-scope', 'app.js'), 'included first\n', 'utf8');
     await fs.writeFile(path.join(root, 'z-scope', 'ignored.js'), 'ignored by project rules\n', 'utf8');
@@ -1446,17 +1446,21 @@ test('workspace context does not treat a trailing /** pattern as ignoring its di
   }
 });
 
-test('workspace context keeps ignored directories open for negated wildcard descendants', async () => {
+test('workspace context cannot re-include files below an ignored parent directory', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-negated-glob-'));
   try {
     await fs.mkdir(path.join(root, 'private'), { recursive: true });
-    await fs.writeFile(path.join(root, '.gitignore'), 'private/\n!private/\nprivate/*\n!**/keep.md\n', 'utf8');
+    await fs.mkdir(path.join(root, 'open'), { recursive: true });
+    await fs.writeFile(path.join(root, '.gitignore'), 'private/\n!**/keep.md\nopen/*\n!**/keep.md\n', 'utf8');
     await fs.writeFile(path.join(root, 'private', 'keep.md'), 'explicitly re-included\n', 'utf8');
     await fs.writeFile(path.join(root, 'private', 'drop.js'), 'still ignored\n', 'utf8');
+    await fs.writeFile(path.join(root, 'open', 'keep.md'), 'allowed because its parent is not ignored\n', 'utf8');
+    await fs.writeFile(path.join(root, 'open', 'drop.js'), 'ignored by a file pattern\n', 'utf8');
 
     const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
-    assert.equal(context.entries.some((entry) => entry.includes('private/keep.md')), true);
-    assert.equal(context.excerpts.some((item) => item.path === 'private/keep.md'), true);
+    assert.equal(context.entries.some((entry) => entry.includes('private/keep.md')), false);
+    assert.equal(context.entries.some((entry) => entry.includes('open/keep.md')), true);
+    assert.equal(context.excerpts.some((item) => item.path === 'open/keep.md'), true);
     assert.equal(context.entries.some((entry) => entry.includes('private/drop.js')), false);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
@@ -1594,6 +1598,8 @@ test('opt-in Git diff excludes tracked secrets and ignored paths', async () => {
     await fs.writeFile(path.join(root, 'private', 'keep.md'), 'BASE PRIVATE\n', 'utf8');
     await fs.writeFile(path.join(root, 'node_modules', 'sample', 'library.js'), 'BASE DEPENDENCY\n', 'utf8');
     await fs.writeFile(path.join(root, 'packages', 'visible.js'), 'const visible = "base";\n', 'utf8');
+    const newlineStatusPath = process.platform === 'win32' ? null : path.join(root, 'status\ninjection.js');
+    if (newlineStatusPath) await fs.writeFile(newlineStatusPath, 'const status = "base";\n', 'utf8');
     await execFileAsync('git', ['add', '-f', '.'], { cwd: root });
     await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: root });
 
@@ -1605,6 +1611,7 @@ test('opt-in Git diff excludes tracked secrets and ignored paths', async () => {
     await fs.writeFile(path.join(root, 'node_modules', 'sample', 'library.js'), 'DEPENDENCY_FILE_CHANGE\n', 'utf8');
     await fs.writeFile(path.join(root, 'packages', 'local.md'), 'NESTED_IGNORED_CHANGE\n', 'utf8');
     await fs.writeFile(path.join(root, 'packages', 'visible.js'), 'const visible = "NESTED_VISIBLE_CHANGE";\n', 'utf8');
+    if (newlineStatusPath) await fs.writeFile(newlineStatusPath, 'const status = "changed";\n', 'utf8');
 
     const context = await collectWorkspaceContext(root, { includeDiff: true, maxBytes: 5000 });
     assert.match(context.git.diff, /SAFE_VISIBLE_CHANGE/);
@@ -1613,6 +1620,10 @@ test('opt-in Git diff excludes tracked secrets and ignored paths', async () => {
     assert.doesNotMatch(context.git.diffStat, /credentials\.json|private\.pem|ignored\.txt|node_modules/);
     assert.match(context.git.status, /app\.js/);
     assert.doesNotMatch(context.git.status, /credentials\.json|private\.pem|ignored\.txt|node_modules|local\.md/);
+    if (newlineStatusPath) {
+      assert.match(context.git.status, /status\?injection\.js/);
+      assert.doesNotMatch(context.git.status, /(^|\n)injection\.js/);
+    }
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

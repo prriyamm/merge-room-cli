@@ -344,7 +344,8 @@ async function filterGitStatus(cwd, rawStatus, signal) {
     const isDirectory = normalized.endsWith('/');
     const rules = await readIgnoreRulesForPath(cwd, path.resolve(cwd, normalized), signal, ignoreRuleCache);
     if (isIgnored(normalized.replace(/\/$/, ''), rules, isDirectory)) continue;
-    safeEntries.push(`${code} ${relative}`);
+    const printablePath = relative.replace(/[\u0000-\u001f\u007f]/g, '?');
+    safeEntries.push(`${code} ${printablePath}`);
   }
   return [branch, ...safeEntries].filter(Boolean).join('\n').trim();
 }
