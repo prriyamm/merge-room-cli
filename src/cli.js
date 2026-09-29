@@ -481,7 +481,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); const waitingSequence = noticeSequence; await waitForCockpitTasks(tasks); setMessage('Both rooms are ready.', waitingSequence); return true; }
-    if (request === '/help more') { setMessage('/cancel [1|2] /agents [id] /team <all|ids> /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage'); return true; }
+    if (request === '/help more') { setMessage('/cancel [1|2] /agents [id] /team [all|ids] /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage'); return true; }
     if (request === '/help') { setMessage('Help: mission or /run <mission> · rooms /1 /2 /switch · turns /new /clear /wait /cancel [1|2] · /help more · /quit /exit'); return true; }
     if (request === '/agents') {
       setMessage(`Team of ${activeConfig.agents.length}. Use /agents <id> for a specialist's details; run merge-room agents for the full roster.`);
@@ -526,6 +526,11 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     }
     if (request === '/context') { setMessage(contextEnabled ? `Context is on for ${workspace}` : 'Context is off. Use /context on to enable it.'); return true; }
     if (request === '/context on' || request === '/context off') { contextEnabled = request.endsWith('on'); setMessage(`Workspace context ${contextEnabled ? 'on' : 'off'} for new turns.`); return true; }
+    if (request === '/team') {
+      const names = activeConfig.agents.map((agent) => agent.name);
+      setMessage(names.length ? `Current team (${names.length}): ${names.join(', ')}` : 'No specialists are selected.');
+      return true;
+    }
     if (request === '/team all') { activeConfig = profileOverrideActive ? selectProfile(config, activeProfile) : config; setMessage(`All ${activeConfig.agents.length} agents selected.`); return true; }
     if (request.startsWith('/team ')) {
       try { activeConfig = selectTeam(config, request.slice('/team '.length)); if (profileOverrideActive) activeConfig = selectProfile(activeConfig, activeProfile); setMessage(`Team: ${activeConfig.agents.map((agent) => agent.name).join(', ')}`); }
