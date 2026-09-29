@@ -514,7 +514,8 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (request === '/usage') {
       try {
         const usage = summarizeUsage(activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : []);
-        setMessage(`${usage.sessions} saved missions · ${usage.total} tokens · ${usage.calls} calls`, inputNoticeSequence);
+        const estimated = usage.estimatedInput || usage.estimatedOutput;
+        setMessage(`${usage.sessions} saved missions · ${estimated ? '~' : ''}${usage.total} tokens · ${usage.calls} calls`, inputNoticeSequence);
       } catch (error) { setMessage(`Usage unavailable: ${error.message}`, inputNoticeSequence); }
       return true;
     }
