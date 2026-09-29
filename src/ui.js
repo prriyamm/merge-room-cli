@@ -294,7 +294,20 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       }
       if (!lines.length && contentHeight > 0) lines.push(' Type a mission to start this room.');
       safeWrite(fit(header, terminalWidth));
-      if (showRoomStatus) safeWrite(surface(fit(` Room ${activeRoom.id}: ${activeRoom.status} · Room ${otherRoom.id}: ${otherRoom.status}`, terminalWidth)));
+      if (showRoomStatus) {
+        const compactStatus = (status) => ({ preparing: 'prep', working: 'work', cancelled: 'stop', degraded: 'degr', saving: 'save', queued: 'queue' })[status] || status;
+        const tinyStatus = (status) => ({ preparing: 'p', working: 'w', cancelled: 'c', degraded: 'd', saving: 's', queued: 'q', idle: 'i', done: 'o', error: 'e' })[status] || '?';
+        const roomStatus = terminalWidth >= 44
+          ? ` Room ${activeRoom.id}: ${activeRoom.status} · Room ${otherRoom.id}: ${otherRoom.status}`
+          : terminalWidth >= 20
+            ? ` ${activeRoom.id}:${compactStatus(activeRoom.status)} · ${otherRoom.id}:${compactStatus(otherRoom.status)}`
+            : terminalWidth >= 8
+              ? ` ${activeRoom.id}:${tinyStatus(activeRoom.status)} ${otherRoom.id}:${tinyStatus(otherRoom.status)}`
+              : terminalWidth >= 5
+                ? `${activeRoom.id}${tinyStatus(activeRoom.status)} ${otherRoom.id}${tinyStatus(otherRoom.status)}`
+                : `${activeRoom.id}${tinyStatus(activeRoom.status)}${otherRoom.id}${tinyStatus(otherRoom.status)}`;
+        safeWrite(surface(fit(roomStatus, terminalWidth)));
+      }
       for (const item of lines.slice(0, contentHeight)) safeWrite(surface(fit(item, terminalWidth)));
       if (showHelp) safeWrite(surface(fit(help, terminalWidth)));
       for (const line of visibleMessageLines) safeWrite(surface(fit(` ${color('teal', line)}`, terminalWidth)));
