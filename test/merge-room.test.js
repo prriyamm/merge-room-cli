@@ -2014,7 +2014,7 @@ test('workspace excerpts and opt-in Git diffs redact complete Authorization head
     const file = path.join(root, 'headers.yaml');
     await fs.writeFile(file, 'Authorization: "Bearer OLD_AUTH_SECRET"\nauthorization: |\n  Bearer OLD_MULTILINE_AUTH_SECRET\n\n  continued OLD_BLOCK_SECRET\nContent-Type: application/json\n', 'utf8');
     const tokenFile = path.join(root, 'settings.json');
-    await fs.writeFile(tokenFile, '{"token":"OLD_BARE_TOKEN WITH SPACES","accessToken":"OLD_CAMEL_TOKEN","refresh-token":"OLD_KEBAB_TOKEN","input_tokens":12,"input_token":1}\n', 'utf8');
+    await fs.writeFile(tokenFile, '{"token":"OLD_BARE_TOKEN WITH SPACES","accessToken":"OLD_CAMEL_TOKEN","refresh-token":"OLD_KEBAB_TOKEN","input_tokens":12,"input_token":1,"input-token":1}\n', 'utf8');
     const yamlFile = path.join(root, 'settings.yml');
     await fs.writeFile(yamlFile, `token: "OLD_YAML_DOUBLE_TOKEN WITH SPACES"\naccess_token: 'OLD_YAML_SINGLE_TOKEN with ''OLD_APOSTROPHE_SUFFIX'''\n`, 'utf8');
     const longBlockFile = path.join(root, 'provider-response.txt');
@@ -2022,7 +2022,7 @@ test('workspace excerpts and opt-in Git diffs redact complete Authorization head
     await execFileAsync('git', ['add', 'headers.yaml', 'settings.json', 'settings.yml', 'provider-response.txt'], { cwd: root });
     await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: root });
     await fs.writeFile(file, 'Authorization: "Bearer NEW_AUTH_SECRET"\nauthorization: |\n  Bearer NEW_MULTILINE_AUTH_SECRET\n\n  continued NEW_BLOCK_SECRET\nContent-Type: application/json\n', 'utf8');
-    await fs.writeFile(tokenFile, '{"token":"NEW_BARE_TOKEN WITH SPACES","accessToken":"NEW_CAMEL_TOKEN","refresh-token":"NEW_KEBAB_TOKEN","input_tokens":12,"input_token":1}\n', 'utf8');
+    await fs.writeFile(tokenFile, '{"token":"NEW_BARE_TOKEN WITH SPACES","accessToken":"NEW_CAMEL_TOKEN","refresh-token":"NEW_KEBAB_TOKEN","input_tokens":12,"input_token":1,"input-token":1}\n', 'utf8');
     await fs.writeFile(yamlFile, `token: "NEW_YAML_DOUBLE_TOKEN WITH SPACES"\naccess_token: 'NEW_YAML_SINGLE_TOKEN with ''NEW_APOSTROPHE_SUFFIX'''\n`, 'utf8');
     await fs.writeFile(longBlockFile, 'Provider response\nToken NEW_HUNK_SECRET\ntoken="NEW_DIFF_TOKEN WITH SPACES"\nrefresh_token: NEW_SNAKE_TOKEN\ninput_tokens: 12\n', 'utf8');
 
@@ -2037,6 +2037,7 @@ test('workspace excerpts and opt-in Git diffs redact complete Authorization head
     assert.match(tokenExcerpt, /"refresh-token":"\[redacted\]"/);
     assert.match(tokenExcerpt, /"input_tokens":12/);
     assert.match(tokenExcerpt, /"input_token":1/);
+    assert.match(tokenExcerpt, /"input-token":1/);
     assert.match(context.git.diff, /token="\[redacted\]"/);
     assert.match(context.git.diff, /refresh_token: \[redacted\]/);
     const yamlExcerpt = context.excerpts.find((item) => item.path === 'settings.yml').text;
