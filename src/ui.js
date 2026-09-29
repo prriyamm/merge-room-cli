@@ -27,13 +27,50 @@ const crop = (value, max) => {
   }
   return `${output}…`;
 };
-const wrap = (value, max) => String(value).split(/\s+/).reduce((lines, word) => {
-  const current = lines.at(-1) || '';
-  if (!current) lines.push(word);
-  else if (`${current} ${word}`.length <= max) lines[lines.length - 1] = `${current} ${word}`;
-  else lines.push(word);
+const graphemes = (value) => typeof Intl.Segmenter === 'function'
+  ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].map(({ segment }) => segment)
+  : [...value];
+const graphemeWidth = (value) => /\p{Extended_Pictographic}/u.test(value) || value.includes('\u200d')
+  ? 2
+  : [...value].reduce((total, character) => total + characterWidth(character), 0);
+const wrap = (value, max) => {
+  const limit = Math.max(1, Math.floor(max));
+  const lines = [];
+  let current = '';
+  let currentWidth = 0;
+  const pushWord = (word) => {
+    let part = '';
+    let partWidth = 0;
+    for (const grapheme of graphemes(word)) {
+      const nextWidth = graphemeWidth(grapheme);
+      if (part && partWidth + nextWidth > limit) {
+        if (current) lines.push(current);
+        lines.push(part);
+        current = '';
+        currentWidth = 0;
+        part = '';
+        partWidth = 0;
+      }
+      part += grapheme;
+      partWidth += nextWidth;
+    }
+    if (current && currentWidth + 1 + partWidth > limit) {
+      lines.push(current);
+      current = '';
+      currentWidth = 0;
+    }
+    if (current) {
+      current += ` ${part}`;
+      currentWidth += 1 + partWidth;
+    } else {
+      current = part;
+      currentWidth = partWidth;
+    }
+  };
+  for (const word of String(value).split(/\s+/).filter(Boolean)) pushWord(word);
+  if (current) lines.push(current);
   return lines;
-}, []);
+};
 
 const STARTUP_PATTERN = Object.freeze(liquidGlassLogoLines({ color: false }));
 const COLORED_STARTUP_PATTERN = Object.freeze(liquidGlassLogoLines({ color: true }));
@@ -377,7 +414,7 @@ function visibleLength(value) {
 
 function characterWidth(character) {
   const codePoint = character.codePointAt(0);
-  if (codePoint === 0x200d || /\p{Mark}/u.test(character)) return 0;
+  if (codePoint === 0x200d || /\p{Mark}/u.test(character) || (codePoint >= 0xfe00 && codePoint <= 0xfe0f)) return 0;
   return codePoint >= 0x1100 && (
     codePoint <= 0x115f || codePoint === 0x2329 || codePoint === 0x232a
     || (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f)
