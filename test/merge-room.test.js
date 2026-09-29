@@ -417,7 +417,10 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
           started = true;
           child.stdin.write('First room mission\n');
         }
-        if (started && !commandsSent && /Scout.*working|Room 1 started turn 1/i.test(visibleOutput)) {
+        // The started-turn notice is emitted before the engine reaches the
+        // provider. Wait for Scout's working state so this test actually
+        // cancels in-flight work on every platform.
+        if (started && !commandsSent && /room 1[^\r\n]*Scout[^\r\n]*working|Room 1\s+working[\s\S]{0,240}Scout\s+working/i.test(visibleOutput)) {
           commandsSent = true;
           child.stdin.write('/2\n');
         }
@@ -443,10 +446,18 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
     });
 
     const output = `${stdout}\n${stderr}`.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+    const lines = output.split(/\r?\n/).map((line) => line.trim());
+    const roomCardHasMission = (room, status, mission) => lines.some((line, index) => {
+      if (!new RegExp(`^.*Room\\s+${room}\\s+(?:Mission\\s+)?${status}\\b`, 'i').test(line)) return false;
+      for (let next = index + 1; next < Math.min(lines.length, index + 5); next += 1) {
+        if (/Room\s+[12]\s+/i.test(lines[next])) break;
+        if (lines[next].includes(mission)) return true;
+      }
+      return false;
+    });
     assert.match(output, /Cancellation requested for Room 1\./i);
-    assert.match(output, /Room 1(?:\s+Mission)?\s+cancelled/i);
-    assert.match(output, /First room mission/i);
-    assert.match(output, /Second room mission/i);
+    assert.ok(roomCardHasMission(1, 'cancelled', 'First room mission'), 'Room 1 cancellation card should retain its own mission');
+    assert.ok(roomCardHasMission(2, 'done', 'Second room mission'), 'Room 2 completion card should retain its own mission');
     assert.match(output, /Room 2 finished\. Continue there or switch rooms\./i);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
