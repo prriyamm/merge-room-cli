@@ -224,7 +224,6 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
   };
   const start = (options) => printCockpitWelcome({ provider: provider.name, model: config.model, workspace, ...options, write: safeWrite });
   const user = (roomIndex, request) => {
-    state.activeRoom = roomIndex;
     state.rooms[roomIndex].request = request;
     refresh();
   };
