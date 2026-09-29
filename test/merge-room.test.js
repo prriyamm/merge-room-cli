@@ -664,6 +664,11 @@ test('providers command reports routes and binary presence without revealing API
     assert.equal(report.profiles[2].binaryAvailable, true);
     assert.deepEqual(report.profiles[2].agents, ['maker']);
     assert.equal(JSON.stringify(report).includes('never-print-this-secret'), false);
+    await main(['providers', '--json', '--provider=demo', '--cwd', root]);
+    assert.equal(JSON.parse(output).effectiveProvider.type, 'demo');
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ provider: 'demo', providers: { api: { type: 'openai-compatible', model: 'gpt-test' } } }));
+    await main(['providers', '--json', '--cwd', root]);
+    assert.equal(JSON.parse(output).effectiveProvider.type, 'demo');
     await fs.writeFile(path.join(root, 'merge-room.config.json'), '{}');
     process.env.OPENAI_API_KEY = 'direct-key-must-not-print';
     delete process.env.MERGE_ROOM_API_KEY;

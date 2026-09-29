@@ -725,8 +725,10 @@ async function printProviderStatus(config, json = false) {
     return { id, type: profile.type, model: profile.model || config.model, default: defaultProvider === id, lead: leadProvider === id, agents, apiKeyEnv, configured: Boolean(process.env[apiKeyEnv]) };
   }));
   const directFallback = profiles.length ? null : directProviderStatus(config);
-  const report = { defaultProvider, leadProvider, profiles, ...(directFallback ? { directFallback } : {}) };
+  const effectiveProvider = config.provider === 'demo' ? { type: 'demo', model: 'local-demo' } : null;
+  const report = { defaultProvider, leadProvider, profiles, ...(effectiveProvider ? { effectiveProvider } : {}), ...(directFallback ? { directFallback } : {}) };
   if (json) { console.log(JSON.stringify(report, null, 2)); return; }
+  if (effectiveProvider) console.log('Effective route · forced Demo mode; configured profiles are bypassed.');
   if (!profiles.length) {
     if (directFallback.type === 'demo') console.log(`No named profiles · Demo mode${directFallback.apiKeyEnv ? ` · ${directFallback.apiKeyEnv} missing` : ''}`);
     else console.log(`No named profiles · OpenAI-compatible direct route · ${directFallback.apiKeyEnv} set · ${directFallback.model}`);
