@@ -3,13 +3,14 @@ import path from 'node:path';
 import { normalizeTheme, resolveTheme } from './themes.js';
 
 export const VERSION = '0.5.0';
+export const DEFAULT_TEMPERATURE = 0.35;
 
 export const DEFAULT_CONFIG = {
   model: process.env.MERGE_ROOM_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
   baseUrl: process.env.MERGE_ROOM_BASE_URL || process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
   provider: process.env.MERGE_ROOM_PROVIDER || 'auto',
   theme: process.env.MERGE_ROOM_THEME || 'merge-room',
-  temperature: 0.35,
+  temperature: DEFAULT_TEMPERATURE,
   maxTokens: 1200,
   streaming: true,
   streamUsage: false,
@@ -104,7 +105,18 @@ function mergeConfig(base, local) {
   const maxTokens = Number(local.maxTokens ?? base.maxTokens);
   if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error('merge-room.config.json `maxTokens` must be a whole number greater than zero.');
   const temperature = Number(local.temperature ?? base.temperature);
-  if (!Number.isFinite(temperature) || temperature < 0) throw new Error('merge-room.config.json `temperature` must be a non-negative number.');
+  try { providerTemperature(temperature); }
+  catch { throw new Error('merge-room.config.json `temperature` must be a finite number between 0 and 2.'); }
+  const defaultProfileId = local.defaultProvider ?? Object.keys(providers)[0];
+  for (const [id, profile] of Object.entries(providers)) {
+    if (!['openai-compatible', 'anthropic'].includes(profile.type)) continue;
+    const profileModel = profile.model || local.model || base.model;
+    const routedModels = sourceAgents.filter((agent) => agent?.provider === id || (agent?.provider == null && defaultProfileId === id)).map((agent) => agent.model || profileModel);
+    for (const model of new Set([profileModel, ...routedModels])) {
+      try { providerTemperature(temperature, profile.type, model); }
+      catch (error) { throw new Error(`merge-room.config.json provider profile \`${id}\`: ${error.message}`); }
+    }
+  }
   const maxConcurrency = Number(local.maxConcurrency ?? base.maxConcurrency);
   if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1) throw new Error('merge-room.config.json `maxConcurrency` must be a whole number greater than zero.');
   const maxCalls = Number(local.maxCalls ?? base.maxCalls);
@@ -184,4 +196,24 @@ export function validateProviderBaseUrl(value, label = 'provider base URL') {
   const loopback = ['localhost', '[::1]'].includes(hostname) || /^127(?:\.\d{1,3}){3}$/.test(hostname);
   if (url.protocol === 'http:' && !loopback) throw new Error(`${label} must use HTTPS; plain HTTP is allowed only for localhost, 127.0.0.1, or ::1.`);
   return url.toString().replace(/\/$/, '');
+}
+
+export function providerTemperature(value, providerType = 'openai-compatible', model = '') {
+  const temperature = value;
+  if (!Number.isFinite(temperature) || temperature < 0) throw new Error('temperature must be a finite non-negative number.');
+  const maximum = providerType === 'anthropic' ? 1 : 2;
+  if (temperature > maximum) throw new Error(`${providerType === 'anthropic' ? 'Anthropic' : 'OpenAI-compatible'} temperature must be between 0 and ${maximum}.`);
+
+  if (providerType === 'anthropic' && anthropicModelRequiresDefaultTemperature(model)) {
+    if (temperature === DEFAULT_TEMPERATURE) return undefined;
+    if (temperature !== 1) throw new Error(`Anthropic model ${model} only supports its default temperature; set temperature to 1 or use the application default.`);
+  }
+  return temperature;
+}
+
+function anthropicModelRequiresDefaultTemperature(model) {
+  const normalized = String(model || '').toLowerCase();
+  if (normalized.includes('claude-mythos-preview')) return true;
+  const opus = normalized.match(/claude-opus-(\d+)-(\d+)/);
+  return Boolean(opus && (Number(opus[1]) > 4 || Number(opus[1]) === 4 && Number(opus[2]) >= 7));
 }

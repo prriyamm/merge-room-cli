@@ -3645,6 +3645,8 @@ test('invalid project configuration fails with an actionable message', async () 
     await assert.rejects(() => loadConfig(root), /theme.*merge-room theme list/);
     await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ maxCalls: -1 }), 'utf8');
     await assert.rejects(() => loadConfig(root), /maxCalls.*greater than or equal to zero/);
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ temperature: 2.1 }), 'utf8');
+    await assert.rejects(() => loadConfig(root), /temperature.*between 0 and 2/);
     await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ provider: 'remote' }), 'utf8');
     await assert.rejects(() => loadConfig(root), /provider.*auto.*demo/);
     await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ agents: {} }), 'utf8');
@@ -3656,6 +3658,84 @@ test('invalid project configuration fails with an actionable message', async () 
     await assert.rejects(() => loadConfig(root, 'missing-profile.json'), /file not found/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('temperature validation follows configured provider and model capabilities', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-temperature-'));
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ temperature: 1.5 }), 'utf8');
+    assert.equal((await loadConfig(root)).temperature, 1.5);
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      temperature: 2,
+      providers: { openai: { type: 'openai-compatible', model: 'gpt-4o-mini' } },
+      defaultProvider: 'openai'
+    }), 'utf8');
+    assert.equal((await loadConfig(root)).temperature, 2);
+
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      temperature: 1.1,
+      providers: { claude: { type: 'anthropic', model: 'claude-sonnet-4-6' } },
+      defaultProvider: 'claude'
+    }), 'utf8');
+    await assert.rejects(() => loadConfig(root), /Anthropic temperature.*between 0 and 1/);
+
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      temperature: 0.2,
+      providers: { claude: { type: 'anthropic', model: 'claude-opus-4-7' } },
+      defaultProvider: 'claude'
+    }), 'utf8');
+    await assert.rejects(() => loadConfig(root), /only supports its default temperature/);
+
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      providers: { claude: { type: 'anthropic', model: 'claude-opus-4-7' } },
+      defaultProvider: 'claude'
+    }), 'utf8');
+    assert.equal((await loadConfig(root)).temperature, DEFAULT_CONFIG.temperature);
+    await assert.rejects(
+      () => main(['--cwd', root, '--temperature', '1.1', '--no-context', 'mission']),
+      /Anthropic temperature.*between 0 and 1/
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+
+  await assert.rejects(() => main(['--temperature', '2.1', '--no-context', 'mission']), /between 0 and 2/);
+});
+
+test('API adapters reject unsupported temperatures before sending requests', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls += 1; throw new Error('fetch should not run'); };
+  try {
+    const openai = new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, temperature: 2.1, retries: 0 }, 'openai-secret');
+    await assert.rejects(() => openai.complete({ system: 'system', prompt: 'prompt' }), /OpenAI-compatible temperature.*between 0 and 2/);
+
+    const anthropicRange = new AnthropicProvider({ ...DEFAULT_CONFIG, temperature: 1.1, retries: 0 }, 'anthropic-secret');
+    await assert.rejects(() => anthropicRange.complete({ system: 'system', prompt: 'prompt' }), /Anthropic temperature.*between 0 and 1/);
+
+    const anthropicModel = new AnthropicProvider({ ...DEFAULT_CONFIG, model: 'claude-opus-4-7', temperature: 0.2, retries: 0 }, 'anthropic-secret');
+    await assert.rejects(() => anthropicModel.complete({ system: 'system', prompt: 'prompt' }), /only supports its default temperature/);
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Anthropic Opus 4.7+ omits the app default temperature parameter', async () => {
+  const originalFetch = globalThis.fetch;
+  let payload;
+  globalThis.fetch = async (_url, options) => {
+    payload = JSON.parse(options.body);
+    return new Response(JSON.stringify({ content: [{ type: 'text', text: 'response' }], usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200 });
+  };
+  try {
+    const provider = new AnthropicProvider({ ...DEFAULT_CONFIG, model: 'claude-opus-4-7', streaming: false, retries: 0 }, 'anthropic-secret');
+    const result = await provider.complete({ system: 'system', prompt: 'prompt' });
+    assert.equal(result.text, 'response');
+    assert.equal(Object.hasOwn(payload, 'temperature'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 
