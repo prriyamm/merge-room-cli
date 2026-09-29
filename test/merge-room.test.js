@@ -735,6 +735,51 @@ test('demo provider cancels an in-flight mission', async () => {
   assert.equal(events.at(-1).type, 'run:cancelled');
 });
 
+test('engine ignores a provider response that arrives after mission cancellation', async () => {
+  const config = {
+    ...DEFAULT_CONFIG,
+    strategy: 'parallel',
+    maxConcurrency: 2,
+    agents: [
+      { id: 'aborter', name: 'Aborter', specialty: 'aborter', prompt: '' },
+      { id: 'late', name: 'Late', specialty: 'late', prompt: '' }
+    ]
+  };
+  const controller = new AbortController();
+  const events = [];
+  let callsStarted = 0;
+  let resolveStarted;
+  const bothStarted = new Promise((resolve) => { resolveStarted = resolve; });
+  const provider = {
+    name: 'recording',
+    complete: ({ signal, system }) => {
+      callsStarted += 1;
+      if (callsStarted === 2) resolveStarted();
+      if (system.includes('Aborter')) {
+        return new Promise((_, reject) => {
+          signal.addEventListener('abort', () => reject(Object.assign(new Error('cancelled'), { name: 'AbortError' })), { once: true });
+        });
+      }
+      return new Promise((resolve) => {
+        signal.addEventListener('abort', () => {
+          setTimeout(() => resolve({ text: 'late note', inputTokens: 5, outputTokens: 3 }), 10);
+        }, { once: true });
+      });
+    }
+  };
+  const engine = new MergeRoomEngine({ config, provider, onEvent: (event) => events.push(event) });
+  const run = engine.run('Cancel overlapping work', { signal: controller.signal });
+  await bothStarted;
+  controller.abort();
+  await assert.rejects(run, { name: 'AbortError' });
+  const cancelledEvent = events.at(-1);
+  assert.equal(cancelledEvent.type, 'run:cancelled');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(events.some((event) => event.type === 'agent:done'), false);
+  assert.equal(events.at(-1).type, 'run:cancelled');
+  assert.equal(engine.ledger.snapshot().calls, cancelledEvent.telemetry.calls);
+});
+
 test('token estimate is stable and non-negative', () => {
   assert.equal(estimateTokens(''), 0);
   assert.equal(estimateTokens('12345678'), 2);

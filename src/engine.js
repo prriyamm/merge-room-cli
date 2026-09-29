@@ -139,6 +139,7 @@ export class MergeRoomEngine {
     }
     try {
       const response = await this.provider.complete({ signal, provider: agent.provider, model: agent.model, system: `You are ${agent.name}, Merge Room’s ${agent.specialty} specialist. ${agent.prompt}`, prompt: shared });
+      ensureActive(signal);
       const route = response.provider || agent.provider || this.provider.defaultProvider;
       const resolvedProvider = response.provider || (this.config.providers?.[route] ? route : this.provider.name);
       const resolvedModel = resolveModel(this.provider, this.config, route, response.model || agent.model);
