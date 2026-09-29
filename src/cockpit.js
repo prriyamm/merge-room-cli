@@ -14,6 +14,19 @@ export function resolveAgentReference(agents, query) {
   return byId || agents.find((agent) => String(agent.name || '').toLowerCase() === normalizedQuery) || null;
 }
 
+export function restoreAgentStatuses(currentAgents = [], savedAgents = []) {
+  const statuses = Object.fromEntries(currentAgents.map((agent) => [agent.id, 'idle']));
+  for (const saved of savedAgents) {
+    const id = saved.agent?.id;
+    if (id) statuses[id] = saved.status || 'done';
+  }
+  return statuses;
+}
+
+export async function waitForCockpitTasks(tasks) {
+  while (tasks.size) await Promise.allSettled([...tasks.values()]);
+}
+
 export function selectCockpitRoom(state, roomNumber) {
   const index = Number(roomNumber) - 1;
   if (!Number.isInteger(index) || index < 0 || index >= state.rooms.length) throw new Error(`Room must be between 1 and ${state.rooms.length}.`);

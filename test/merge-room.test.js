@@ -16,7 +16,7 @@ import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSes
 import { createLedger, estimateTokens } from '../src/tokens.js';
 import { buildResumeRequest, main } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
-import { applyCockpitEvent, beginCockpitTurn, createCockpitState, finishCockpitTurn, resetCockpitRoom, resolveAgentReference, selectCockpitRoom } from '../src/cockpit.js';
+import { applyCockpitEvent, beginCockpitTurn, createCockpitState, finishCockpitTurn, resetCockpitRoom, resolveAgentReference, restoreAgentStatuses, selectCockpitRoom, waitForCockpitTasks } from '../src/cockpit.js';
 import { createCockpitRenderer, createConversationRenderer, printResult, printSession, startupPatternLines } from '../src/ui.js';
 import { resolveTheme, themeSummaries, THEMES } from '../src/themes.js';
 
@@ -80,6 +80,35 @@ test('cockpit agent lookup prefers an exact ID over another agent name', () => {
   assert.equal(resolveAgentReference(agents, 'INDEXER')?.id, 'indexer');
   assert.equal(resolveAgentReference(agents, 'İPEK')?.id, 'ipek');
   assert.equal(resolveAgentReference(agents, 'unknown'), null);
+});
+
+test('cockpit restores statuses for saved specialists outside the selected team', () => {
+  const currentTeam = [{ id: 'scout' }, { id: 'maker' }];
+  const savedAgents = [
+    { agent: { id: 'scout' }, status: 'done' },
+    { agent: { id: 'critic' }, status: 'error' }
+  ];
+  assert.deepEqual(restoreAgentStatuses(currentTeam, savedAgents), { scout: 'done', maker: 'idle', critic: 'error' });
+});
+
+test('cockpit wait includes tasks added while existing work is finishing', async () => {
+  const tasks = new Map();
+  let finishFirst;
+  let finishSecond;
+  const first = new Promise((resolve) => { finishFirst = resolve; }).finally(() => {
+    tasks.delete('first');
+    const second = new Promise((resolve) => { finishSecond = resolve; }).finally(() => tasks.delete('second'));
+    tasks.set('second', second);
+  });
+  tasks.set('first', first);
+
+  const waiting = waitForCockpitTasks(tasks);
+  finishFirst();
+  await Promise.resolve();
+  assert.equal(tasks.has('second'), true);
+  finishSecond();
+  await waiting;
+  assert.equal(tasks.size, 0);
 });
 
 test('cockpit renders a left activity rail and a focused room pane', () => {
