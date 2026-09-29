@@ -389,13 +389,13 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     return true;
   }
 
-  async function launch(request) {
+  async function launch(request, requestNoticeSequence = noticeSequence) {
     const roomIndex = renderer.state.activeRoom;
     const existing = renderer.state.rooms[roomIndex];
     const previous = existing.result;
     const runConfig = activeConfig;
     try { beginCockpitTurn(renderer.state, roomIndex, request, runConfig.agents); }
-    catch (error) { setMessage(error.message); return; }
+    catch (error) { setMessage(error.message, requestNoticeSequence); return; }
     renderer.user(roomIndex, request);
     const controller = new AbortController();
     const cancel = () => controller.abort();
@@ -414,7 +414,8 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         if (previous) result.conversation = conversationFromPrior(previous);
         const saved = noSave ? null : await persist(result, runConfig, workspace);
         if (saved) result.sessionId = saved.id;
-        finishCockpitTurn(renderer.state, roomIndex, result);
+        finishCockpitTurn(renderer.state, roomIndex, result, null, { updateMessage: false });
+        if (isTerminal) setMessage(`Room ${roomIndex + 1} finished. Continue there or switch rooms.`, requestNoticeSequence);
         renderer.refresh();
         if (!isTerminal) {
           console.log(stripUnsafeTerminalControls(`\n[Room ${roomIndex + 1}] ${request}`));
@@ -424,13 +425,14 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         if (error.name === 'AbortError' && renderer.state.rooms[roomIndex].status !== 'cancelled') {
           renderer.event(roomIndex)({ type: 'run:cancelled', error: error.message || 'Mission cancelled.' });
         }
-        finishCockpitTurn(renderer.state, roomIndex, null, error);
+        finishCockpitTurn(renderer.state, roomIndex, null, error, { updateMessage: false });
         if (!isTerminal) printCockpitPartialAnswer(renderer.state.rooms[roomIndex].final || renderer.state.rooms[roomIndex].answerDraft);
         renderer.refresh();
         if (error.name === 'AbortError') {
-          if (!isTerminal) console.log(`  Room ${roomIndex + 1} cancelled.`);
+          if (isTerminal) setMessage(`Room ${roomIndex + 1} cancelled.`, requestNoticeSequence);
+          else console.log(`  Room ${roomIndex + 1} cancelled.`);
         } else {
-          if (isTerminal) setMessage(`Room ${roomIndex + 1} stopped: ${error.message}`);
+          if (isTerminal) setMessage(`Room ${roomIndex + 1} stopped: ${error.message}`, requestNoticeSequence);
           else console.log(stripUnsafeTerminalControls(`  Room ${roomIndex + 1}: ${error.message}`));
         }
       } finally {
@@ -581,7 +583,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (/^\/run(?:\s|$)/.test(request)) {
       const mission = request.slice('/run'.length).trim();
       if (!mission) setMessage('Use /run <mission>.');
-      else { await waitForActiveRoom(); await launch(mission); }
+      else { await waitForActiveRoom(); await launch(mission, inputNoticeSequence); }
       return true;
     }
     if (request.startsWith('/')) {
@@ -589,7 +591,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     await waitForActiveRoom();
-    await launch(request);
+    await launch(request, inputNoticeSequence);
     return true;
   }
 
