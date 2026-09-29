@@ -208,6 +208,22 @@ test('compact cockpit crops wide characters to terminal cell width', () => {
   assert.ok(lines.every((line) => cellWidth(line) <= 14));
 });
 
+test('compact cockpit honors text presentation selectors for emoji-presentation bases', () => {
+  const renderMission = (mission) => {
+    const lines = [];
+    const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
+    const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 13, rows: 8, write: (line) => lines.push(line) });
+    renderer.state.rooms[0].request = mission;
+    renderer.render();
+    return lines.find((line) => line.startsWith(' Mission:'));
+  };
+
+  const textPresentationWatch = '\u231a\ufe0e';
+  const emojiPresentationWatch = '\u231a\ufe0f';
+  assert.equal(renderMission(textPresentationWatch.repeat(3)).trimEnd(), ` Mission: ${textPresentationWatch.repeat(3)}`);
+  assert.equal(renderMission(emojiPresentationWatch.repeat(3)).trimEnd(), ` Mission: ${emojiPresentationWatch}…`);
+});
+
 test('compact cockpit wraps long unbroken answers by terminal cell width', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
