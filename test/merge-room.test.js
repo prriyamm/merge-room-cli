@@ -465,6 +465,31 @@ test('compact cockpit honors text presentation selectors for emoji-presentation 
   assert.equal(renderMission(joinedTextPresentation.repeat(3)).trimEnd(), ` Mission: ${joinedTextPresentation}…`);
 });
 
+test('compact cockpit keeps emoji presentation mission rows inside terminal cell width', () => {
+  const cellWidth = (line) => [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(line)]
+    .reduce((width, { segment }) => {
+      if (segment.includes('\ufe0f') || segment.includes('\u200d') || segment.includes('\u20e3')) return width + 2;
+      return width + [...segment].reduce((cells, character) => {
+        const codePoint = character.codePointAt(0);
+        if (codePoint === 0x200d || /\p{Mark}/u.test(character) || (codePoint >= 0xfe00 && codePoint <= 0xfe0f)) return cells;
+        return cells + (codePoint >= 0x2e80 && codePoint <= 0xa4cf || codePoint >= 0x1f300 && codePoint <= 0x1faff || /\p{Emoji_Presentation}/u.test(character) ? 2 : 1);
+      }, 0);
+    }, 0);
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
+
+  for (const mission of ['\u231a\ufe0f', '1\ufe0f\u20e3', '👩‍💻']) {
+    const lines = [];
+    const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 13, rows: 8, write: (line) => lines.push(line) });
+    renderer.state.rooms[0].request = mission;
+    renderer.render();
+
+    const missionRow = lines.find((line) => line.startsWith(' Mission:'));
+    assert.ok(missionRow, `mission row should be visible for ${mission}`);
+    assert.equal(cellWidth(missionRow), 13, `mission row should fit exactly in 13 cells for ${mission}`);
+    assert.ok(lines.every((line) => cellWidth(line) <= 13), `every row should fit in 13 cells for ${mission}`);
+  }
+});
+
 test('compact cockpit fits keycap notices to terminal cell width', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
