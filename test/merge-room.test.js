@@ -545,7 +545,7 @@ test('cockpit can switch provider profiles without resetting room context', asyn
   const requests = [];
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-cockpit-profiles-'));
   let output = '';
-  Object.defineProperty(process, 'stdin', { configurable: true, value: Readable.from(['First provider turn\n/wait\n/profile claude\nSecond provider turn\n/wait\n/quit\n']) });
+  Object.defineProperty(process, 'stdin', { configurable: true, value: Readable.from(['/team scout\nFirst provider turn\n/wait\n/profile claude\nSecond provider turn\n/wait\n/quit\n']) });
   globalThis.fetch = async (url, options) => {
     requests.push({ url, body: JSON.parse(options.body) });
     const body = url.includes('/v1/messages')
@@ -562,11 +562,12 @@ test('cockpit can switch provider profiles without resetting room context', asyn
         claude: { type: 'anthropic', model: 'claude-test', baseUrl: 'https://anthropic.test', apiKeyEnv: 'MERGE_ROOM_TEST_ANTHROPIC' }
       },
       defaultProvider: 'openai', leadProvider: 'openai',
-      agents: [{ id: 'scout', provider: 'openai' }]
+      agents: [{ id: 'scout', provider: 'claude' }]
     }));
     await main(['--cwd', root, 'interactive', '--no-context', '--no-save', '--no-stream'], { signal: new AbortController().signal });
     assert.equal(requests.length, 4);
-    assert.ok(requests.slice(0, 2).every((request) => request.url === 'https://openai.test/v1/chat/completions'));
+    assert.equal(requests[0].url, 'https://anthropic.test/v1/messages');
+    assert.equal(requests[1].url, 'https://openai.test/v1/chat/completions');
     assert.ok(requests.slice(2).every((request) => request.url === 'https://anthropic.test/v1/messages'));
     assert.match(output, /Second provider turn/);
   } finally {
@@ -652,6 +653,16 @@ test('Anthropic adapter retries transient failures and times out', async () => {
     globalThis.fetch = (_url, { signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
     const timeoutConfig = { ...config, requestTimeoutMs: 100, retries: 0 };
     await assert.rejects(() => createProvider(timeoutConfig).complete({ provider: 'claude', system: 'system', prompt: 'prompt' }), { name: 'TimeoutError' });
+    let cancelledCalls = 0;
+    globalThis.fetch = async (_url, { signal }) => {
+      cancelledCalls += 1;
+      return new Response(JSON.stringify({ error: { message: 'busy' } }), { status: 503 });
+    };
+    const abortDuringBackoff = new AbortController();
+    const retrying = createProvider(config).complete({ provider: 'claude', system: 'system', prompt: 'prompt', signal: abortDuringBackoff.signal });
+    setTimeout(() => abortDuringBackoff.abort(), 20);
+    await assert.rejects(() => retrying, { name: 'AbortError' });
+    assert.equal(cancelledCalls, 1);
   } finally {
     globalThis.fetch = originalFetch;
     if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_ANTHROPIC;
