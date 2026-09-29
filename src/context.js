@@ -565,7 +565,8 @@ function formatUntrackedDiff(relative, buffer, maxBytes) {
   while (additions.length && usedBytes + markerBytes > maxBytes) {
     usedBytes -= Buffer.byteLength(additions.pop(), 'utf8');
   }
-  const hunk = `@@ -0,0 +1,${additions.length + (truncated ? 1 : 0)} @@\n`;
+  const addedLines = additions.length + (truncated ? 1 : 0);
+  const hunk = addedLines ? `@@ -0,0 +1,${addedLines} @@\n` : '';
   return `${header}${hunk}${additions.join('')}${marker}${noNewlineMarker}`;
 }
 

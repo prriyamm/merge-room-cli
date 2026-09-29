@@ -3179,6 +3179,7 @@ test('opt-in Git diff includes safe untracked text files and excludes ignored or
 
     await fs.writeFile(path.join(root, 'new-feature.js'), 'const NEW_UNTRACKED_FEATURE = true;\n', 'utf8');
     await fs.writeFile(path.join(root, 'large.js'), `const LARGE_UNTRACKED = '${'x'.repeat(20000)}';\n`, 'utf8');
+    await fs.writeFile(path.join(root, 'empty.js'), '', 'utf8');
     await fs.writeFile(path.join(root, 'ignored.js'), 'const IGNORED_UNTRACKED = true;\n', 'utf8');
     await fs.writeFile(path.join(root, 'credentials.js'), 'const SECRET_UNTRACKED = true;\n', 'utf8');
     await fs.writeFile(path.join(external, 'outside.js'), 'const OUTSIDE_UNTRACKED_SECRET = true;\n', 'utf8');
@@ -3190,6 +3191,7 @@ test('opt-in Git diff includes safe untracked text files and excludes ignored or
     const context = await collectWorkspaceContext(root, { includeDiff: true });
     assert.match(context.git.diff, /NEW_UNTRACKED_FEATURE/);
     assert.match(context.git.diff, /@@ -0,0 \+1,1 @@\n\+const NEW_UNTRACKED_FEATURE/);
+    assert.match(context.git.diff, /\+\+\+ b\/empty\.js\n(?!(?:@@))/);
     assert.doesNotMatch(context.git.diff, /\+\n/);
     assert.ok(Buffer.byteLength(context.git.diff, 'utf8') <= 12000);
     assert.doesNotMatch(context.git.diff, /IGNORED_UNTRACKED|SECRET_UNTRACKED|OUTSIDE_UNTRACKED_SECRET/);
