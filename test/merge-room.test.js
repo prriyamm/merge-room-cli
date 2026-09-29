@@ -702,16 +702,18 @@ test('PowerShell completion handles blank and partially typed option values when
   const script = `
 function Register-ArgumentCompleter { param($CommandName, $ScriptBlock) $global:mergeRoomCompleter = $ScriptBlock }
 ${completion}
-function Get-OptionCompletions([string]$line) {
+function Get-OptionCompletions([string]$line, [string]$wordToComplete) {
   $tokens = $null; $errors = $null
   $ast = [System.Management.Automation.Language.Parser]::ParseInput($line, [ref]$tokens, [ref]$errors)
   $command = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))[0]
-  @(& $global:mergeRoomCompleter '' $command $line.Length | ForEach-Object { $_.CompletionText })
+  @(& $global:mergeRoomCompleter $wordToComplete $command $line.Length | ForEach-Object { $_.CompletionText })
 }
-if ((Get-OptionCompletions 'merge-room --theme ') -notcontains 'ocean') { exit 1 }
-if ((Get-OptionCompletions 'merge-room --theme o') -notcontains 'ocean') { exit 2 }
-if ((Get-OptionCompletions 'merge-room --format ') -notcontains 'json') { exit 3 }
-if ((Get-OptionCompletions 'merge-room --format j') -notcontains 'json') { exit 4 }
+if ((Get-OptionCompletions 'merge-room --theme ' '') -notcontains 'ocean') { exit 1 }
+if ((Get-OptionCompletions 'merge-room --theme o' 'o') -notcontains 'ocean') { exit 2 }
+if ((Get-OptionCompletions 'merge-room --theme o' 'o') -contains 'ember') { exit 3 }
+if ((Get-OptionCompletions 'merge-room --format ' '') -notcontains 'json') { exit 4 }
+if ((Get-OptionCompletions 'merge-room --format j' 'j') -notcontains 'json') { exit 5 }
+if ((Get-OptionCompletions 'merge-room --format j' 'j') -contains 'markdown') { exit 6 }
 `;
   const scriptPath = path.join(os.tmpdir(), `merge-room-completion-${process.pid}.ps1`);
   await fs.writeFile(scriptPath, script, 'utf8');
