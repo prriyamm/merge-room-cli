@@ -28,6 +28,7 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
   const seenDirectories = new Set();
   let traversedEntries = 0;
   let traversalTruncated = false;
+  let outputTruncated = false;
   const ignoreRules = await readIgnoreRules(workspaceRoot, '', options.signal);
   let totalBytes = 0;
 
@@ -90,16 +91,27 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
     ensureActive(options.signal);
     if (seenDirectories.has(directory)) return;
     seenDirectories.add(directory);
-    if (depth > (options.maxDepth ?? 3) || entries.length >= maxFiles) return;
+    if (depth > (options.maxDepth ?? 3)) return;
     const directoryRules = directory === workspaceRoot
       ? inheritedIgnoreRules
       : inheritedIgnoreRules.concat(await readIgnoreRules(directory, path.relative(workspaceRoot, directory), options.signal));
     let children;
     try { children = await fs.readdir(directory, { withFileTypes: true }); } catch { return; }
     children.sort((a, b) => a.name.localeCompare(b.name));
-    for (const child of children) {
+    for (let index = 0; index < children.length; index += 1) {
+      const child = children[index];
       ensureActive(options.signal);
-      if (entries.length >= maxFiles) break;
+      if (entries.length >= maxFiles) {
+        outputTruncated ||= children.slice(index).some((candidate) => {
+          if (candidate.name.startsWith('.') && candidate.name !== '.github') return false;
+          if (DEFAULT_IGNORES.has(candidate.name) || SECRET_NAMES.test(candidate.name)) return false;
+          const candidatePath = path.join(directory, candidate.name);
+          const candidateRelative = path.relative(workspaceRoot, candidatePath) || candidate.name;
+          const candidateIgnored = isIgnored(candidateRelative, directoryRules, candidate.isDirectory());
+          return !candidateIgnored || (candidate.isDirectory() && hasNegatedDescendant(candidateRelative, directoryRules));
+        });
+        break;
+      }
       if (traversedEntries >= maxTraversalEntries) {
         traversalTruncated = true;
         break;
@@ -124,7 +136,7 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
   await visit(workspaceRoot, 0, ignoreRules);
   const git = await readGitSnapshot(cwd, options.includeDiff === true, options.signal);
   ensureActive(options.signal);
-  return { cwd, entries, excerpts, fileCount: entries.filter((entry) => !entry.endsWith('/')).length, truncated: traversalTruncated || entries.length >= maxFiles, git };
+  return { cwd, entries, excerpts, fileCount: entries.filter((entry) => !entry.endsWith('/')).length, truncated: traversalTruncated || outputTruncated, git };
 }
 
 function ensureActive(signal) {
