@@ -195,30 +195,65 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
   try {
     const statusResult = await execFileAsync('git', ['status', '--short', '--branch'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 20000 });
     let diffStat = '';
+    let changedPaths = [];
+    let diffBase = 'HEAD';
     try {
-      const diffResult = await execFileAsync('git', ['diff', 'HEAD', '--stat'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 20000 });
-      diffStat = diffResult.stdout.trim();
+      const pathsResult = await execFileAsync('git', ['diff', 'HEAD', '--name-only', '-z', '--no-renames'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
+      changedPaths = pathsResult.stdout.split('\0').filter(Boolean);
     } catch {
+      diffBase = null;
       try {
-        const diffResult = await execFileAsync('git', ['diff', '--stat'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 20000 });
-        diffStat = diffResult.stdout.trim();
+        const pathsResult = await execFileAsync('git', ['diff', '--name-only', '-z', '--no-renames'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
+        changedPaths = pathsResult.stdout.split('\0').filter(Boolean);
       } catch { /* A repository can be readable even when its diff is unavailable. */ }
     }
-    let diff = '';
-    if (includeDiff) {
+    ensureActive(signal);
+    const ignoreRules = await readIgnoreRules(cwd, signal);
+    const pathArgs = [];
+    let pathArgsBytes = 0;
+    for (const relative of changedPaths) {
+      ensureActive(signal);
+      if (!isSafeDiffPath(relative, ignoreRules)) continue;
+      const argument = `:(literal)${relative}`;
+      const argumentBytes = Buffer.byteLength(argument, 'utf8') + 1;
+      if (pathArgs.length >= 256 || pathArgsBytes + argumentBytes > 12000) break;
+      pathArgs.push(argument);
+      pathArgsBytes += argumentBytes;
+    }
+    if (pathArgs.length) {
       try {
-        const diffResult = await execFileAsync('git', ['diff', 'HEAD', '--no-ext-diff', '--unified=2'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
+        diffStat = await getDiffStat(cwd, diffBase, pathArgs, signal);
+      } catch { /* A diff is optional context; status remains useful without it. */ }
+    }
+    let diff = '';
+    if (includeDiff && pathArgs.length) {
+      try {
+        const diffArgs = ['diff', ...(diffBase ? [diffBase] : []), '--no-ext-diff', '--no-renames', '--unified=2', '--', ...pathArgs];
+        const diffResult = await execFileAsync('git', diffArgs, { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
         diff = redactSecrets(diffResult.stdout.trim().slice(0, 12000));
-      } catch {
-        try {
-          const diffResult = await execFileAsync('git', ['diff', '--no-ext-diff', '--unified=2'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
-          diff = redactSecrets(diffResult.stdout.trim().slice(0, 12000));
-        } catch { /* A diff is optional context; status and stats remain useful without it. */ }
-      }
+      } catch { /* A diff is optional context; status and stats remain useful without it. */ }
     }
     return { status: statusResult.stdout.trim(), diffStat, diff };
   } catch (error) {
     if (error.name === 'AbortError' || signal?.aborted) ensureActive(signal);
     return null;
   }
+}
+
+async function getDiffStat(cwd, base, pathArgs, signal) {
+  try {
+    const args = ['diff', ...(base ? [base] : []), '--stat', '--no-ext-diff', '--no-renames', '--', ...pathArgs];
+    const result = await execFileAsync('git', args, { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 20000 });
+    return result.stdout.trim();
+  } catch (error) {
+    if (error.name === 'AbortError' || signal?.aborted) ensureActive(signal);
+    return '';
+  }
+}
+
+function isSafeDiffPath(relative, ignoreRules) {
+  const normalized = relative.replaceAll('\\', '/').replace(/^\.\//, '');
+  const parts = normalized.split('/');
+  if (!normalized || parts.some((part) => !part || part.startsWith('.') || DEFAULT_IGNORES.has(part) || SECRET_NAMES.test(part))) return false;
+  return !isIgnored(normalized, false, ignoreRules);
 }
