@@ -1253,6 +1253,35 @@ test('provider stream rejects a clean close before its protocol completion marke
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('provider stream rejects malformed complete data frames instead of returning truncated answers', async () => {
+  const originalFetch = globalThis.fetch;
+  const cases = [
+    {
+      provider: new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.openai.com/v1', retries: 2 }, 'openai-secret'),
+      frame: 'data: {not-json}\n\ndata: {"choices":[{"delta":{"content":"tail"}}]}\n\ndata: [DONE]\n\n',
+      error: /Provider stream contained malformed JSON data/
+    },
+    {
+      provider: new AnthropicProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.anthropic.com', retries: 2 }, 'anthropic-secret'),
+      frame: 'data: {not-json}\n\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"tail"}}\n\ndata: {"type":"message_stop"}\n\n',
+      error: /Anthropic stream contained malformed JSON data/
+    }
+  ];
+  try {
+    for (const { provider, frame, error } of cases) {
+      let calls = 0;
+      const deltas = [];
+      globalThis.fetch = async () => {
+        calls += 1;
+        return new Response(frame, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      };
+      await assert.rejects(() => provider.complete({ system: 'system', prompt: 'prompt', onDelta: (delta) => deltas.push(delta) }), error);
+      assert.equal(calls, 1);
+      assert.deepEqual(deltas, []);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('openai-compatible adapter can disable streaming for older servers', async () => {
   const originalFetch = global.fetch;
   let requestBody;

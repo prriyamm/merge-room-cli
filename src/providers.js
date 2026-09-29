@@ -244,7 +244,7 @@ export class OpenAICompatibleProvider {
         return result(text, body.usage?.prompt_tokens, body.usage?.completion_tokens, system, prompt, this.name, model);
       } catch (error) {
         if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Provider request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
-        if (attempt < attempts - 1 && !providerError && !emittedDelta && error.name !== 'AbortError') { await delay(250 * (attempt + 1), signal); continue; }
+        if (attempt < attempts - 1 && !providerError && !emittedDelta && !['AbortError', 'ProtocolError'].includes(error.name)) { await delay(250 * (attempt + 1), signal); continue; }
         throw error;
       } finally {
         clearTimeout(timeout);
@@ -297,7 +297,7 @@ export class AnthropicProvider {
         return result(text, body.usage?.input_tokens, body.usage?.output_tokens, system, prompt, this.name, model);
       } catch (error) {
         if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Anthropic request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
-        if (attempt < attempts - 1 && !providerError && !emittedDelta && error.name !== 'AbortError') { await delay(250 * (attempt + 1), signal); continue; }
+        if (attempt < attempts - 1 && !providerError && !emittedDelta && !['AbortError', 'ProtocolError'].includes(error.name)) { await delay(250 * (attempt + 1), signal); continue; }
         throw error;
       } finally {
         clearTimeout(timeout);
@@ -384,7 +384,11 @@ async function readAnthropicStream(body, onDelta) {
       const piece = event.type === 'content_block_delta' && event.delta?.type === 'text_delta' ? event.delta.text : '';
       if (piece) { text += piece; onDelta(piece); }
     } catch (error) {
-      if (error instanceof SyntaxError) return;
+      if (error instanceof SyntaxError) {
+        const protocolError = new Error('Anthropic stream contained malformed JSON data.');
+        protocolError.name = 'ProtocolError';
+        throw protocolError;
+      }
       throw error;
     }
   };
@@ -415,7 +419,11 @@ async function readStream(body, onDelta) {
     if (data === '[DONE]') { completed = true; return; }
     if (completed) return;
     let parsed;
-    try { parsed = JSON.parse(data); } catch { /* Ignore an incomplete or provider-specific SSE frame. */ return; }
+    try { parsed = JSON.parse(data); } catch {
+      const protocolError = new Error('Provider stream contained malformed JSON data.');
+      protocolError.name = 'ProtocolError';
+      throw protocolError;
+    }
     const piece = normalizeContent(parsed.choices?.[0]?.delta?.content);
     if (piece) { text += piece; onDelta(piece); }
     if (parsed.usage) usage = parsed.usage;
