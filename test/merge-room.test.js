@@ -2669,6 +2669,27 @@ test('CLI strict mode returns exit code two for degraded runs', async () => {
   }
 });
 
+test('main returns strict degraded status without changing the process exit code', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-main-strict-'));
+  const previousExitCode = process.exitCode;
+  const originalLog = console.log;
+  process.exitCode = 37;
+  console.log = () => {};
+  try {
+    const status = await main(['--cwd', root, '--provider=demo', '--strict', '--max-calls=1', '--no-context', '--no-save', '--json', 'strict mission']);
+    assert.equal(status, 2);
+    assert.equal(process.exitCode, 37);
+
+    const successStatus = await main(['--help']);
+    assert.equal(successStatus, undefined);
+    assert.equal(process.exitCode, 37);
+  } finally {
+    console.log = originalLog;
+    process.exitCode = previousExitCode;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI rejects unknown options instead of treating them as mission text', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-unknown-option-'));
   try {

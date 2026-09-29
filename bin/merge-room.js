@@ -9,7 +9,9 @@ const optionArgs = optionEnd < 0 ? args : args.slice(0, optionEnd);
 const wantsJson = optionArgs.includes('--json');
 process.once('SIGINT', onInterrupt);
 
-main(args, { signal: controller.signal }).catch((error) => {
+main(args, { signal: controller.signal }).then((status) => {
+  if (typeof status === 'number') process.exitCode = status;
+}).catch((error) => {
   if (error.name === 'AbortError') {
     if (wantsJson) console.error(JSON.stringify({ error: { code: 'ABORTED', message: 'Mission cancelled.' } }));
     else console.error('\n  Mission cancelled.\n');
