@@ -2081,6 +2081,25 @@ test('sessions can be saved, listed, and reopened', async () => {
   }
 });
 
+test('session filenames remain canonical when saved JSON is hand-edited', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-canonical-id-'));
+  const sessions = path.join(root, 'sessions');
+  try {
+    await fs.mkdir(sessions);
+    await fs.writeFile(path.join(sessions, 'first.json'), JSON.stringify({ id: 'second', request: 'edited first request', answer: 'first answer' }), 'utf8');
+    await fs.writeFile(path.join(sessions, 'second.json'), JSON.stringify({ id: 'second', request: 'second request', answer: 'second answer' }), 'utf8');
+
+    const listed = await listSessions(root, 'sessions');
+    assert.deepEqual(listed.map(({ id }) => id), ['second', 'first']);
+    assert.equal((await readSession(listed[1].id, root, 'sessions')).id, 'first');
+    assert.equal((await readSession('first', root, 'sessions')).request, 'edited first request');
+    assert.equal((await readSession('first', root, 'sessions')).answer, 'first answer');
+    assert.equal(JSON.parse(await fs.readFile(path.join(sessions, 'first.json'), 'utf8')).id, 'second');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('session ids remain unique when time and Math.random collide', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-id-collision-'));
   const OriginalDate = globalThis.Date;
