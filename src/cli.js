@@ -161,7 +161,11 @@ export async function main(args = [], { signal } = {}) {
     ...(parallel ? { strategy: 'parallel' } : {}),
    ...(noStream ? { streaming: false } : {}),
     ...(streamUsage ? { streamUsage: true } : {}),
-    ...(modelValue !== null ? { model: modelValue } : {}),
+    ...(modelValue !== null ? {
+      model: modelValue,
+      providers: Object.fromEntries(Object.entries(config.providers || {}).map(([id, profile]) => [id, { ...profile, model: modelValue }])),
+      agents: config.agents.map((agent) => ({ ...agent, model: modelValue }))
+    } : {}),
     ...(providerValue !== null ? { provider: normalizeProvider(providerValue) } : {}),
     ...(baseUrlValue !== null ? { baseUrl: baseUrlValue } : {}),
     ...(maxTokensValue !== null ? { maxTokens: numericFlag(maxTokensValue, '--max-tokens', 1, true) } : {}),
