@@ -1451,6 +1451,7 @@ test('workspace context keeps ignored directories open for negated wildcard desc
   try {
     await fs.mkdir(path.join(root, 'private'), { recursive: true });
     await fs.writeFile(path.join(root, '.gitignore'), 'private/\n!**/keep.md\n', 'utf8');
+    await fs.writeFile(path.join(root, 'private'), 'a file, despite the directory-only rule\n', 'utf8');
     await fs.writeFile(path.join(root, 'private', 'keep.md'), 'explicitly re-included\n', 'utf8');
     await fs.writeFile(path.join(root, 'private', 'drop.js'), 'still ignored\n', 'utf8');
 
@@ -1458,6 +1459,7 @@ test('workspace context keeps ignored directories open for negated wildcard desc
     assert.equal(context.entries.some((entry) => entry.includes('private/keep.md')), true);
     assert.equal(context.excerpts.some((item) => item.path === 'private/keep.md'), true);
     assert.equal(context.entries.some((entry) => entry.includes('private/drop.js')), false);
+    assert.equal(context.entries.some((entry) => entry === `private  ${Buffer.byteLength('a file, despite the directory-only rule\n')} B`), true);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -1562,6 +1564,8 @@ test('opt-in Git diff excludes tracked secrets and ignored paths', async () => {
     assert.match(context.git.diff, /NESTED_VISIBLE_CHANGE/);
     assert.doesNotMatch(context.git.diff, /SECRET_CREDENTIAL_CHANGE|PRIVATE_KEY_CHANGE|IGNORED_FILE_CHANGE|DEPENDENCY_FILE_CHANGE|NESTED_IGNORED_CHANGE/);
     assert.doesNotMatch(context.git.diffStat, /credentials\.json|private\.pem|ignored\.txt|node_modules/);
+    assert.match(context.git.status, /app\.js/);
+    assert.doesNotMatch(context.git.status, /credentials\.json|private\.pem|ignored\.txt|node_modules|local\.md/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

@@ -75,7 +75,7 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
     try { stat = await fs.stat(fullPath); } catch { continue; }
     if (stat.isDirectory()) {
       const requestedRules = await readIgnoreRulesForPath(workspaceRoot, fullPath, options.signal);
-      const ignored = isIgnored(relative, requestedRules);
+      const ignored = isIgnored(relative, requestedRules, true);
       if (!ignored || hasNegatedDescendant(relative, requestedRules)) await visit(fullPath, 0, requestedRules);
     }
     else if (stat.isFile()) await captureFile(fullPath, relative, relative.split(path.sep).length - 1);
@@ -99,7 +99,7 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
       if (DEFAULT_IGNORES.has(child.name) || SECRET_NAMES.test(child.name)) continue;
       const fullPath = path.join(directory, child.name);
       const relative = path.relative(workspaceRoot, fullPath) || child.name;
-      const ignored = isIgnored(relative, directoryRules);
+      const ignored = isIgnored(relative, directoryRules, child.isDirectory());
       if (ignored && !(child.isDirectory() && hasNegatedDescendant(relative, directoryRules))) continue;
       if (child.isDirectory()) {
         if (!ignored) entries.push(`${relative.replaceAll('\\', '/')}/`);
@@ -184,7 +184,7 @@ function ignoreEverythingRule(base) {
   return { negate: false, base, directoryOnly: false, pattern: '**', regex: /^[\s\S]*$/ };
 }
 
-async function readIgnoreRulesForPath(workspaceRoot, targetPath, signal) {
+async function readIgnoreRulesForPath(workspaceRoot, targetPath, signal, cache = new Map()) {
   const targetDirectory = path.dirname(targetPath);
   const relative = path.relative(workspaceRoot, targetDirectory);
   const directories = [workspaceRoot];
@@ -198,12 +198,19 @@ async function readIgnoreRulesForPath(workspaceRoot, targetPath, signal) {
   const rules = [];
   for (const directory of directories) {
     ensureActive(signal);
-    rules.push(...await readIgnoreRules(directory, path.relative(workspaceRoot, directory), signal));
+    const base = path.relative(workspaceRoot, directory);
+    const key = path.resolve(directory);
+    let directoryRules = cache.get(key);
+    if (!directoryRules) {
+      directoryRules = await readIgnoreRules(directory, base, signal);
+      cache.set(key, directoryRules);
+    }
+    rules.push(...directoryRules);
   }
   return rules;
 }
 
-function isIgnored(relative, rules) {
+function isIgnored(relative, rules, directory = false) {
   const normalized = relative.replaceAll('\\', '/');
   let ignored = false;
   for (const rule of rules) {
@@ -212,7 +219,7 @@ function isIgnored(relative, rules) {
       : normalized;
     if (scopedPath === null) continue;
     const scopedPrefixes = scopedPath.split('/').map((_, index, parts) => parts.slice(0, index + 1).join('/'));
-    const matches = rule.regex.test(scopedPath)
+    const matches = ((!rule.directoryOnly || directory) && rule.regex.test(scopedPath))
       || (rule.directoryOnly && scopedPrefixes.slice(0, -1).some((prefix) => rule.regex.test(prefix)));
     if (matches) ignored = !rule.negate;
   }
@@ -240,7 +247,8 @@ function ignorePatternRegex(pattern) {
 
 async function readGitSnapshot(cwd, includeDiff = false, signal) {
   try {
-    const statusResult = await execFileAsync('git', ['status', '--short', '--branch'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 20000 });
+    const statusResult = await execFileAsync('git', ['status', '--short', '--branch', '--untracked-files=all', '-z'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
+    const status = await filterGitStatus(cwd, statusResult.stdout, signal);
     let diffStat = '';
     let changedPaths = [];
     let diffBase = 'HEAD';
@@ -256,12 +264,13 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
     }
     ensureActive(signal);
     const pathArgs = [];
+    const ignoreRuleCache = new Map();
     let pathArgsBytes = 0;
     for (const relative of changedPaths) {
       ensureActive(signal);
       const normalized = relative.replaceAll('\\', '/').replace(/^\.\//, '');
       if (!isSafeDiffPath(normalized)) continue;
-      const ignoreRules = await readIgnoreRulesForPath(cwd, path.resolve(cwd, relative), signal);
+      const ignoreRules = await readIgnoreRulesForPath(cwd, path.resolve(cwd, relative), signal, ignoreRuleCache);
       if (isIgnored(normalized, ignoreRules)) continue;
       const argument = `:(literal)${relative}`;
       const argumentBytes = Buffer.byteLength(argument, 'utf8') + 1;
@@ -282,7 +291,7 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
         diff = redactSecrets(diffResult.stdout.trim().slice(0, 12000));
       } catch { /* A diff is optional context; status and stats remain useful without it. */ }
     }
-    return { status: statusResult.stdout.trim(), diffStat, diff };
+    return { status, diffStat, diff };
   } catch (error) {
     if (error.name === 'AbortError' || signal?.aborted) ensureActive(signal);
     return null;
@@ -302,7 +311,34 @@ async function getDiffStat(cwd, base, pathArgs, signal) {
 
 function isSafeDiffPath(relative) {
   const normalized = relative.replaceAll('\\', '/').replace(/^\.\//, '');
-  const parts = normalized.split('/');
-  if (!normalized || parts.some((part) => !part || part.startsWith('.') || DEFAULT_IGNORES.has(part) || SECRET_NAMES.test(part))) return false;
-  return TEXT_EXTENSIONS.has(path.extname(normalized).toLowerCase());
+  return isSafeContextPath(normalized) && TEXT_EXTENSIONS.has(path.extname(normalized).toLowerCase());
+}
+
+function isSafeContextPath(relative) {
+  const parts = relative.split('/');
+  return Boolean(relative) && !parts.some((part) => !part || part.startsWith('.') || DEFAULT_IGNORES.has(part) || SECRET_NAMES.test(part));
+}
+
+async function filterGitStatus(cwd, rawStatus, signal) {
+  const records = rawStatus.split('\0').filter(Boolean);
+  const branch = records.find((record) => record.startsWith('##')) || '';
+  const safeEntries = [];
+  const ignoreRuleCache = new Map();
+  for (let index = 0; index < records.length; index += 1) {
+    ensureActive(signal);
+    const record = records[index];
+    if (record.startsWith('##')) continue;
+    const code = record.slice(0, 2);
+    const relative = record.slice(2).replace(/^ /, '').replaceAll('\\', '/');
+    const rename = code.includes('R') || code.includes('C');
+    const source = rename ? records[++index] || '' : '';
+    const normalized = relative.replace(/^\.\//, '');
+    const normalizedSource = source.replaceAll('\\', '/').replace(/^\.\//, '');
+    if (!isSafeContextPath(normalized) || (rename && !isSafeContextPath(normalizedSource))) continue;
+    const isDirectory = normalized.endsWith('/');
+    const rules = await readIgnoreRulesForPath(cwd, path.resolve(cwd, normalized), signal, ignoreRuleCache);
+    if (isIgnored(normalized.replace(/\/$/, ''), rules, isDirectory)) continue;
+    safeEntries.push(`${code} ${relative}`);
+  }
+  return [branch, ...safeEntries].filter(Boolean).join('\n').trim();
 }
