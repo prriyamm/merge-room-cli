@@ -1,9 +1,12 @@
 import fs from 'node:fs/promises';
+import { constants } from 'node:fs';
 import path from 'node:path';
 
 export async function saveSession(result, cwd = process.cwd(), directory = '.merge-room/sessions') {
-  const root = path.resolve(cwd, directory);
-  await fs.mkdir(root, { recursive: true });
+  const requestedRoot = path.resolve(cwd, directory);
+  await fs.mkdir(requestedRoot, { recursive: true });
+  const root = await resolveSessionDirectory(cwd, directory);
+  if (!root) throw new Error('Session directory must not contain symbolic links.');
   const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
  const id = `${stamp}-${Math.random().toString(36).slice(2, 7)}`;
  const file = path.join(root, `${id}.json`);
@@ -18,7 +21,8 @@ export async function saveSession(result, cwd = process.cwd(), directory = '.mer
 }
 
 export async function listSessions(cwd = process.cwd(), directory = '.merge-room/sessions') {
-  const root = path.resolve(cwd, directory);
+  const root = await resolveSessionDirectory(cwd, directory);
+  if (!root) return [];
   let names;
   try { names = await fs.readdir(root); } catch (error) {
     if (error.code === 'ENOENT') return [];
@@ -27,7 +31,9 @@ export async function listSessions(cwd = process.cwd(), directory = '.merge-room
   const sessions = [];
   for (const name of names.filter((name) => name.endsWith('.json')).sort().reverse()) {
     try {
-      const data = JSON.parse(await fs.readFile(path.join(root, name), 'utf8'));
+      const contents = await readRegularFile(path.join(root, name));
+      if (contents === null) continue;
+      const data = JSON.parse(contents);
       sessions.push({ id: data.id || name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request: data.request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) });
     } catch { /* Ignore a partial or hand-edited session file. */ }
   }
@@ -36,12 +42,52 @@ export async function listSessions(cwd = process.cwd(), directory = '.merge-room
 
 export async function readSession(id, cwd = process.cwd(), directory = '.merge-room/sessions') {
   if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Session ids may only contain letters, numbers, underscores, and dashes.');
-  const file = path.resolve(cwd, directory, `${id}.json`);
+  const root = await resolveSessionDirectory(cwd, directory);
+  if (!root) return null;
+  const file = path.join(root, `${id}.json`);
   try {
-    return JSON.parse(await fs.readFile(file, 'utf8'));
+    const contents = await readRegularFile(file);
+    return contents === null ? null : JSON.parse(contents);
   } catch (error) {
     if (error.code === 'ENOENT') return null;
     throw error;
+  }
+}
+
+async function resolveSessionDirectory(cwd, directory) {
+  let base;
+  try { base = await fs.realpath(cwd); } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+  const requestedRoot = path.resolve(base, directory);
+  let info;
+  let realRoot;
+  try {
+    info = await fs.lstat(requestedRoot);
+    if (!info.isDirectory() || info.isSymbolicLink()) return null;
+    realRoot = await fs.realpath(requestedRoot);
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+  const samePath = process.platform === 'win32'
+    ? path.resolve(realRoot).toLowerCase() === path.resolve(requestedRoot).toLowerCase()
+    : path.resolve(realRoot) === path.resolve(requestedRoot);
+  return samePath ? realRoot : null;
+}
+
+async function readRegularFile(file) {
+  const before = await fs.lstat(file);
+  if (!before.isFile() || before.isSymbolicLink()) return null;
+  const noFollow = constants.O_NOFOLLOW || 0;
+  const handle = await fs.open(file, constants.O_RDONLY | noFollow);
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) return null;
+    return await handle.readFile('utf8');
+  } finally {
+    await handle.close();
   }
 }
 

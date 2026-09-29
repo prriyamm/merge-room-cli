@@ -1635,6 +1635,67 @@ test('sessions can be saved, listed, and reopened', async () => {
   }
 });
 
+test('session readers reject symbolic links that point outside the session directory', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-symlink-'));
+  const sessions = path.join(root, 'sessions');
+  const external = path.join(root, 'outside.json');
+  await fs.mkdir(sessions);
+  await fs.writeFile(external, JSON.stringify({ id: 'leak', request: 'external secret marker' }), 'utf8');
+  try {
+    await fs.symlink(external, path.join(sessions, 'leak.json'), process.platform === 'win32' ? 'file' : undefined);
+  } catch (error) {
+    if (['EPERM', 'EACCES', 'ENOTSUP'].includes(error.code)) {
+      await t.skip(`Symbolic links are unavailable in this environment (${error.code}).`);
+      await fs.rm(root, { recursive: true, force: true });
+      return;
+    }
+    throw error;
+  }
+  try {
+    assert.equal(await readSession('leak', root, 'sessions'), null);
+    assert.deepEqual(await listSessions(root, 'sessions'), []);
+    assert.equal((await fs.readFile(external, 'utf8')).includes('external secret marker'), true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('session readers reject a symbolic link in the session directory path', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-root-link-'));
+  const external = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-external-'));
+  const ancestorRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-ancestor-link-'));
+  const externalParent = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-external-parent-'));
+  const sessionFile = path.join(external, 'leak.json');
+  await fs.mkdir(path.join(externalParent, 'sessions'));
+  await fs.writeFile(path.join(externalParent, 'sessions', 'leak.json'), JSON.stringify({ id: 'leak', request: 'external ancestor marker' }), 'utf8');
+  await fs.writeFile(sessionFile, JSON.stringify({ id: 'leak', request: 'external directory marker' }), 'utf8');
+  try {
+    await fs.symlink(external, path.join(root, 'sessions'), process.platform === 'win32' ? 'junction' : undefined);
+    await fs.symlink(externalParent, path.join(ancestorRoot, '.merge-room'), process.platform === 'win32' ? 'junction' : undefined);
+  } catch (error) {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(external, { recursive: true, force: true });
+    await fs.rm(ancestorRoot, { recursive: true, force: true });
+    await fs.rm(externalParent, { recursive: true, force: true });
+    if (['EPERM', 'EACCES', 'ENOTSUP'].includes(error.code)) {
+      await t.skip(`Symbolic links are unavailable in this environment (${error.code}).`);
+      return;
+    }
+    throw error;
+  }
+  try {
+    assert.equal(await readSession('leak', root, 'sessions'), null);
+    assert.deepEqual(await listSessions(root, 'sessions'), []);
+    assert.equal(await readSession('leak', ancestorRoot), null);
+    assert.deepEqual(await listSessions(ancestorRoot), []);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(external, { recursive: true, force: true });
+    await fs.rm(ancestorRoot, { recursive: true, force: true });
+    await fs.rm(externalParent, { recursive: true, force: true });
+  }
+});
+
 test('custom agents receive stable ids and inherited defaults', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-config-'));
   try {
