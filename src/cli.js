@@ -346,6 +346,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   let profileOverrideActive = false;
   let contextEnabled = !noContext && config.context?.enabled !== false;
   let closing = false;
+  let noticeSequence = 0;
   let rl;
   const tasks = new Map();
   const controllers = new Map();
@@ -378,11 +379,14 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     reprompt();
   }
 
-  function setMessage(message) {
+  function setMessage(message, expectedSequence = null) {
+    if (expectedSequence !== null && noticeSequence !== expectedSequence) return false;
+    noticeSequence += 1;
     renderer.state.message = message;
     if (!isTerminal) appendLine(stripUnsafeTerminalControls(message));
     renderer.notice(message);
     reprompt();
+    return true;
   }
 
   async function launch(request) {
@@ -448,6 +452,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   async function handleInput(value) {
     const request = String(value || '').trim();
     if (!request) return true;
+    const inputNoticeSequence = ++noticeSequence;
     if (request === '/quit' || request === '/exit') return false;
     if (request === '/1' || request === '/2') { const room = selectCockpitRoom(renderer.state, request.slice(1)); setMessage(`Switched to Room ${room.id}.`); return true; }
     if (request === '/switch') { const room = selectCockpitRoom(renderer.state, renderer.state.activeRoom === 0 ? 2 : 1); setMessage(`Switched to Room ${room.id}.`); return true; }
@@ -467,7 +472,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       catch (error) { setMessage(error.message); }
       return true;
     }
-    if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); await waitForCockpitTasks(tasks); setMessage('Both rooms are ready.'); return true; }
+    if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); const waitingSequence = noticeSequence; await waitForCockpitTasks(tasks); setMessage('Both rooms are ready.', waitingSequence); return true; }
     if (request === '/help more') { setMessage('Cockpit help: /agents [id] /team <all|ids> · /profile <name> /profiles · /context [on|off] · /history /show <id|last> /export <id> [md|json] /usage'); return true; }
     if (request === '/help') { setMessage('Cockpit help: mission or /run <mission> · rooms /1 /2 /switch · turns /new /clear /wait /cancel · /help more · /quit /exit'); return true; }
     if (request === '/agents') {
@@ -499,15 +504,15 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (request === '/history') {
       try {
         const sessions = activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir, { limit: 3 }) : [];
-        setMessage(sessions.length ? `Recent: ${sessions.slice(0, 3).map((item) => `${item.id} ${cropLabel(item.request, 18)}`).join(' · ')}` : 'No saved missions yet.');
-      } catch (error) { setMessage(`History unavailable: ${error.message}`); }
+        setMessage(sessions.length ? `Recent: ${sessions.slice(0, 3).map((item) => `${item.id} ${cropLabel(item.request, 18)}`).join(' · ')}` : 'No saved missions yet.', inputNoticeSequence);
+      } catch (error) { setMessage(`History unavailable: ${error.message}`, inputNoticeSequence); }
       return true;
     }
     if (request === '/usage') {
       try {
         const usage = summarizeUsage(activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : []);
-        setMessage(`${usage.sessions} saved missions · ${usage.total} tokens · ${usage.calls} calls`);
-      } catch (error) { setMessage(`Usage unavailable: ${error.message}`); }
+        setMessage(`${usage.sessions} saved missions · ${usage.total} tokens · ${usage.calls} calls`, inputNoticeSequence);
+      } catch (error) { setMessage(`Usage unavailable: ${error.message}`, inputNoticeSequence); }
       return true;
     }
     if (request === '/context') { setMessage(contextEnabled ? `Context is on for ${workspace}` : 'Context is off. Use /context on to enable it.'); return true; }
@@ -552,10 +557,10 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         room.notes = Object.fromEntries((session.agents || []).map((item) => [item.agent?.id, item.text]));
         room.agentIds = (session.agents || []).map((item) => item.agent?.id).filter(Boolean);
         room.statuses = restoreAgentStatuses(sessionConfig.agents, session.agents);
-        setMessage(`Loaded ${session.id} into Room ${room.id}.`);
+        setMessage(`Loaded ${session.id} into Room ${room.id}.`, inputNoticeSequence);
         if (isTerminal) renderer.loaded(session);
         else printSession(session);
-      } catch (error) { if (showRequests.get(roomIndex) === showRequestId) setMessage(error.message); }
+      } catch (error) { if (showRequests.get(roomIndex) === showRequestId) setMessage(error.message, inputNoticeSequence); }
       return true;
     }
     if (request === '/export' || request.startsWith('/export ')) {
@@ -569,8 +574,8 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         if (!session) throw new Error(`Session not found: ${parts[0]}`);
         const extension = String(parts[1] || 'md').toLowerCase() === 'json' ? 'json' : 'md';
         const file = await writeSessionExport(session, workspace, `merge-room-${sessionId}.${extension}`, extension);
-        setMessage(`Exported ${sessionId} to ${file}`);
-      } catch (error) { setMessage(error.message); }
+        setMessage(`Exported ${sessionId} to ${file}`, inputNoticeSequence);
+      } catch (error) { setMessage(error.message, inputNoticeSequence); }
       return true;
     }
     if (/^\/run(?:\s|$)/.test(request)) {
