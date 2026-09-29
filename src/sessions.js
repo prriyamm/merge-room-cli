@@ -79,7 +79,7 @@ export async function selectNewestSessionNames(entries, limit, include = async (
       if (newest[middle] < name) low = middle + 1;
       else high = middle;
     }
-    if (low >= limit && newest.length === limit) continue;
+    if (newest.length === limit && name <= newest[0]) continue;
     newest.splice(low, 0, name);
     if (newest.length > limit) newest.shift();
   }
