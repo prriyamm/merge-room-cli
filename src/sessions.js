@@ -3,10 +3,7 @@ import { constants } from 'node:fs';
 import path from 'node:path';
 
 export async function saveSession(result, cwd = process.cwd(), directory = '.merge-room/sessions') {
-  const requestedRoot = path.resolve(cwd, directory);
-  await fs.mkdir(requestedRoot, { recursive: true });
-  const root = await resolveSessionDirectory(cwd, directory);
-  if (!root) throw new Error('Session directory must not contain symbolic links.');
+  const root = await createSessionDirectory(cwd, directory);
   const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
  const id = `${stamp}-${Math.random().toString(36).slice(2, 7)}`;
  const file = path.join(root, `${id}.json`);
@@ -75,6 +72,26 @@ async function resolveSessionDirectory(cwd, directory) {
     ? path.resolve(realRoot).toLowerCase() === path.resolve(requestedRoot).toLowerCase()
     : path.resolve(realRoot) === path.resolve(requestedRoot);
   return samePath ? realRoot : null;
+}
+
+async function createSessionDirectory(cwd, directory) {
+  const base = await fs.realpath(cwd);
+  const requestedRoot = path.resolve(base, directory);
+  let current = path.parse(requestedRoot).root;
+  const components = path.relative(current, requestedRoot).split(path.sep).filter(Boolean);
+  for (const component of components) {
+    current = path.join(current, component);
+    try {
+      await fs.mkdir(current);
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+    const info = await fs.lstat(current);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Session directory must not contain symbolic links.');
+  }
+  const root = await resolveSessionDirectory(base, requestedRoot);
+  if (!root) throw new Error('Session directory must not contain symbolic links.');
+  return root;
 }
 
 async function readRegularFile(file) {

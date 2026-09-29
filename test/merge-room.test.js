@@ -1696,6 +1696,29 @@ test('session readers reject a symbolic link in the session directory path', asy
   }
 });
 
+test('session saving does not create directories below a symbolic-link ancestor', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-write-link-'));
+  const external = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-write-external-'));
+  try {
+    await fs.symlink(external, path.join(root, '.merge-room'), process.platform === 'win32' ? 'junction' : undefined);
+  } catch (error) {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(external, { recursive: true, force: true });
+    if (['EPERM', 'EACCES', 'ENOTSUP'].includes(error.code)) {
+      await t.skip(`Symbolic links are unavailable in this environment (${error.code}).`);
+      return;
+    }
+    throw error;
+  }
+  try {
+    await assert.rejects(() => saveSession({ request: 'blocked' }, root), /must not contain symbolic links/);
+    await assert.rejects(() => fs.access(path.join(external, 'sessions')), { code: 'ENOENT' });
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(external, { recursive: true, force: true });
+  }
+});
+
 test('custom agents receive stable ids and inherited defaults', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-config-'));
   try {
