@@ -2286,6 +2286,42 @@ test('provider stream rejects malformed complete data frames instead of returnin
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('Anthropic stream reader cancels its body after success and protocol failures', async () => {
+  const originalFetch = globalThis.fetch;
+  const provider = new AnthropicProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.anthropic.com', retries: 0 }, 'anthropic-secret');
+  const cases = [
+    { name: 'success', frame: 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"done"}}\n\ndata: {"type":"message_stop"}\n\n', expected: 'done' },
+    { name: 'error event', frame: 'data: {"type":"error","error":{"message":"stream rejected"}}\n\n', error: /stream rejected/ },
+    { name: 'malformed payload', frame: 'data: {not-json}\n\n', error: /malformed JSON data/ },
+    { name: 'missing message_stop', frame: 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"partial"}}\n\n', error: /ended before message_stop/ }
+  ];
+  try {
+    for (const scenario of cases) {
+      let cancellations = 0;
+      let reads = 0;
+      const bytes = new TextEncoder().encode(scenario.frame);
+      globalThis.fetch = async () => ({
+        ok: true,
+        status: 200,
+        body: {
+          getReader: () => ({
+            read: async () => reads++ === 0 ? { done: false, value: bytes } : { done: true },
+            cancel: async () => { cancellations += 1; },
+            releaseLock() {}
+          })
+        }
+      });
+      if (scenario.error) {
+        await assert.rejects(() => provider.complete({ system: 'system', prompt: 'prompt', onDelta() {} }), scenario.error, scenario.name);
+      } else {
+        const response = await provider.complete({ system: 'system', prompt: 'prompt', onDelta() {} });
+        assert.equal(response.text, scenario.expected, scenario.name);
+      }
+      assert.equal(cancellations, 1, `${scenario.name} cancels the reader exactly once`);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('OpenAI-compatible stream errors fail instead of returning partial answers', async () => {
   const originalFetch = globalThis.fetch;
   const provider = new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.openai.com/v1', retries: 2 }, 'openai-secret');
