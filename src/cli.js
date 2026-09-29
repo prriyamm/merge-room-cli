@@ -317,6 +317,8 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   let rl;
   const tasks = new Map();
   const controllers = new Map();
+  const showRequests = new Map();
+  let showRequestSequence = 0;
   const isTerminal = Boolean(process.stdin.isTTY && process.stdout.isTTY);
   const useDashboard = isTerminal && process.env.TERM !== 'dumb';
   const appendLine = (line = '') => {
@@ -477,12 +479,21 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (request === '/show' || request.startsWith('/show ')) {
       const value = request.slice('/show'.length).trim();
       if (!value) { setMessage('Use /show <id> or /show last.'); return true; }
+      const roomIndex = renderer.state.activeRoom;
+      const targetRoom = renderer.state.rooms[roomIndex];
+      const targetTurn = targetRoom.turn;
+      const sessionConfig = activeConfig;
+      const showRequestId = ++showRequestSequence;
+      showRequests.set(roomIndex, showRequestId);
       try {
-        if (!activeConfig.sessionDir) throw new Error('Session history is disabled.');
-        if (renderer.state.rooms[renderer.state.activeRoom].running) throw new Error(`Room ${renderer.state.activeRoom + 1} is working. Switch rooms before loading a saved mission.`);
-        const session = await readSession(await resolveSessionId(value, activeConfig, workspace), workspace, activeConfig.sessionDir);
+        if (!sessionConfig.sessionDir) throw new Error('Session history is disabled.');
+        if (targetRoom.running) throw new Error(`Room ${roomIndex + 1} is working. Switch rooms before loading a saved mission.`);
+        const session = await readSession(await resolveSessionId(value, sessionConfig, workspace), workspace, sessionConfig.sessionDir);
         if (!session) throw new Error(`Session not found: ${value}`);
-        const room = renderer.state.rooms[renderer.state.activeRoom];
+        if (showRequests.get(roomIndex) !== showRequestId || renderer.state.rooms[roomIndex] !== targetRoom || targetRoom.running || targetRoom.turn !== targetTurn) {
+          throw new Error(`Room ${roomIndex + 1} changed while loading. Switch to it and try /show again.`);
+        }
+        const room = targetRoom;
         room.request = session.request || '';
         room.final = session.answer || '';
         room.answerDraft = '';
@@ -498,11 +509,11 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         room.turn = Math.max(1, room.turn);
         room.notes = Object.fromEntries((session.agents || []).map((item) => [item.agent?.id, item.text]));
         room.agentIds = (session.agents || []).map((item) => item.agent?.id).filter(Boolean);
-        room.statuses = restoreAgentStatuses(activeConfig.agents, session.agents);
+        room.statuses = restoreAgentStatuses(sessionConfig.agents, session.agents);
         setMessage(`Loaded ${session.id} into Room ${room.id}.`);
         if (isTerminal) renderer.loaded(session);
         else printSession(session);
-      } catch (error) { setMessage(error.message); }
+      } catch (error) { if (showRequests.get(roomIndex) === showRequestId) setMessage(error.message); }
       return true;
     }
     if (request === '/export' || request.startsWith('/export ')) {
