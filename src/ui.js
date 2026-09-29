@@ -246,7 +246,7 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       const shortHelp = terminalWidth >= 60
         ? isMoreHelpMessage ? 'More: /cancel [1|2] /agents [id] /team [all|ids] /profile <name> /profiles /context /history /show /export /usage' : isPrimaryHelp ? 'Help: /run /again /1 /2 /new /wait /cancel [1|2] /help more' : 'Help: /agents /team /profile /context /history /show …'
         : terminalWidth >= 40
-          ? isMoreHelpMessage ? 'More: /cancel /agents /team /profile /profiles\n/context /history /show /export /usage' : isPrimaryHelp ? 'Help: /run /again /1 /2 /new /wait /help more' : 'Help: /agents /team /profile /show …'
+          ? isMoreHelpMessage ? 'More: /cancel /agents /team\n/profile /profiles /context\n/history /show /export /usage' : isPrimaryHelp ? 'Help: /run /again /1 /2 /new /wait /help more' : 'Help: /agents /team /profile /show …'
         : terminalWidth >= 30
           ? isMoreHelpMessage ? 'More: /cancel /agents /team\n/profile /context /history\n/show /export /usage' : isPrimaryHelp ? 'Help: /run /again /1 /2 …' : 'Help: /team /profile …'
         : terminalWidth >= 17

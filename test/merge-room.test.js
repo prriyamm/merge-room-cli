@@ -196,19 +196,21 @@ test('compact cockpit preserves an answer preview when one row shorter', () => {
   assert.equal(lines.length, 6);
 });
 
-test('compact Cockpit more help keeps later commands visible in a 46-column five-row terminal', () => {
-  const lines = [];
-  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
-  const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 46, rows: 5, write: (line) => lines.push(line) });
-  renderer.state.message = 'Help more: /again repeats the selected room’s last mission as a new turn, carrying its conversation · /cancel [1|2] /agents [id] /team [all|ids] /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage';
+test('compact Cockpit more help keeps later commands visible at narrow widths', () => {
+  for (const columns of [46, 40, 30]) {
+    const lines = [];
+    const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
+    const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns, rows: 5, write: (line) => lines.push(line) });
+    renderer.state.message = 'Help more: /again repeats the selected room’s last mission as a new turn, carrying its conversation · /cancel [1|2] /agents [id] /team [all|ids] /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage';
 
-  renderer.render();
+    renderer.render();
 
-  const output = lines.join('\n');
-  assert.match(output, /\/export/);
-  assert.match(output, /\/usage/);
-  assert.equal(lines.length, 4);
-  assert.doesNotMatch(output, /Room 1:|\/new reset/);
+    const output = lines.join('\n');
+    assert.match(output, /\/export/, `${columns}-column help should show /export`);
+    assert.match(output, /\/usage/, `${columns}-column help should show /usage`);
+    assert.equal(lines.length, 4);
+    assert.doesNotMatch(output, /Room 1:|\/new reset/);
+  }
 });
 
 test('compact Cockpit primary help keeps /again discoverable in a narrow terminal', () => {
