@@ -3226,6 +3226,10 @@ test('CLI initializes a project and exports its latest mission', async () => {
     const exportInfo = JSON.parse(exported.stdout);
     assert.equal(exportInfo.id, saved.sessionId);
     assert.match(await fs.readFile(path.join(root, 'transcript.md'), 'utf8'), /exportable mission/);
+    await assert.rejects(
+      () => execFileAsync(process.execPath, [bin, 'export', saved.sessionId, 'unexpected'], { cwd: root, windowsHide: true }),
+      (error) => error.code === 1 && /Unexpected export argument: unexpected/.test(error.stderr)
+    );
     const sessionFile = path.join(root, '.merge-room', 'sessions', `${saved.sessionId}.json`);
     const originalSession = await fs.readFile(sessionFile, 'utf8');
     await assert.rejects(
