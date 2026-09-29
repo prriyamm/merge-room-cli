@@ -244,13 +244,14 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
           : terminalWidth >= 17
             ? isPrimaryHelp ? 'Help: /run /1 …' : 'Help: /team …'
             : terminalWidth >= 10 ? 'Help: …' : '…';
-      const showRoomStatus = !isHelpMessage && terminalHeight >= 3;
+      const showRoomStatus = !isHelpMessage && terminalHeight >= 4;
       const showHelp = !isHelpMessage && terminalHeight >= 5;
       const showMessage = terminalHeight >= 3 || isHelpMessage && terminalHeight >= 2;
       const messageCapacity = Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp) - Number(!isHelpMessage));
-      const fullHelpLines = showMessage ? wrap(state.message || '', Math.max(1, terminalWidth - 2)) : [];
+      const fullMessage = isHelpMessage ? state.message || '' : crop(state.message || '', Math.max(0, terminalWidth - 4));
+      const fullHelpLines = showMessage ? wrap(fullMessage, Math.max(1, terminalWidth - 2)) : [];
       const useShortHelp = isHelpMessage && (terminalHeight <= 3 || fullHelpLines.length > messageCapacity);
-      const message = useShortHelp ? shortHelp : state.message;
+      const message = useShortHelp ? shortHelp : fullMessage;
       const wrappedMessage = useShortHelp ? wrap(message, Math.max(1, terminalWidth - 2)) : fullHelpLines;
       const messageLines = showMessage && !wrappedMessage.length ? [''] : wrappedMessage;
       const visibleMessageLines = messageLines.slice(0, messageCapacity);
