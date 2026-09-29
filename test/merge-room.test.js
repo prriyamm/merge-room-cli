@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Readable } from 'node:stream';
-import { DEFAULT_CONFIG, loadConfig, safeBaseUrl, validateProviderBaseUrl, VERSION } from '../src/config.js';
+import { DEFAULT_CONFIG, loadConfig, safeBaseUrl, validateProviderBaseUrl, VERSION, writeStarterConfig } from '../src/config.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.js';
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from '../src/engine.js';
 import { liquidGlassLogoLines } from '../src/logo.js';
@@ -2399,6 +2399,24 @@ test('CLI initializes a project and exports its latest mission', async () => {
     const ordinaryExport = await execFileAsync(process.execPath, [bin, 'export', saved.sessionId, '--format=md', '--output', 'another-transcript.md'], { cwd: root, windowsHide: true });
     assert.match(ordinaryExport.stdout, /Exported/);
     assert.match(await fs.readFile(path.join(root, 'another-transcript.md'), 'utf8'), /exportable mission/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('starter config creation is exclusive and preserves a populated config', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-init-exclusive-'));
+  try {
+    const attempts = await Promise.all(Array.from({ length: 8 }, () => writeStarterConfig(root)));
+    assert.equal(attempts.filter((result) => result.created).length, 1);
+    assert.equal(attempts.filter((result) => !result.created).length, 7);
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(root, 'merge-room.config.json'), 'utf8')), DEFAULT_CONFIG);
+
+    const custom = '{"model":"keep-existing-config"}\n';
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), custom, 'utf8');
+    const existing = await writeStarterConfig(root);
+    assert.equal(existing.created, false);
+    assert.equal(await fs.readFile(existing.file, 'utf8'), custom);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
