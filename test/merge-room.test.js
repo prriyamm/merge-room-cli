@@ -159,6 +159,16 @@ test('completion scripts cover supported shells', () => {
   assert.match(completionScript('powershell'), /providers/);
 });
 
+test('completion scripts include each supported help, version, and workspace option form once', () => {
+  for (const shell of ['bash', 'zsh', 'powershell']) {
+    const script = completionScript(shell);
+    const candidates = script.split(/[\s'(),]+/).filter(Boolean);
+    for (const candidate of ['-h', '-v', '--cwd', '--cwd=', '-C']) {
+      assert.equal(candidates.filter((item) => item === candidate).length, 1, `${shell} completion should include ${candidate} once`);
+    }
+  }
+});
+
 test('themes expose named palettes and useful aliases', () => {
   assert.equal(resolveTheme('default').id, 'merge-room');
   assert.equal(resolveTheme('highcontrast').id, 'high-contrast');
