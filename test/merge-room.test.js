@@ -2129,6 +2129,24 @@ test('project configuration rejects unknown top-level options', async () => {
   }
 });
 
+test('project configuration rejects unknown agent options and accepts provider/model overrides', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-config-agent-unknown-'));
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ agents: [{ id: 'scout', speciality: 'security' }] }), 'utf8');
+    await assert.rejects(() => loadConfig(root), /agent 1 contains unknown option: `speciality`/);
+
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      providers: { review: { type: 'openai-compatible', model: 'profile-model' } },
+      agents: [{ id: 'scout', provider: 'review', model: 'agent-model' }]
+    }), 'utf8');
+    const config = await loadConfig(root);
+    assert.equal(config.agents[0].provider, 'review');
+    assert.equal(config.agents[0].model, 'agent-model');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI can load an explicit project profile', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-config-profile-'));
   try {
