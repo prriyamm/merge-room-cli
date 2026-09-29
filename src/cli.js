@@ -542,6 +542,10 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       } catch (error) { setMessage(error.message); }
       return true;
     }
+    if (request.startsWith('/')) {
+      setMessage(`Unknown command: ${request.split(/\s+/, 1)[0]}. Type /help to see available commands.`);
+      return true;
+    }
     await launch(request);
     return true;
   }
