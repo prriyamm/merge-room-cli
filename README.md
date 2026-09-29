@@ -291,17 +291,17 @@ Type a mission to start the selected room. Use `/run <mission>` when the mission
 /wait                  Wait for both rooms to finish
 /run <mission>         Run a mission that starts with a slash
 /cancel                Cancel the selected room and keep the cockpit open
-/agents                Show team size and how to inspect a specialist
-/agents scout          Show one specialist's details
-/team scout,critic     Change the team for future turns
+/agents [id]           Show team size or one specialist's details
+/team <all|ids>        Change the team for future turns
 /profile <name>        Switch the provider profile for future turns
 /profiles              List configured provider profiles
-/context on|off        Change workspace context for future turns
+/context [on|off]      Show or change workspace context
 /history               Show recent saved missions
-/show last             Load a saved mission into the selected room
-/export last md        Export a saved mission
+/show <id|last>        Load a saved mission into the selected room
+/export <id> [md|json] Export a saved mission
 /usage                 Show saved usage totals
-/help                  Show the cockpit command summary
+/help                  Show the common command summary
+/help more             Show command arguments and session commands
 /quit or /exit         Cancel active work and close both rooms
 ```
 
