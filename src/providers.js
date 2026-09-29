@@ -302,7 +302,7 @@ export class AnthropicProvider {
         const body = await response.json().catch(() => ({}));
         const text = normalizeContent(body.content).trim();
         if (!text) throw new Error('Anthropic returned an empty response');
-        emitDelta(text);
+        if (streaming) emitDelta(text);
         return result(text, anthropicInputTokens(body.usage), body.usage?.output_tokens, system, prompt, this.name, model);
       } catch (error) {
         if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Anthropic request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
