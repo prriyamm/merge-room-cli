@@ -287,7 +287,7 @@ Type a mission to start the selected room. Use `/run <mission>` when the mission
 ```text
 /1 or /2              Select a room
 /switch               Move to the other room
-/new                   Reset the selected room
+/new or /clear         Reset the selected room
 /wait                  Wait for both rooms to finish
 /run <mission>         Run a mission that starts with a slash
 /cancel                Cancel the selected room and keep the cockpit open
@@ -302,7 +302,7 @@ Type a mission to start the selected room. Use `/run <mission>` when the mission
 /export last md        Export a saved mission
 /usage                 Show saved usage totals
 /help                  Show the cockpit command summary
-/quit                  Cancel active work and close both rooms
+/quit or /exit         Cancel active work and close both rooms
 ```
 
 The prompt remains available while agents work. The live dashboard shows each room's status and specialist activity, with completed answers visible in that room's mission pane. Use `/agents <id>` to inspect one specialist without squeezing a long roster into the dashboard's status line. Non-interactive runs print answers to ordinary terminal output.

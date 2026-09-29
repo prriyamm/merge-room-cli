@@ -236,7 +236,10 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       const showRoomStatus = terminalHeight >= 3;
       const showHelp = terminalHeight >= 5;
       const showMessage = terminalHeight >= 3;
-      const contentHeight = Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp) - Number(showMessage));
+      const wrappedMessage = showMessage ? wrap(state.message || '', Math.max(1, terminalWidth - 2)) : [];
+      const messageLines = showMessage && !wrappedMessage.length ? [''] : wrappedMessage;
+      const visibleMessageLines = messageLines.slice(0, Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp)));
+      const contentHeight = Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp) - visibleMessageLines.length);
       const activeRoom = state.rooms[state.activeRoom];
       const otherRoom = state.rooms[state.activeRoom === 0 ? 1 : 0];
       const lines = [];
@@ -269,12 +272,14 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       if (showRoomStatus) safeWrite(surface(fit(` Room ${activeRoom.id}: ${activeRoom.status} · Room ${otherRoom.id}: ${otherRoom.status}`, terminalWidth)));
       for (const item of lines.slice(0, contentHeight)) safeWrite(surface(fit(item, terminalWidth)));
       if (showHelp) safeWrite(surface(fit(help, terminalWidth)));
-      if (showMessage) safeWrite(surface(fit(` ${sanitizeUntrustedText(state.message)}`, terminalWidth)));
+      for (const line of visibleMessageLines) safeWrite(surface(fit(` ${color('teal', line)}`, terminalWidth)));
       return;
     }
     const sidebarWidth = Math.min(34, Math.max(27, Math.floor(terminalWidth * 0.3)));
     const mainWidth = terminalWidth - sidebarWidth - 3;
-    const contentHeight = Math.max(0, terminalHeight - 4);
+    const wrappedMessage = wrap(state.message || '', Math.max(1, terminalWidth - 2));
+    const messageLines = (wrappedMessage.length ? wrappedMessage : ['']).slice(0, Math.max(0, terminalHeight - 3));
+    const contentHeight = Math.max(0, terminalHeight - 3 - messageLines.length);
     const sidebar = cockpitSidebar(state, config, sidebarWidth, contentHeight);
     const main = cockpitMain(state, config, workspace, mainWidth, contentHeight);
     safeWrite(`${color('teal', '╭')}${fit(header, terminalWidth - 2)}${color('teal', '╮')}`);
@@ -283,7 +288,7 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     }
     safeWrite(`${color('teal', '╰')}${'─'.repeat(sidebarWidth)}${color('teal', '┴')}${'─'.repeat(mainWidth)}${color('teal', '╯')}`);
     safeWrite(surface(fit(` ${color('gray', '/1 /2 switch · /new reset · /cancel turn · /help commands · /quit leave')}`, terminalWidth)));
-    safeWrite(surface(fit(` ${color('teal', sanitizeUntrustedText(state.message))}`, terminalWidth)));
+    for (const line of messageLines) safeWrite(surface(fit(` ${color('teal', line)}`, terminalWidth)));
   };
   return { state, start, user, loaded, notice, event, render, refresh };
 }
