@@ -2984,6 +2984,32 @@ test('CLI resolves unique session id prefixes', async () => {
   }
 });
 
+test('usage summary treats prototype-like model names as ordinary model keys', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-usage-model-keys-'));
+  const originalLog = console.log;
+  let output = '';
+  try {
+    const sessionDir = path.join(root, '.merge-room', 'sessions');
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(path.join(sessionDir, 'one.json'), JSON.stringify({
+      id: 'one',
+      request: 'A model named like a prototype property',
+      usage: { input: 7, output: 3, total: 10, calls: 1, byModel: { ['__proto__']: { input: 7, output: 3, total: 10, calls: 1 } } }
+    }));
+    console.log = (value) => { output = String(value); };
+    await main(['--cwd', root, 'usage', '--json']);
+
+    const usage = JSON.parse(output);
+    assert.deepEqual(usage.byModel['__proto__'], {
+      sessions: 1, total: 10, input: 7, output: 3, calls: 1, estimatedInput: 0, estimatedOutput: 0
+    });
+    assert.equal(Object.prototype.sessions, undefined);
+  } finally {
+    console.log = originalLog;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI resume resolves filename prefixes when saved JSON embeds another ID', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-resume-canonical-id-'));
   const sessionDir = path.join(root, '.merge-room', 'sessions');
