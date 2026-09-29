@@ -2290,11 +2290,20 @@ test('Anthropic stream reader cancels its body after success and protocol failur
   const originalFetch = globalThis.fetch;
   const provider = new AnthropicProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.anthropic.com', retries: 0 }, 'anthropic-secret');
   const cases = [
-    { name: 'success', frame: 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"done"}}\n\ndata: {"type":"message_stop"}\n\n', expected: 'done' },
-    { name: 'error event', frame: 'data: {"type":"error","error":{"message":"stream rejected"}}\n\n', error: /stream rejected/ },
+    { name: 'success', frame: 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"done"}}\n\ndata: {"type":"message_stop"}\n\n', expected: 'done', cancelNeverSettles: true },
+    { name: 'error event', frame: 'data: {"type":"error","error":{"message":"stream rejected"}}\n\n', error: /stream rejected/, cancelNeverSettles: true },
     { name: 'malformed payload', frame: 'data: {not-json}\n\n', error: /malformed JSON data/ },
     { name: 'missing message_stop', frame: 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"partial"}}\n\n', error: /ended before message_stop/ }
   ];
+  const promptly = async (promise) => {
+    let timer;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('provider completion waited for reader cancellation')), 100); })
+      ]);
+    } finally { clearTimeout(timer); }
+  };
   try {
     for (const scenario of cases) {
       let cancellations = 0;
@@ -2306,15 +2315,18 @@ test('Anthropic stream reader cancels its body after success and protocol failur
         body: {
           getReader: () => ({
             read: async () => reads++ === 0 ? { done: false, value: bytes } : { done: true },
-            cancel: async () => { cancellations += 1; },
+            cancel: () => {
+              cancellations += 1;
+              return scenario.cancelNeverSettles ? new Promise(() => {}) : Promise.resolve();
+            },
             releaseLock() {}
           })
         }
       });
       if (scenario.error) {
-        await assert.rejects(() => provider.complete({ system: 'system', prompt: 'prompt', onDelta() {} }), scenario.error, scenario.name);
+        await promptly(assert.rejects(() => provider.complete({ system: 'system', prompt: 'prompt', onDelta() {} }), scenario.error, scenario.name));
       } else {
-        const response = await provider.complete({ system: 'system', prompt: 'prompt', onDelta() {} });
+        const response = await promptly(provider.complete({ system: 'system', prompt: 'prompt', onDelta() {} }));
         assert.equal(response.text, scenario.expected, scenario.name);
       }
       assert.equal(cancellations, 1, `${scenario.name} cancels the reader exactly once`);
