@@ -175,8 +175,9 @@ async function readIgnoreRules(cwd, base = '', signal) {
   return source.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#')).map((rawPattern) => {
     const negate = rawPattern.startsWith('!');
     const value = (negate ? rawPattern.slice(1) : rawPattern).replaceAll('\\', '/');
+    const anchored = value.startsWith('/');
     const pattern = value.replace(/^\//, '').replace(/\/$/, '');
-    return { negate, base: normalizedBase, directoryOnly: value.endsWith('/'), pattern, regex: ignorePatternRegex(pattern) };
+    return { negate, base: normalizedBase, directoryOnly: value.endsWith('/'), pattern, regex: ignorePatternRegex(pattern, !anchored) };
   });
 }
 
@@ -245,10 +246,9 @@ function hasNegatedDescendant(relative, rules) {
   });
 }
 
-function ignorePatternRegex(pattern) {
-  const basename = !pattern.startsWith('/') && !pattern.includes('/');
+function ignorePatternRegex(pattern, matchBasename = !pattern.includes('/')) {
   const body = pattern.replace(/^\//, '').split(/(\*\*\/|\*\*|\*|\?)/).map((part) => part === '**/' ? '(?:.*/)?' : part === '*' || part === '**' ? '.*' : part === '?' ? '.' : part.replace(/[.+^${}()|[\]\\]/g, '\\$&')).join('');
-  return new RegExp(basename ? `(^|/)${body}$` : `^${body}$`);
+  return new RegExp(matchBasename ? `(^|/)${body}$` : `^${body}$`);
 }
 
 async function readGitSnapshot(cwd, includeDiff = false, signal) {
