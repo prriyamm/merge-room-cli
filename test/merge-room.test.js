@@ -230,6 +230,21 @@ test('compact cockpit honors text presentation selectors for emoji-presentation 
   assert.equal(renderMission(joinedTextPresentation.repeat(3)).trimEnd(), ` Mission: ${joinedTextPresentation}…`);
 });
 
+test('compact cockpit fits keycap notices to terminal cell width', () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
+  const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 40, rows: 8, write: (line) => lines.push(line) });
+  renderer.notice('Use 1️⃣ to select the first room.');
+
+  const notice = lines.find((line) => line.includes('Use 1️⃣'));
+  const cellWidth = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(notice)]
+    .reduce((width, { segment }) => width + (segment.includes('\u20e3') ? 2 : [...segment].reduce((cells, character) => {
+      const codePoint = character.codePointAt(0);
+      return cells + (codePoint >= 0x2e80 && codePoint <= 0xa4cf || codePoint >= 0x1f300 && codePoint <= 0x1faff ? 2 : 1);
+    }, 0)), 0);
+  assert.equal(cellWidth, 40);
+});
+
 test('compact cockpit wraps long unbroken answers by terminal cell width', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
