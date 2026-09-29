@@ -92,39 +92,47 @@ export class AnthropicProvider {
     const baseUrl = (this.config.baseUrl || 'https://api.anthropic.com').replace(/\/$/, '');
     const model = modelOverride || this.model;
     const streaming = typeof onDelta === 'function' && this.config.streaming !== false;
-    const controller = new AbortController();
-    let timedOut = false;
-    const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, this.config.requestTimeoutMs);
-    const abort = () => controller.abort();
-    signal?.addEventListener('abort', abort, { once: true });
-    if (signal?.aborted) controller.abort();
-    try {
-      const response = await fetch(`${baseUrl}/v1/messages`, {
-        method: 'POST', signal: controller.signal,
-        headers: { 'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model, max_tokens: this.config.maxTokens, temperature: this.config.temperature, system, messages: [{ role: 'user', content: prompt }], ...(streaming ? { stream: true } : {}) })
-      });
-      if (!response.ok) {
+    const attempts = Math.max(0, Number(this.config.retries) || 0) + 1;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const controller = new AbortController();
+      let timedOut = false;
+      const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, this.config.requestTimeoutMs);
+      const abort = () => controller.abort();
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) controller.abort();
+      let providerError = false;
+      try {
+        const response = await fetch(`${baseUrl}/v1/messages`, {
+          method: 'POST', signal: controller.signal,
+          headers: { 'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01' },
+          body: JSON.stringify({ model, max_tokens: this.config.maxTokens, temperature: this.config.temperature, system, messages: [{ role: 'user', content: prompt }], ...(streaming ? { stream: true } : {}) })
+        });
+        if (!response.ok) {
+          providerError = true;
+          const body = await response.json().catch(() => ({}));
+          if ((response.status === 429 || response.status >= 500) && attempt < attempts - 1) { await delay(250 * (attempt + 1), signal); continue; }
+          throw new Error(body.error?.message || `Anthropic returned HTTP ${response.status}`);
+        }
+        if (streaming && response.body?.getReader) {
+          const streamed = await readAnthropicStream(response.body, onDelta);
+          if (!streamed.text) throw new Error('Anthropic returned an empty response');
+          return result(streamed.text, streamed.inputTokens, streamed.outputTokens, system, prompt, this.name, model);
+        }
         const body = await response.json().catch(() => ({}));
-        throw new Error(body.error?.message || `Anthropic returned HTTP ${response.status}`);
+        const text = normalizeContent(body.content).trim();
+        if (!text) throw new Error('Anthropic returned an empty response');
+        if (typeof onDelta === 'function') onDelta(text);
+        return result(text, body.usage?.input_tokens, body.usage?.output_tokens, system, prompt, this.name, model);
+      } catch (error) {
+        if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Anthropic request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
+        if (attempt < attempts - 1 && !providerError && error.name !== 'AbortError') { await delay(250 * (attempt + 1), signal); continue; }
+        throw error;
+      } finally {
+        clearTimeout(timeout);
+        signal?.removeEventListener('abort', abort);
       }
-      if (streaming && response.body?.getReader) {
-        const streamed = await readAnthropicStream(response.body, onDelta);
-        if (!streamed.text) throw new Error('Anthropic returned an empty response');
-        return result(streamed.text, streamed.inputTokens, streamed.outputTokens, system, prompt, this.name, model);
-      }
-      const body = await response.json().catch(() => ({}));
-      const text = normalizeContent(body.content).trim();
-      if (!text) throw new Error('Anthropic returned an empty response');
-      if (typeof onDelta === 'function') onDelta(text);
-      return result(text, body.usage?.input_tokens, body.usage?.output_tokens, system, prompt, this.name, model);
-    } catch (error) {
-      if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Anthropic request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
-      throw error;
-    } finally {
-      clearTimeout(timeout);
-      signal?.removeEventListener('abort', abort);
     }
+    throw new Error('Anthropic request failed after retries');
   }
 }
 

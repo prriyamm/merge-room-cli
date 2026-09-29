@@ -81,7 +81,7 @@ export OPENAI_API_KEY="your-key"
 merge-room "Review the architecture in this repository"
 ```
 
-Merge Room also reads `MERGE_ROOM_API_KEY`, `MERGE_ROOM_BASE_URL`, and `MERGE_ROOM_MODEL` (with the corresponding `OPENAI_*` variables as fallbacks). Named provider profiles can route different specialists and the lead through separate OpenAI-compatible or Anthropic API accounts. Use `--provider=demo` or `MERGE_ROOM_PROVIDER=demo` to force offline demo mode even when API keys are present. Keys are read from environment variables and are never saved in project config, diagnostics, or transcripts.
+Merge Room also reads `MERGE_ROOM_API_KEY`, `MERGE_ROOM_BASE_URL`, and `MERGE_ROOM_MODEL` (with the corresponding `OPENAI_*` variables as fallbacks). Named provider profiles can route different specialists and the lead through separate OpenAI-compatible or Anthropic API accounts. Use `--provider=demo` or `MERGE_ROOM_PROVIDER=demo` to force offline demo mode even when API keys are present. Keys are read from environment variables and are never saved in project config, diagnostics, or transcripts. These profiles use API credentials; ChatGPT Plus or Claude Pro subscriptions do not provide API keys.
 
 ## Why Merge Room works as an agent harness
 
@@ -149,7 +149,7 @@ Useful options:
 --retries=0                     Control transient retries
 --theme=ember                   Select the terminal theme for this run
 --provider=demo                 Force local demo mode for CI or offline work
---profile=claude                Set the default and lead provider profile
+--profile=<name>               Route all agents and the lead through one profile
 --config=<path>                 Use an explicit project profile
 --format=md|json                Choose export format
 --output=<path>                 Write an export file
@@ -282,6 +282,8 @@ Type a mission to start the selected room. After it finishes, the next message i
 /wait                  Wait for both rooms to finish
 /agents                Show the active specialist team
 /team scout,critic     Change the team for future turns
+/profile <name>        Switch the provider profile for future turns
+/profiles              List configured provider profiles
 /context on|off        Change workspace context for future turns
 /history               Show recent saved missions
 /show last             Load a saved mission into the selected room

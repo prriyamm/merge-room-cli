@@ -5,6 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
+import { Readable } from 'node:stream';
 import { DEFAULT_CONFIG, loadConfig, safeBaseUrl, VERSION } from '../src/config.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.js';
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from '../src/engine.js';
@@ -12,7 +13,7 @@ import { liquidGlassLogoLines } from '../src/logo.js';
 import { createProvider, DemoProvider, OpenAICompatibleProvider } from '../src/providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
-import { buildResumeRequest } from '../src/cli.js';
+import { buildResumeRequest, main } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
 import { applyCockpitEvent, beginCockpitTurn, createCockpitState, finishCockpitTurn, resetCockpitRoom, selectCockpitRoom } from '../src/cockpit.js';
 import { createCockpitRenderer, createConversationRenderer, printResult, startupPatternLines } from '../src/ui.js';
@@ -440,35 +441,144 @@ test('token estimate is stable and non-negative', () => {
   assert.equal(estimateTokens('12345678'), 2);
 });
 
-test('provider profiles route Anthropic agent and lead calls', async () => {
+test('provider profiles route agents and lead across OpenAI and Anthropic', async () => {
   const originalFetch = globalThis.fetch;
-  const oldKey = process.env.MERGE_ROOM_TEST_ANTHROPIC;
+  const oldAnthropic = process.env.MERGE_ROOM_TEST_ANTHROPIC;
+  const oldOpenAI = process.env.MERGE_ROOM_TEST_OPENAI;
   process.env.MERGE_ROOM_TEST_ANTHROPIC = 'anthropic-secret';
-  const calls = [];
+  process.env.MERGE_ROOM_TEST_OPENAI = 'openai-secret';
+  const requests = [];
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-routes-'));
   globalThis.fetch = async (url, options) => {
-    calls.push({ url, options, body: JSON.parse(options.body) });
-    return new Response(JSON.stringify({ content: [{ type: 'text', text: 'Claude response' }], usage: { input_tokens: 11, output_tokens: 7 } }), { status: 200 });
+    const body = JSON.parse(options.body);
+    requests.push({ url, options, body });
+    const response = url.includes('anthropic.test')
+      ? { content: [{ type: 'text', text: 'Claude response' }], usage: { input_tokens: 11, output_tokens: 7 } }
+      : { choices: [{ message: { content: 'OpenAI response' } }], usage: { prompt_tokens: 5, completion_tokens: 3 } };
+    return new Response(JSON.stringify(response), { status: 200 });
   };
   try {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-routes-'));
-    try {
-      await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ streaming: false, providers: { claude: { type: 'anthropic', model: 'claude-test', apiKeyEnv: 'MERGE_ROOM_TEST_ANTHROPIC' } }, defaultProvider: 'claude', leadProvider: 'claude', agents: [{ id: 'scout', provider: 'claude' }] }));
-      const config = await loadConfig(root);
-      const result = await new MergeRoomEngine({ config, provider: createProvider(config) }).run('route calls');
-      assert.equal(calls.length, 2);
-      assert.equal(calls[0].url, 'https://api.anthropic.com/v1/messages');
-      assert.equal(calls[0].options.headers['x-api-key'], 'anthropic-secret');
-      assert.equal(calls[0].options.headers['anthropic-version'], '2023-06-01');
-      assert.equal(calls[0].body.system.includes('Scout'), true);
-      assert.equal(result.agents[0].provider, 'claude');
-      assert.equal(result.provider, 'claude');
-      assert.equal(result.usage.input, 22);
-      assert.equal(result.usage.byModel['claude/claude-test'].calls, 2);
-    } finally { await fs.rm(root, { recursive: true, force: true }); }
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      streaming: false,
+      providers: {
+        openai: { type: 'openai-compatible', model: 'gpt-test', baseUrl: 'https://openai.test/v1', apiKeyEnv: 'MERGE_ROOM_TEST_OPENAI' },
+        claude: { type: 'anthropic', model: 'claude-test', baseUrl: 'https://anthropic.test', apiKeyEnv: 'MERGE_ROOM_TEST_ANTHROPIC' }
+      },
+      defaultProvider: 'openai', leadProvider: 'claude',
+      agents: [{ id: 'scout', provider: 'claude' }, { id: 'architect' }]
+    }));
+    const config = await loadConfig(root);
+    const result = await new MergeRoomEngine({ config, provider: createProvider(config) }).run('route calls');
+    assert.equal(requests.length, 3);
+    const promptText = (call) => call.body.system || call.body.messages?.[0]?.content || '';
+    const scout = requests.find((call) => promptText(call).includes('Scout'));
+    const architect = requests.find((call) => promptText(call).includes('Architect'));
+    const synthesis = requests.find((call) => call.body.messages?.[0]?.content?.includes('Specialist notes'));
+    assert.equal(scout.url, 'https://anthropic.test/v1/messages');
+    assert.equal(scout.options.headers['x-api-key'], 'anthropic-secret');
+    assert.equal(scout.options.headers['anthropic-version'], '2023-06-01');
+    assert.equal(architect.url, 'https://openai.test/v1/chat/completions');
+    assert.equal(architect.options.headers.authorization, 'Bearer openai-secret');
+    assert.equal(synthesis.url, 'https://anthropic.test/v1/messages');
+    assert.equal(result.agents[0].provider, 'claude');
+    assert.equal(result.agents[1].provider, 'openai');
+    assert.equal(result.provider, 'claude');
+    assert.equal(result.usage.input, 27);
+    assert.equal(result.usage.byModel['claude/claude-test'].calls, 2);
+    assert.equal(result.usage.byModel['openai/gpt-test'].calls, 1);
   } finally {
     globalThis.fetch = originalFetch;
-    if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_ANTHROPIC;
-    else process.env.MERGE_ROOM_TEST_ANTHROPIC = oldKey;
+    await fs.rm(root, { recursive: true, force: true });
+    if (oldAnthropic === undefined) delete process.env.MERGE_ROOM_TEST_ANTHROPIC;
+    else process.env.MERGE_ROOM_TEST_ANTHROPIC = oldAnthropic;
+    if (oldOpenAI === undefined) delete process.env.MERGE_ROOM_TEST_OPENAI;
+    else process.env.MERGE_ROOM_TEST_OPENAI = oldOpenAI;
+  }
+});
+
+test('CLI profile override routes every agent and lead through the selected profile', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const oldKey = process.env.MERGE_ROOM_TEST_OPENAI;
+  process.env.MERGE_ROOM_TEST_OPENAI = 'openai-secret';
+  const requests = [];
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-profile-override-'));
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, body: JSON.parse(options.body) });
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'Routed response' } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), { status: 200 });
+  };
+  let output = '';
+  console.log = (line) => { output += `${line}\n`; };
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      streaming: false,
+      providers: {
+        claude: { type: 'anthropic', model: 'claude-test', apiKeyEnv: 'UNSET_TEST_KEY' },
+        work: { type: 'openai-compatible', model: 'gpt-test', baseUrl: 'https://openai.test/v1', apiKeyEnv: 'MERGE_ROOM_TEST_OPENAI' }
+      },
+      defaultProvider: 'claude', leadProvider: 'claude',
+      agents: [{ id: 'scout', provider: 'claude' }, { id: 'critic', provider: 'claude', stage: 3 }]
+    }));
+    await main(['--cwd', root, '--profile=work', '--no-context', '--no-save', '--no-stream', '--json', 'switch provider'], { signal: new AbortController().signal });
+    const result = JSON.parse(output);
+    assert.equal(requests.length, 3);
+    assert.ok(requests.every((request) => request.url === 'https://openai.test/v1/chat/completions'));
+    assert.ok(result.agents.every((agent) => agent.provider === 'work'));
+    assert.equal(result.provider, 'work');
+  } finally {
+    console.log = originalLog;
+    globalThis.fetch = originalFetch;
+    await fs.rm(root, { recursive: true, force: true });
+    if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_OPENAI;
+    else process.env.MERGE_ROOM_TEST_OPENAI = oldKey;
+  }
+});
+
+test('cockpit can switch provider profiles without resetting room context', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLog = console.log;
+  const stdinDescriptor = Object.getOwnPropertyDescriptor(process, 'stdin');
+  const oldOpenAI = process.env.MERGE_ROOM_TEST_OPENAI;
+  const oldAnthropic = process.env.MERGE_ROOM_TEST_ANTHROPIC;
+  process.env.MERGE_ROOM_TEST_OPENAI = 'openai-secret';
+  process.env.MERGE_ROOM_TEST_ANTHROPIC = 'anthropic-secret';
+  const requests = [];
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-cockpit-profiles-'));
+  let output = '';
+  Object.defineProperty(process, 'stdin', { configurable: true, value: Readable.from(['/team scout\nFirst provider turn\n/wait\n/profile claude\nSecond provider turn\n/wait\n/quit\n']) });
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, body: JSON.parse(options.body) });
+    const body = url.includes('/v1/messages')
+      ? { content: [{ type: 'text', text: 'Claude answer' }], usage: { input_tokens: 1, output_tokens: 1 } }
+      : { choices: [{ message: { content: 'OpenAI answer' } }], usage: { prompt_tokens: 1, completion_tokens: 1 } };
+    return new Response(JSON.stringify(body), { status: 200 });
+  };
+  console.log = (line) => { output += `${line}\n`; };
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      streaming: false,
+      providers: {
+        openai: { type: 'openai-compatible', model: 'gpt-test', baseUrl: 'https://openai.test/v1', apiKeyEnv: 'MERGE_ROOM_TEST_OPENAI' },
+        claude: { type: 'anthropic', model: 'claude-test', baseUrl: 'https://anthropic.test', apiKeyEnv: 'MERGE_ROOM_TEST_ANTHROPIC' }
+      },
+      defaultProvider: 'openai', leadProvider: 'openai',
+      agents: [{ id: 'scout', provider: 'claude' }]
+    }));
+    await main(['--cwd', root, 'interactive', '--no-context', '--no-save', '--no-stream'], { signal: new AbortController().signal });
+    assert.equal(requests.length, 4);
+    assert.equal(requests[0].url, 'https://anthropic.test/v1/messages');
+    assert.equal(requests[1].url, 'https://openai.test/v1/chat/completions');
+    assert.ok(requests.slice(2).every((request) => request.url === 'https://anthropic.test/v1/messages'));
+    assert.match(output, /Second provider turn/);
+  } finally {
+    console.log = originalLog;
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(process, 'stdin', stdinDescriptor);
+    await fs.rm(root, { recursive: true, force: true });
+    if (oldOpenAI === undefined) delete process.env.MERGE_ROOM_TEST_OPENAI;
+    else process.env.MERGE_ROOM_TEST_OPENAI = oldOpenAI;
+    if (oldAnthropic === undefined) delete process.env.MERGE_ROOM_TEST_ANTHROPIC;
+    else process.env.MERGE_ROOM_TEST_ANTHROPIC = oldAnthropic;
   }
 });
 
@@ -518,6 +628,41 @@ test('Anthropic adapter streams text and provider usage metadata', async () => {
     assert.deepEqual(deltas, ['Hello ', 'Claude']);
     assert.equal(response.inputTokens, 13);
     assert.equal(response.outputTokens, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_ANTHROPIC;
+    else process.env.MERGE_ROOM_TEST_ANTHROPIC = oldKey;
+  }
+});
+
+test('Anthropic adapter retries transient failures and times out', async () => {
+  const originalFetch = globalThis.fetch;
+  const oldKey = process.env.MERGE_ROOM_TEST_ANTHROPIC;
+  process.env.MERGE_ROOM_TEST_ANTHROPIC = 'anthropic-secret';
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) return new Response(JSON.stringify({ error: { message: 'try again' } }), { status: 503 });
+    return new Response(JSON.stringify({ content: [{ type: 'text', text: 'recovered' }], usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200 });
+  };
+  try {
+    const config = { ...DEFAULT_CONFIG, retries: 1, providers: { claude: { type: 'anthropic', model: 'claude-test', apiKeyEnv: 'MERGE_ROOM_TEST_ANTHROPIC' } } };
+    const response = await createProvider(config).complete({ provider: 'claude', system: 'system', prompt: 'prompt' });
+    assert.equal(calls, 2);
+    assert.equal(response.text, 'recovered');
+    globalThis.fetch = (_url, { signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+    const timeoutConfig = { ...config, requestTimeoutMs: 100, retries: 0 };
+    await assert.rejects(() => createProvider(timeoutConfig).complete({ provider: 'claude', system: 'system', prompt: 'prompt' }), { name: 'TimeoutError' });
+    let cancelledCalls = 0;
+    globalThis.fetch = async (_url, { signal }) => {
+      cancelledCalls += 1;
+      return new Response(JSON.stringify({ error: { message: 'busy' } }), { status: 503 });
+    };
+    const abortDuringBackoff = new AbortController();
+    const retrying = createProvider(config).complete({ provider: 'claude', system: 'system', prompt: 'prompt', signal: abortDuringBackoff.signal });
+    setTimeout(() => abortDuringBackoff.abort(), 20);
+    await assert.rejects(() => retrying, { name: 'AbortError' });
+    assert.equal(cancelledCalls, 1);
   } finally {
     globalThis.fetch = originalFetch;
     if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_ANTHROPIC;
