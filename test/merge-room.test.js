@@ -2177,6 +2177,42 @@ test('CLI initializes a project and exports its latest mission', async () => {
   }
 });
 
+test('interactive export explains when session history is disabled', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-export-disabled-'));
+  try {
+    const configFile = path.join(root, 'merge-room.config.json');
+    await fs.writeFile(configFile, JSON.stringify({ provider: 'demo', sessionDir: null }), 'utf8');
+
+    const cliUrl = new URL('../src/cli.js', import.meta.url).href;
+    const script = `process.stdin.isTTY = true; process.stdout.isTTY = true; const { main } = await import(${JSON.stringify(cliUrl)}); main(['--config', ${JSON.stringify(configFile)}, 'interactive']).catch((error) => { console.error(error); process.exitCode = 1; });`;
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      let quitSent = false;
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => { stdout += chunk; });
+      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      child.once('error', reject);
+      const timeout = setTimeout(() => { child.kill(); reject(new Error('Timed out waiting for the interactive export notice.')); }, 5000);
+      child.stdout.on('data', (chunk) => {
+        if (!quitSent && stdout.includes('Session history is disabled.')) { quitSent = true; child.stdin.end('/quit\n'); }
+      });
+      child.once('close', (code) => {
+        clearTimeout(timeout);
+        code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`CLI exited ${code}: ${stderr}`));
+      });
+      child.stdin.write('/export last\n');
+    });
+
+    assert.match(`${stdout}\n${stderr}`, /Session history is disabled\./);
+    assert.doesNotMatch(`${stdout}\n${stderr}`, /path argument.*null|ERR_INVALID_ARG_TYPE/i);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI no-save mode leaves no session artifact', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-no-save-'));
   try {
