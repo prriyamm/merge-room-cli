@@ -273,17 +273,17 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
         if (latestNote) lines.push(` Handoff: ${crop(latestNote[1], Math.max(0, terminalWidth - 10))}`);
         if (latestEvent) lines.push(` Latest: ${crop(latestEvent.message, Math.max(0, terminalWidth - 9))}`);
       }
-      if (activeRoom.error && !answer) lines.unshift(` Stopped: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
+      if (activeRoom.error && !answer) lines.unshift(` ${activeRoom.status === 'cancelled' ? 'Cancelled' : 'Stopped'}: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
       if (answer && contentHeight > 0) {
         if (contentHeight === 1 && (activeRoom.error || activeRoom.status === 'cancelled')) {
-          const status = activeRoom.error ? 'FAILED' : 'CANCELLED';
+          const status = activeRoom.status === 'cancelled' ? 'CANCELLED' : 'FAILED';
           const reasonLimit = Math.max(0, Math.min(18, terminalWidth - visibleLength(` PARTIAL · ${status}: `) - 15));
           const reasonText = activeRoom.error && terminalWidth >= 44 ? crop(activeRoom.error, reasonLimit) : '';
           const detail = terminalWidth >= 30 ? ` · ${status}${reasonText ? ` (${reasonText})` : ''}` : '';
           const prefix = ` PARTIAL${detail}: `;
           lines.splice(0, lines.length, ` ${color('yellow', 'PARTIAL')}${terminalWidth >= 30 ? ` · ${color('red', status)}${reasonText ? ` (${reasonText})` : ''}` : ''}: ${crop(answer, Math.max(0, terminalWidth - visibleLength(prefix)))}`);
         } else {
-          if (activeRoom.error) lines.splice(0, lines.length, ` Stopped: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
+          if (activeRoom.error) lines.splice(0, lines.length, ` ${activeRoom.status === 'cancelled' ? 'Cancelled' : 'Stopped'}: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
           else lines.splice(Math.max(0, contentHeight - 1));
           const answerLabel = activeRoom.error || activeRoom.status === 'cancelled' ? 'PARTIAL ANSWER' : 'MERGE ROOM SAYS';
           if (contentHeight === lines.length + 1) {
