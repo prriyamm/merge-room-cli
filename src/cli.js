@@ -431,7 +431,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     if (request.startsWith('/agents ')) {
-      const query = request.slice('/agents '.length).trim().toLocaleLowerCase();
+      const query = request.slice('/agents '.length).trim().toLowerCase();
       const agent = resolveAgentReference(activeConfig.agents, query);
       if (!agent) setMessage(`No specialist named ${query}. Use /agents to inspect the selected team.`);
       else {

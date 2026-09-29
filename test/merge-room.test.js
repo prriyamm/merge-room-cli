@@ -71,10 +71,14 @@ test('cockpit keeps two independent live rooms and agent activity', () => {
 test('cockpit agent lookup prefers an exact ID over another agent name', () => {
   const agents = [
     { id: 'first', name: 'Scout' },
-    { id: 'scout', name: 'Researcher' }
+    { id: 'scout', name: 'Researcher' },
+    { id: 'indexer', name: 'Indexer' },
+    { id: 'ipek', name: 'İpek' }
   ];
   assert.equal(resolveAgentReference(agents, 'SCOUT')?.name, 'Researcher');
   assert.equal(resolveAgentReference(agents, 'researcher')?.id, 'scout');
+  assert.equal(resolveAgentReference(agents, 'INDEXER')?.id, 'indexer');
+  assert.equal(resolveAgentReference(agents, 'İPEK')?.id, 'ipek');
   assert.equal(resolveAgentReference(agents, 'unknown'), null);
 });
 
