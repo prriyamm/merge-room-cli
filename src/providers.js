@@ -297,7 +297,7 @@ export class AnthropicProvider {
         const text = normalizeContent(body.content).trim();
         if (!text) throw new Error('Anthropic returned an empty response');
         emitDelta(text);
-        return result(text, body.usage?.input_tokens, body.usage?.output_tokens, system, prompt, this.name, model);
+        return result(text, anthropicInputTokens(body.usage), body.usage?.output_tokens, system, prompt, this.name, model);
       } catch (error) {
         if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Anthropic request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
         if (attempt < attempts - 1 && !providerError && !emittedDelta && !['AbortError', 'ProtocolError'].includes(error.name)) { await delay(250 * (attempt + 1), signal); continue; }
@@ -382,7 +382,7 @@ async function readAnthropicStream(body, onDelta) {
       const event = JSON.parse(data);
       if (event.type === 'error') throw new Error(event.error?.message || 'Anthropic stream failed.');
       if (event.type === 'message_stop') completed = true;
-      if (event.type === 'message_start') inputTokens = event.message?.usage?.input_tokens;
+      if (event.type === 'message_start') inputTokens = anthropicInputTokens(event.message?.usage);
       if (event.type === 'message_delta') outputTokens = event.usage?.output_tokens;
       const piece = event.type === 'content_block_delta' && event.delta?.type === 'text_delta' ? event.delta.text : '';
       if (piece) { text += piece; onDelta(piece); }
@@ -406,6 +406,18 @@ async function readAnthropicStream(body, onDelta) {
   if (buffer) consume(buffer);
   if (!completed) throw new Error('Anthropic stream ended before message_stop.');
   return { text: text.trim(), inputTokens, outputTokens };
+}
+
+function anthropicInputTokens(usage) {
+  if (!usage || !['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'].some((key) => usage[key] != null)) return undefined;
+  let total = 0;
+  for (const key of ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']) {
+    if (usage[key] == null) continue;
+    const value = usage[key];
+    if (!Number.isSafeInteger(value) || value < 0 || !Number.isSafeInteger(total + value)) return undefined;
+    total += value;
+  }
+  return total;
 }
 
 async function readStream(body, onDelta) {

@@ -1011,7 +1011,7 @@ test('Anthropic adapter streams text and provider usage metadata', async () => {
   const oldKey = process.env.MERGE_ROOM_TEST_ANTHROPIC;
   process.env.MERGE_ROOM_TEST_ANTHROPIC = 'anthropic-secret';
   const events = [
-    { type: 'message_start', message: { usage: { input_tokens: 13 } } },
+    { type: 'message_start', message: { usage: { input_tokens: 13, cache_creation_input_tokens: 4, cache_read_input_tokens: 6 } } },
     { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hello ' } },
     { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Claude' } },
     { type: 'message_delta', usage: { output_tokens: 4 } },
@@ -1029,8 +1029,57 @@ test('Anthropic adapter streams text and provider usage metadata', async () => {
     const response = await createProvider(config).complete({ system: 'system', prompt: 'prompt', provider: 'claude', onDelta: (delta) => deltas.push(delta) });
     assert.equal(response.text, 'Hello Claude');
     assert.deepEqual(deltas, ['Hello ', 'Claude']);
-    assert.equal(response.inputTokens, 13);
+    assert.equal(response.inputTokens, 23);
     assert.equal(response.outputTokens, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_ANTHROPIC;
+    else process.env.MERGE_ROOM_TEST_ANTHROPIC = oldKey;
+  }
+});
+
+test('Anthropic adapter includes cached input tokens in nonstream usage', async () => {
+  const originalFetch = globalThis.fetch;
+  const oldKey = process.env.MERGE_ROOM_TEST_ANTHROPIC;
+  process.env.MERGE_ROOM_TEST_ANTHROPIC = 'anthropic-secret';
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    content: [{ type: 'text', text: 'Hello Claude' }],
+    usage: { input_tokens: 10, cache_creation_input_tokens: 4, cache_read_input_tokens: 6, output_tokens: 3 }
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    const config = { ...DEFAULT_CONFIG, providers: { claude: { type: 'anthropic', model: 'claude-test', apiKeyEnv: 'MERGE_ROOM_TEST_ANTHROPIC', streaming: false } } };
+    const response = await createProvider(config).complete({ system: 'system', prompt: 'prompt', provider: 'claude' });
+    assert.equal(response.inputTokens, 20);
+    assert.equal(response.outputTokens, 3);
+    assert.equal(response.inputEstimated, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_ANTHROPIC;
+    else process.env.MERGE_ROOM_TEST_ANTHROPIC = oldKey;
+  }
+});
+
+test('Anthropic adapter estimates input when usage is invalid or absent', async () => {
+  const originalFetch = globalThis.fetch;
+  const oldKey = process.env.MERGE_ROOM_TEST_ANTHROPIC;
+  process.env.MERGE_ROOM_TEST_ANTHROPIC = 'anthropic-secret';
+  let usage;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    content: [{ type: 'text', text: 'Hello Claude' }],
+    ...(usage === undefined ? {} : { usage })
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    const config = { ...DEFAULT_CONFIG, providers: { claude: { type: 'anthropic', model: 'claude-test', apiKeyEnv: 'MERGE_ROOM_TEST_ANTHROPIC' } } };
+    for (const invalidUsage of [{ input_tokens: 'oops' }, { input_tokens: -1 }, { input_tokens: Number.MAX_SAFE_INTEGER + 1 }]) {
+      usage = invalidUsage;
+      const response = await createProvider(config).complete({ system: 'system', prompt: 'prompt', provider: 'claude' });
+      assert.equal(response.inputEstimated, true);
+      assert.equal(response.inputTokens, 4);
+    }
+    usage = undefined;
+    const response = await createProvider(config).complete({ system: 'system', prompt: 'prompt', provider: 'claude' });
+    assert.equal(response.inputEstimated, true);
+    assert.equal(response.inputTokens, 4);
   } finally {
     globalThis.fetch = originalFetch;
     if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_ANTHROPIC;
