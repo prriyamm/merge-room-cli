@@ -244,6 +244,7 @@ export class OpenAICompatibleProvider {
         const body = await response.json().catch(() => ({}));
         const text = normalizeContent(body.choices?.[0]?.message?.content).trim();
         if (!text) throw new Error('Provider returned an empty response');
+        if (streaming) emitDelta(text);
         return result(text, body.usage?.prompt_tokens, body.usage?.completion_tokens, system, prompt, this.name, model);
       } catch (error) {
         if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Provider request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
