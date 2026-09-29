@@ -209,9 +209,9 @@ async function readIgnoreRules(cwd, base = '', signal) {
     await handle?.close().catch(() => {});
   }
   ensureActive(signal);
-  return source.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#')).map((rawPattern) => {
+  return source.split(/\r?\n/).map((line) => trimUnescapedTrailingSpaces(line.trimStart())).filter((line) => line && !line.startsWith('#')).map((rawPattern) => {
     const negate = rawPattern.startsWith('!');
-    const value = (negate ? rawPattern.slice(1) : rawPattern).replaceAll('\\', '/');
+    const value = negate ? rawPattern.slice(1) : rawPattern;
     const anchored = value.startsWith('/');
     const pattern = value.replace(/^\//, '').replace(/\/$/, '');
     return { negate, base: normalizedBase, directoryOnly: value.endsWith('/'), pattern, regex: ignorePatternRegex(pattern, !anchored) };
@@ -284,8 +284,33 @@ function hasNegatedDescendant(relative, rules) {
 }
 
 function ignorePatternRegex(pattern, matchBasename = !pattern.includes('/')) {
-  const body = pattern.replace(/^\//, '').split(/(\*\*\/|\*\*|\*|\?)/).map((part) => part === '**/' ? '(?:.*/)?' : part === '*' || part === '**' ? '.*' : part === '?' ? '.' : part.replace(/[.+^${}()|[\]\\]/g, '\\$&')).join('');
+  let body = '';
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (char === '\\' && index + 1 < pattern.length) {
+      body += pattern[++index].replace(/[.*?+^${}()|[\]\\]/g, '\\$&');
+    } else if (char === '*' && pattern[index + 1] === '*' && pattern[index + 2] === '/') {
+      body += '(?:.*/)?';
+      index += 2;
+    } else if (char === '*' && pattern[index + 1] === '*') {
+      body += '.*';
+      index += 1;
+    } else if (char === '*') body += '.*';
+    else if (char === '?') body += '.';
+    else body += char.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  }
   return new RegExp(matchBasename ? `(^|/)${body}$` : `^${body}$`);
+}
+
+function trimUnescapedTrailingSpaces(line) {
+  let end = line.length;
+  while (end > 0 && /\s/.test(line[end - 1])) {
+    let slashes = 0;
+    for (let index = end - 2; index >= 0 && line[index] === '\\'; index -= 1) slashes += 1;
+    if (slashes % 2 === 1) break;
+    end -= 1;
+  }
+  return line.slice(0, end);
 }
 
 async function readGitSnapshot(cwd, includeDiff = false, signal) {
