@@ -1409,6 +1409,87 @@ test('workspace context respects project ignore patterns', async () => {
   }
 });
 
+test('workspace context applies nested gitignore rules within their directory', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-nested-gitignore-'));
+  try {
+    await fs.mkdir(path.join(root, 'packages', 'private'), { recursive: true });
+    await fs.mkdir(path.join(root, 'private'), { recursive: true });
+    await fs.writeFile(path.join(root, 'packages', '.gitignore'), 'private/\n!private/keep.md\n', 'utf8');
+    await fs.writeFile(path.join(root, 'packages', 'public.js'), 'visible\n', 'utf8');
+    await fs.writeFile(path.join(root, 'private', 'root-public.js'), 'not covered by the nested ignore file\n', 'utf8');
+    await fs.writeFile(path.join(root, 'packages', 'private', 'credentials.js'), 'must stay ignored\n', 'utf8');
+    await fs.writeFile(path.join(root, 'packages', 'private', 'keep.md'), 'explicitly re-included\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
+    assert.equal(context.entries.some((entry) => entry.includes('packages/public.js')), true);
+    assert.equal(context.entries.some((entry) => entry.includes('private/root-public.js')), true);
+    assert.equal(context.entries.some((entry) => entry.includes('credentials.js')), false);
+    assert.equal(context.excerpts.some((item) => item.path.endsWith('credentials.js')), false);
+    assert.equal(context.entries.some((entry) => entry.includes('packages/private/keep.md')), true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('workspace context does not treat a trailing /** pattern as ignoring its directory', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-double-star-'));
+  try {
+    await fs.mkdir(path.join(root, 'cache'), { recursive: true });
+    await fs.writeFile(path.join(root, '.gitignore'), 'cache/**\n', 'utf8');
+    await fs.writeFile(path.join(root, 'cache', 'generated.js'), 'ignored by the pattern\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
+    assert.equal(context.entries.includes('cache/'), true);
+    assert.equal(context.entries.some((entry) => entry.includes('cache/generated.js')), false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('workspace context keeps ignored directories open for negated wildcard descendants', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-negated-glob-'));
+  try {
+    await fs.mkdir(path.join(root, 'private'), { recursive: true });
+    await fs.writeFile(path.join(root, '.gitignore'), 'private/\n!**/keep.md\n', 'utf8');
+    await fs.writeFile(path.join(root, 'private', 'keep.md'), 'explicitly re-included\n', 'utf8');
+    await fs.writeFile(path.join(root, 'private', 'drop.js'), 'still ignored\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
+    assert.equal(context.entries.some((entry) => entry.includes('private/keep.md')), true);
+    assert.equal(context.excerpts.some((item) => item.path === 'private/keep.md'), true);
+    assert.equal(context.entries.some((entry) => entry.includes('private/drop.js')), false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('workspace context does not apply a directory-only ignore rule to same-named files', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-directory-only-'));
+  try {
+    await fs.writeFile(path.join(root, '.gitignore'), 'private/\n', 'utf8');
+    await fs.writeFile(path.join(root, 'private'), 'this is a file\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
+    assert.equal(context.entries.some((entry) => entry.startsWith('private  ')), true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('workspace context fails closed for oversized gitignore files', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-large-gitignore-'));
+  try {
+    await fs.writeFile(path.join(root, '.gitignore'), '#'.repeat(256 * 1024 + 1), 'utf8');
+    await fs.writeFile(path.join(root, 'private-notes.js'), 'must not be sent\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
+    assert.equal(context.entries.some((entry) => entry.includes('private-notes.js')), false);
+    assert.equal(context.excerpts.some((item) => item.path === 'private-notes.js'), false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('workspace context matches root files for leading gitignore globstars', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-globstar-'));
   try {
@@ -1455,6 +1536,47 @@ test('opt-in Git context includes staged and unstaged changes from HEAD', async 
     const context = await collectWorkspaceContext(root, { include: ['app.js'], includeDiff: true, maxBytes: 5000 });
     assert.match(context.git.diff, /staged/);
     assert.match(context.git.diff, /unstaged/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('opt-in Git diff excludes tracked secrets and ignored paths', async () => {
+  try { await execFileAsync('git', ['--version']); } catch { return; }
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-git-filtered-diff-'));
+  try {
+    await execFileAsync('git', ['init'], { cwd: root });
+    await execFileAsync('git', ['config', 'user.name', 'Merge Room Test'], { cwd: root });
+    await execFileAsync('git', ['config', 'user.email', 'merge-room-test@example.invalid'], { cwd: root });
+    await fs.mkdir(path.join(root, 'node_modules', 'sample'), { recursive: true });
+    await fs.mkdir(path.join(root, 'packages'), { recursive: true });
+    await fs.writeFile(path.join(root, '.gitignore'), 'ignored.txt\n', 'utf8');
+    await fs.writeFile(path.join(root, 'packages', '.gitignore'), 'local.md\n', 'utf8');
+    await fs.writeFile(path.join(root, 'packages', 'local.md'), 'BASE NESTED IGNORED\n', 'utf8');
+    await fs.writeFile(path.join(root, 'app.js'), 'const state = "base";\n', 'utf8');
+    await fs.writeFile(path.join(root, 'credentials.json'), '{"value":"base"}\n', 'utf8');
+    await fs.writeFile(path.join(root, 'private.pem'), 'BASE KEY\n', 'utf8');
+    await fs.writeFile(path.join(root, 'ignored.txt'), 'BASE IGNORED\n', 'utf8');
+    await fs.writeFile(path.join(root, 'node_modules', 'sample', 'library.js'), 'BASE DEPENDENCY\n', 'utf8');
+    await fs.writeFile(path.join(root, 'packages', 'visible.js'), 'const visible = "base";\n', 'utf8');
+    await execFileAsync('git', ['add', '-f', '.'], { cwd: root });
+    await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: root });
+
+    await fs.writeFile(path.join(root, 'app.js'), 'const state = "SAFE_VISIBLE_CHANGE";\n', 'utf8');
+    await fs.writeFile(path.join(root, 'credentials.json'), '{"value":"SECRET_CREDENTIAL_CHANGE"}\n', 'utf8');
+    await fs.writeFile(path.join(root, 'private.pem'), 'PRIVATE_KEY_CHANGE\n', 'utf8');
+    await fs.writeFile(path.join(root, 'ignored.txt'), 'IGNORED_FILE_CHANGE\n', 'utf8');
+    await fs.writeFile(path.join(root, 'node_modules', 'sample', 'library.js'), 'DEPENDENCY_FILE_CHANGE\n', 'utf8');
+    await fs.writeFile(path.join(root, 'packages', 'local.md'), 'NESTED_IGNORED_CHANGE\n', 'utf8');
+    await fs.writeFile(path.join(root, 'packages', 'visible.js'), 'const visible = "NESTED_VISIBLE_CHANGE";\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { includeDiff: true, maxBytes: 5000 });
+    assert.match(context.git.diff, /SAFE_VISIBLE_CHANGE/);
+    assert.match(context.git.diff, /NESTED_VISIBLE_CHANGE/);
+    assert.doesNotMatch(context.git.diff, /SECRET_CREDENTIAL_CHANGE|PRIVATE_KEY_CHANGE|IGNORED_FILE_CHANGE|DEPENDENCY_FILE_CHANGE|NESTED_IGNORED_CHANGE/);
+    assert.doesNotMatch(context.git.diffStat, /credentials\.json|private\.pem|ignored\.txt|node_modules/);
+    assert.match(context.git.status, /app\.js/);
+    assert.doesNotMatch(context.git.status, /credentials\.json|private\.pem|ignored\.txt|node_modules|local\.md/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
