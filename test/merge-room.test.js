@@ -843,7 +843,8 @@ test('Anthropic adapter streams text and provider usage metadata', async () => {
     { type: 'message_start', message: { usage: { input_tokens: 13 } } },
     { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hello ' } },
     { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Claude' } },
-    { type: 'message_delta', usage: { output_tokens: 4 } }
+    { type: 'message_delta', usage: { output_tokens: 4 } },
+    { type: 'message_stop' }
   ].map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
   globalThis.fetch = async (url, options) => {
     assert.equal(url, 'https://api.anthropic.com/v1/messages');
@@ -1044,16 +1045,18 @@ test('provider stream failures do not retry after emitting partial output', asyn
     {
       provider: new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.openai.com/v1', retries: 2 }, 'openai-secret'),
       frame: 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n',
-      recovered: 'data: {"choices":[{"delta":{"content":"recovered"}}]}\n\n'
+      recovered: 'data: {"choices":[{"delta":{"content":"recovered"}}]}\n\n',
+      terminator: 'data: [DONE]\n\n'
     },
     {
       provider: new AnthropicProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.anthropic.com', retries: 2 }, 'anthropic-secret'),
       frame: 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"partial"}}\n\n',
-      recovered: 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"recovered"}}\n\n'
+      recovered: 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"recovered"}}\n\n',
+      terminator: 'data: {"type":"message_stop"}\n\n'
     }
   ];
   try {
-    for (const { provider, frame, recovered } of cases) {
+    for (const { provider, frame, recovered, terminator } of cases) {
       let calls = 0;
       const deltas = [];
       globalThis.fetch = async () => {
@@ -1074,12 +1077,41 @@ test('provider stream failures do not retry after emitting partial output', asyn
           const body = new ReadableStream({ pull(controller) { controller.error(new Error('early stream disconnect')); } }, { highWaterMark: 0 });
           return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
         }
-        return new Response(`${recovered}\n`, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        return new Response(`${recovered}${terminator}`, { status: 200, headers: { 'content-type': 'text/event-stream' } });
       };
       const response = await provider.complete({ system: 'system', prompt: 'prompt', onDelta: (delta) => deltas.push(delta) });
       assert.equal(calls, 2);
       assert.equal(response.text, 'recovered');
       assert.deepEqual(deltas, ['recovered']);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('provider stream rejects a clean close before its protocol completion marker', async () => {
+  const originalFetch = globalThis.fetch;
+  const cases = [
+    {
+      provider: new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.openai.com/v1', retries: 2 }, 'openai-secret'),
+      frame: 'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n',
+      error: /ended before \[DONE\]/
+    },
+    {
+      provider: new AnthropicProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.anthropic.com', retries: 2 }, 'anthropic-secret'),
+      frame: 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"partial"}}\n\n',
+      error: /ended before message_stop/
+    }
+  ];
+  try {
+    for (const { provider, frame, error } of cases) {
+      let calls = 0;
+      const deltas = [];
+      globalThis.fetch = async () => {
+        calls += 1;
+        return new Response(frame, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      };
+      await assert.rejects(() => provider.complete({ system: 'system', prompt: 'prompt', onDelta: (delta) => deltas.push(delta) }), error);
+      assert.equal(calls, 1);
+      assert.deepEqual(deltas, ['partial']);
     }
   } finally { globalThis.fetch = originalFetch; }
 });
