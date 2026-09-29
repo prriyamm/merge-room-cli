@@ -360,6 +360,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
 
   function setMessage(message) {
     renderer.state.message = message;
+    if (!isTerminal) appendLine(message);
     renderer.notice(message);
     reprompt();
   }
@@ -439,7 +440,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); await waitForCockpitTasks(tasks); setMessage('Both rooms are ready.'); return true; }
-    if (request === '/help') { setMessage('Type a mission · /1 /2 /switch · /new /wait /cancel · /agents /team /profile /profiles · /context · /history /show /export /usage · /help /quit'); return true; }
+    if (request === '/help') { setMessage('Type a mission or /run <mission> · /1 /2 /switch · /new /wait /cancel · /agents /team /profile /profiles · /context · /history /show /export /usage · /help /quit'); return true; }
     if (request === '/agents') {
       setMessage(`Team of ${activeConfig.agents.length}. Use /agents <id> for a specialist's details; run merge-room agents for the full roster.`);
       return true;
@@ -540,6 +541,12 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         const file = await writeSessionExport(session, workspace, `merge-room-${sessionId}.${extension}`, extension);
         setMessage(`Exported ${sessionId} to ${file}`);
       } catch (error) { setMessage(error.message); }
+      return true;
+    }
+    if (/^\/run(?:\s|$)/.test(request)) {
+      const mission = request.slice('/run'.length).trim();
+      if (!mission) setMessage('Use /run <mission>.');
+      else await launch(mission);
       return true;
     }
     if (request.startsWith('/')) {
