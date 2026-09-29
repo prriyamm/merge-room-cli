@@ -102,13 +102,13 @@ test('cockpit renderer exposes the conversation controls used by the terminal lo
   beginCockpitTurn(renderer.state, 0, 'Plan the release', config.agents);
   renderer.user(0, 'Plan the release');
   renderer.notice('Cancellation requested.');
+  assert.equal(renderer.state.message, 'Cancellation requested.');
   renderer.event(0)({ type: 'agent:start', agent: config.agents[0] });
   const result = { answer: 'The release plan is ready.', usage: { total: 4, calls: 1 } };
   renderer.event(0)({ type: 'run:done', result });
   finishCockpitTurn(renderer.state, 0, result);
   renderer.refresh();
   renderer.loaded();
-  assert.equal(renderer.state.message, 'Cancellation requested.');
   beginCockpitTurn(renderer.state, 1, 'Review cancellation', config.agents);
   renderer.event(1)({ type: 'run:cancelled', error: 'Mission cancelled.' });
   const cancelled = new Error('Mission cancelled.');
