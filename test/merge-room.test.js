@@ -510,7 +510,10 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
         const output = stdout.slice(offset).replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
         const turnNoticeAt = output.indexOf(`Room 1 started turn ${turn}.`);
         const requestAt = turnNoticeAt >= 0 ? turnNoticeAt : output.indexOf(mission);
-        const activityAt = requestAt >= 0 ? output.indexOf('Scout is working', requestAt) : -1;
+        const activityMarkers = requestAt >= 0
+          ? [output.indexOf('Scout is working', requestAt), output.indexOf('Scout started', requestAt)].filter((index) => index >= 0)
+          : [];
+        const activityAt = activityMarkers.length ? Math.min(...activityMarkers) : -1;
         return activityAt >= 0 && roomOneComplete.test(output.slice(activityAt));
       };
       child.stdout.setEncoding('utf8');
