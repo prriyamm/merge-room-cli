@@ -506,11 +506,12 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
       let firstMissionSent = false;
       let quitSent = false;
       const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for the repeated mission. Output: ${stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')}\n${stderr}`)); }, 15000);
-      const roomOneTurnFinishedAfter = (offset, turn) => {
+      const roomOneTurnFinishedAfter = (offset, turn, mission) => {
         const output = stdout.slice(offset).replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-        const turnStartMarkers = [output.indexOf('Scout is working'), output.indexOf(`Room 1 started turn ${turn}.`)].filter((index) => index >= 0);
-        const turnStartedAt = turnStartMarkers.length ? Math.min(...turnStartMarkers) : -1;
-        return turnStartedAt >= 0 && roomOneComplete.test(output.slice(turnStartedAt));
+        const turnNoticeAt = output.indexOf(`Room 1 started turn ${turn}.`);
+        const requestAt = turnNoticeAt >= 0 ? turnNoticeAt : output.indexOf(mission);
+        const activityAt = requestAt >= 0 ? output.indexOf('Scout is working', requestAt) : -1;
+        return activityAt >= 0 && roomOneComplete.test(output.slice(activityAt));
       };
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
@@ -520,22 +521,22 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
           firstMissionSent = true;
           child.stdin.write('First room mission\n');
         }
-        if (phase === 0 && firstMissionSent && roomOneTurnFinishedAfter(0, 1)) {
+        if (phase === 0 && firstMissionSent && roomOneTurnFinishedAfter(0, 1, 'First room mission')) {
           phase = 1;
           secondTurnOutputStart = stdout.length;
           child.stdin.write('/again\n/2\n');
         }
-        if (phase === 1 && roomOneTurnFinishedAfter(secondTurnOutputStart, 2)) {
+        if (phase === 1 && roomOneTurnFinishedAfter(secondTurnOutputStart, 2, 'First room mission')) {
           phase = 2;
           thirdTurnOutputStart = stdout.length;
           child.stdin.write('/1\nThird room mission\n/2\n');
         }
-        if (phase === 2 && roomOneTurnFinishedAfter(thirdTurnOutputStart, 3)) {
+        if (phase === 2 && roomOneTurnFinishedAfter(thirdTurnOutputStart, 3, 'Third room mission')) {
           phase = 3;
           fourthTurnOutputStart = stdout.length;
           child.stdin.write('/1\n/run Fourth room mission\n/2\n');
         }
-        if (phase === 3 && !quitSent && roomOneTurnFinishedAfter(fourthTurnOutputStart, 4)) {
+        if (phase === 3 && !quitSent && roomOneTurnFinishedAfter(fourthTurnOutputStart, 4, 'Fourth room mission')) {
           phase = 4;
           quitSent = true;
           child.stdin.write('/quit\n');
