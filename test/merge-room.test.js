@@ -1880,8 +1880,10 @@ test('sessions can be saved, listed, and reopened', async () => {
    const saved = await saveSession({ request: 'Test mission', answer: 'Test answer', usage: { total: 3, input: 2, output: 1 } }, root, 'sessions');
     const files = await fs.readdir(path.join(root, 'sessions'));
     assert.equal(files.some((name) => name.includes('.tmp-')), false);
-   const listed = await listSessions(root, 'sessions');
+    const listed = await listSessions(root, 'sessions');
     const reopened = await readSession(saved.id, root, 'sessions');
+    const savedAtStamp = reopened.savedAt.replaceAll(':', '-').replaceAll('.', '-');
+    assert.ok(saved.id.startsWith(`${savedAtStamp}-`));
     assert.equal(listed.length, 1);
     assert.equal(listed[0].id, saved.id);
     assert.equal(listed[0].answer, undefined);
@@ -1906,8 +1908,14 @@ test('session ids remain unique when time and Math.random collide', async () => 
     const first = await saveSession({ request: 'first', answer: 'first answer' }, root, 'sessions');
     const second = await saveSession({ request: 'second', answer: 'second answer' }, root, 'sessions');
     assert.notEqual(first.id, second.id);
-    assert.equal((await readSession(first.id, root, 'sessions')).answer, 'first answer');
-    assert.equal((await readSession(second.id, root, 'sessions')).answer, 'second answer');
+    const firstSession = await readSession(first.id, root, 'sessions');
+    const secondSession = await readSession(second.id, root, 'sessions');
+    assert.equal(firstSession.answer, 'first answer');
+    assert.equal(secondSession.answer, 'second answer');
+    assert.equal(firstSession.savedAt, secondSession.savedAt);
+    const stamp = firstSession.savedAt.replaceAll(':', '-').replaceAll('.', '-');
+    assert.ok(first.id.startsWith(`${stamp}-`));
+    assert.ok(second.id.startsWith(`${stamp}-`));
   } finally {
     globalThis.Date = OriginalDate;
     Math.random = originalRandom;
