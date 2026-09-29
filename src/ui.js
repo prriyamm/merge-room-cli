@@ -527,7 +527,8 @@ function cockpitMain(state, config, workspace, maxWidth, height) {
 }
 
 function visibleLength(value) {
-  return [...String(value).replace(/\x1b\[[0-9;]*m/g, '')].reduce((width, character) => width + characterWidth(character), 0);
+  return graphemes(String(value).replace(/\x1b\[[0-9;]*m/g, ''))
+    .reduce((width, grapheme) => width + graphemeWidth(grapheme), 0);
 }
 
 function characterWidth(character) {
