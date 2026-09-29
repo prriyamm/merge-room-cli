@@ -2107,13 +2107,13 @@ test('workspace excerpts and opt-in Git diffs redact complete Authorization head
     const yamlFile = path.join(root, 'settings.yml');
     await fs.writeFile(yamlFile, `token: "OLD_YAML_DOUBLE_TOKEN WITH SPACES"\naccess_token: 'OLD_YAML_SINGLE_TOKEN with ''OLD_APOSTROPHE_SUFFIX'''\n`, 'utf8');
     const longBlockFile = path.join(root, 'provider-response.txt');
-    await fs.writeFile(longBlockFile, 'Provider response\nToken OLD_HUNK_SECRET\ntoken="OLD_DIFF_TOKEN WITH SPACES"\nrefresh_token: OLD_SNAKE_TOKEN\ninput_tokens: 12\n', 'utf8');
+    await fs.writeFile(longBlockFile, 'Provider response\nToken OLD_HUNK_SECRET\ntoken="OLD_DIFF_TOKEN WITH SPACES"\nrefresh_token: OLD_SNAKE_TOKEN\ninput_tokens: 12\nmy-api-key=OLD_API_KEY\ngithub-token=OLD_GITHUB_ASSIGNMENT_TOKEN\ninput-token=1\n', 'utf8');
     await execFileAsync('git', ['add', 'headers.yaml', 'settings.json', 'settings.yml', 'provider-response.txt'], { cwd: root });
     await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: root });
     await fs.writeFile(file, 'Authorization: "Bearer NEW_AUTH_SECRET"\nauthorization: |\n  Bearer NEW_MULTILINE_AUTH_SECRET\n\n  continued NEW_BLOCK_SECRET\nContent-Type: application/json\n', 'utf8');
     await fs.writeFile(tokenFile, '{"token":"NEW_BARE_TOKEN WITH SPACES","accessToken":"NEW_CAMEL_TOKEN","refresh-token":"NEW_KEBAB_TOKEN","github-token":"NEW_GITHUB_TOKEN","client-token":"NEW_CLIENT_TOKEN","personal-access-token":"NEW_PERSONAL_TOKEN","input_tokens":12,"input_token":1,"input-token":1,"output-token":2}\n', 'utf8');
     await fs.writeFile(yamlFile, `token: "NEW_YAML_DOUBLE_TOKEN WITH SPACES"\naccess_token: 'NEW_YAML_SINGLE_TOKEN with ''NEW_APOSTROPHE_SUFFIX'''\n`, 'utf8');
-    await fs.writeFile(longBlockFile, 'Provider response\nToken NEW_HUNK_SECRET\ntoken="NEW_DIFF_TOKEN WITH SPACES"\nrefresh_token: NEW_SNAKE_TOKEN\ninput_tokens: 12\n', 'utf8');
+    await fs.writeFile(longBlockFile, 'Provider response\nToken NEW_HUNK_SECRET\ntoken="NEW_DIFF_TOKEN WITH SPACES"\nrefresh_token: NEW_SNAKE_TOKEN\ninput_tokens: 12\nmy-api-key=NEW_API_KEY\ngithub-token=NEW_GITHUB_ASSIGNMENT_TOKEN\ninput-token=1\n', 'utf8');
 
     const context = await collectWorkspaceContext(root, { includeDiff: true, maxBytes: 5000 });
     const formatted = formatWorkspaceContext(context);
@@ -2133,6 +2133,9 @@ test('workspace excerpts and opt-in Git diffs redact complete Authorization head
     assert.match(tokenExcerpt, /"personal-access-token":"\[redacted\]"/);
     assert.match(context.git.diff, /token="\[redacted\]"/);
     assert.match(context.git.diff, /refresh_token: \[redacted\]/);
+    assert.match(context.git.diff, /my-api-key=\[redacted\]/);
+    assert.match(context.git.diff, /github-token=\[redacted\]/);
+    assert.match(context.git.diff, /input-token=1/);
     const yamlExcerpt = context.excerpts.find((item) => item.path === 'settings.yml').text;
     assert.match(yamlExcerpt, /token: "\[redacted\]"/);
     assert.match(yamlExcerpt, /access_token: '\[redacted\]'/);
@@ -2143,8 +2146,8 @@ test('workspace excerpts and opt-in Git diffs redact complete Authorization head
     assert.ok(tokenHunk);
     assert.doesNotMatch(tokenHunk, /Authorization:/);
     assert.match(formatted, /Content-Type: application\/json/);
-    assert.doesNotMatch(context.git.diff, /OLD_AUTH_SECRET|NEW_AUTH_SECRET|OLD_MULTILINE_AUTH_SECRET|NEW_MULTILINE_AUTH_SECRET|OLD_BLOCK_SECRET|NEW_BLOCK_SECRET|OLD_HUNK_SECRET|NEW_HUNK_SECRET|OLD_BARE_TOKEN|NEW_BARE_TOKEN|OLD_CAMEL_TOKEN|NEW_CAMEL_TOKEN|OLD_KEBAB_TOKEN|NEW_KEBAB_TOKEN|OLD_DIFF_TOKEN|NEW_DIFF_TOKEN|OLD_SNAKE_TOKEN|NEW_SNAKE_TOKEN|OLD_YAML_DOUBLE_TOKEN|NEW_YAML_DOUBLE_TOKEN|OLD_YAML_SINGLE_TOKEN|NEW_YAML_SINGLE_TOKEN|OLD_APOSTROPHE_SUFFIX|NEW_APOSTROPHE_SUFFIX|WITH SPACES/);
-    assert.doesNotMatch(formatted, /OLD_AUTH_SECRET|NEW_AUTH_SECRET|OLD_MULTILINE_AUTH_SECRET|NEW_MULTILINE_AUTH_SECRET|OLD_BLOCK_SECRET|NEW_BLOCK_SECRET|OLD_HUNK_SECRET|NEW_HUNK_SECRET|OLD_BARE_TOKEN|NEW_BARE_TOKEN|OLD_CAMEL_TOKEN|NEW_CAMEL_TOKEN|OLD_KEBAB_TOKEN|NEW_KEBAB_TOKEN|OLD_DIFF_TOKEN|NEW_DIFF_TOKEN|OLD_SNAKE_TOKEN|NEW_SNAKE_TOKEN|OLD_YAML_DOUBLE_TOKEN|NEW_YAML_DOUBLE_TOKEN|OLD_YAML_SINGLE_TOKEN|NEW_YAML_SINGLE_TOKEN|OLD_APOSTROPHE_SUFFIX|NEW_APOSTROPHE_SUFFIX|WITH SPACES/);
+    assert.doesNotMatch(context.git.diff, /OLD_AUTH_SECRET|NEW_AUTH_SECRET|OLD_MULTILINE_AUTH_SECRET|NEW_MULTILINE_AUTH_SECRET|OLD_BLOCK_SECRET|NEW_BLOCK_SECRET|OLD_HUNK_SECRET|NEW_HUNK_SECRET|OLD_BARE_TOKEN|NEW_BARE_TOKEN|OLD_CAMEL_TOKEN|NEW_CAMEL_TOKEN|OLD_KEBAB_TOKEN|NEW_KEBAB_TOKEN|OLD_DIFF_TOKEN|NEW_DIFF_TOKEN|OLD_SNAKE_TOKEN|NEW_SNAKE_TOKEN|OLD_YAML_DOUBLE_TOKEN|NEW_YAML_DOUBLE_TOKEN|OLD_YAML_SINGLE_TOKEN|NEW_YAML_SINGLE_TOKEN|OLD_APOSTROPHE_SUFFIX|NEW_APOSTROPHE_SUFFIX|OLD_API_KEY|NEW_API_KEY|OLD_GITHUB_ASSIGNMENT_TOKEN|NEW_GITHUB_ASSIGNMENT_TOKEN|WITH SPACES/);
+    assert.doesNotMatch(formatted, /OLD_AUTH_SECRET|NEW_AUTH_SECRET|OLD_MULTILINE_AUTH_SECRET|NEW_MULTILINE_AUTH_SECRET|OLD_BLOCK_SECRET|NEW_BLOCK_SECRET|OLD_HUNK_SECRET|NEW_HUNK_SECRET|OLD_BARE_TOKEN|NEW_BARE_TOKEN|OLD_CAMEL_TOKEN|NEW_CAMEL_TOKEN|OLD_KEBAB_TOKEN|NEW_KEBAB_TOKEN|OLD_DIFF_TOKEN|NEW_DIFF_TOKEN|OLD_SNAKE_TOKEN|NEW_SNAKE_TOKEN|OLD_YAML_DOUBLE_TOKEN|NEW_YAML_DOUBLE_TOKEN|OLD_YAML_SINGLE_TOKEN|NEW_YAML_SINGLE_TOKEN|OLD_APOSTROPHE_SUFFIX|NEW_APOSTROPHE_SUFFIX|OLD_API_KEY|NEW_API_KEY|OLD_GITHUB_ASSIGNMENT_TOKEN|NEW_GITHUB_ASSIGNMENT_TOKEN|WITH SPACES/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
