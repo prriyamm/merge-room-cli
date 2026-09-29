@@ -413,10 +413,10 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
         if (!started && /Start a mission|Room 1.*ready|room 1\s*›/i.test(stdout)) {
           started = true;
           child.stdin.write('First room mission\n');
-        } else if (started && !commandsSent && stdout.includes('is working')) {
+        } else if (started && !commandsSent && (stdout.includes('Room 1 started turn 1') || stdout.includes('Scout is working'))) {
           commandsSent = true;
           child.stdin.write('/2\n/cancel 1\nSecond room mission\n');
-        } else if (commandsSent && !quitSent && stdout.includes('Room 2 complete')) {
+        } else if (commandsSent && !quitSent && (stdout.includes('Room 2 complete') || stdout.includes('Room 2 finished. Continue there or switch rooms.'))) {
           quitSent = true;
           child.stdin.write('/quit\n');
         }
