@@ -20,9 +20,12 @@ class ProviderRouter {
     for (const [id, profile] of Object.entries(config.providers)) {
       const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
       const apiKey = process.env[envName];
-      const adapterConfig = { ...config, ...profile, providerId: id, cwd: workspace, baseUrl: profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl), model: profile.type === 'codex-cli' ? profile.model : profile.model || config.model, streaming: config.streaming };
-      const adapter = profile.type === 'codex-cli'
-        ? new CodexCliProvider(adapterConfig)
+      const cliProvider = ['codex-cli', 'claude-code-cli'].includes(profile.type);
+      const adapterConfig = { ...config, ...profile, providerId: id, cwd: workspace, baseUrl: profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl), model: cliProvider ? profile.model : profile.model || config.model, streaming: config.streaming };
+      const adapter = profile.type === 'claude-code-cli'
+        ? new ClaudeCodeCliProvider(adapterConfig)
+        : profile.type === 'codex-cli'
+          ? new CodexCliProvider(adapterConfig)
         : profile.type === 'anthropic'
           ? new AnthropicProvider(adapterConfig, apiKey)
           : new OpenAICompatibleProvider(adapterConfig, apiKey);
@@ -31,7 +34,7 @@ class ProviderRouter {
     this.defaultProvider = config.defaultProvider || Object.keys(config.providers)[0];
     this.name = 'multi-provider';
     const defaultProfile = config.providers[this.defaultProvider];
-    this.model = defaultProfile?.type === 'codex-cli' ? defaultProfile.model || 'codex-default' : defaultProfile?.model || config.model;
+    this.model = ['codex-cli', 'claude-code-cli'].includes(defaultProfile?.type) ? defaultProfile.model || (defaultProfile.type === 'codex-cli' ? 'codex-default' : 'claude-code-default') : defaultProfile?.model || config.model;
   }
 
   complete(options) {
@@ -45,6 +48,7 @@ class ProviderRouter {
 
 const CLI_OUTPUT_LIMIT = 2 * 1024 * 1024;
 const CLI_ENV_ALLOWLIST = ['PATH', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TMP', 'TEMP', 'SYSTEMROOT', 'WINDIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'LANG', 'LC_ALL'];
+const CLAUDE_ENV_ALLOWLIST = ['PATH', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TMP', 'TEMP', 'SYSTEMROOT', 'WINDIR', 'XDG_CONFIG_HOME', 'CLAUDE_CONFIG_DIR', 'LANG', 'LC_ALL'];
 
 export class CodexCliProvider {
   constructor(config) {
@@ -63,18 +67,40 @@ export class CodexCliProvider {
     if (model) args.push('--model', model);
     args.push('-');
     const input = `You are a read-only Merge Room specialist. Do not attempt to modify files or run commands.\n\n${system}\n\n${prompt}`;
-    const output = await runCliProcess('codex', args, input, { cwd: this.cwd, signal, timeoutMs: this.timeoutMs });
+    const output = await runCliProcess('codex', args, input, { cwd: this.cwd, signal, timeoutMs: this.timeoutMs, label: 'Codex CLI', envAllowlist: CLI_ENV_ALLOWLIST });
     const parsed = parseCodexOutput(output);
     return result(parsed.text, parsed.inputTokens, parsed.outputTokens, system, prompt, this.name, model || this.model);
   }
 }
 
-function runCliProcess(command, args, input, { cwd, signal, timeoutMs }) {
-  const env = Object.fromEntries(CLI_ENV_ALLOWLIST.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+export class ClaudeCodeCliProvider {
+  constructor(config) {
+    this.config = config;
+    this.cwd = config.cwd || process.cwd();
+    this.timeoutMs = config.requestTimeoutMs;
+    this.name = config.providerId || 'claude-code-cli';
+    this.model = config.model || 'claude-code-default';
+    this.requiresApiKey = false;
+  }
+
+  async complete({ system, prompt, signal, model: modelOverride }) {
+    if (signal?.aborted) throw abortError();
+    const args = ['--restricted', '--print', '--output-format', 'json', '--no-session-persistence', '--tools', '', '--disallowedTools', 'mcp__*', '--max-turns', '1', '--system-prompt', system];
+    const model = modelOverride || this.config.model;
+    if (model) args.push('--model', model);
+    args.push('Respond to the Merge Room request provided on standard input.');
+    const output = await runCliProcess('claude', args, prompt, { cwd: this.cwd, signal, timeoutMs: this.timeoutMs, label: 'Claude Code CLI', envAllowlist: CLAUDE_ENV_ALLOWLIST });
+    const parsed = parseClaudeCodeOutput(output);
+    return result(parsed.text, parsed.inputTokens, parsed.outputTokens, system, prompt, this.name, model || this.model);
+  }
+}
+
+function runCliProcess(command, args, input, { cwd, signal, timeoutMs, label, envAllowlist }) {
+  const env = Object.fromEntries(envAllowlist.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
   return new Promise((resolve, reject) => {
     let child;
     try { child = spawn(command, args, { cwd, env, shell: false, detached: process.platform !== 'win32', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }); }
-    catch (error) { reject(cliSpawnError(error)); return; }
+    catch (error) { reject(cliSpawnError(error, label, command)); return; }
     let stdout = '';
     let stdoutBytes = 0;
     let timedOut = false;
@@ -108,15 +134,15 @@ function runCliProcess(command, args, input, { cwd, signal, timeoutMs }) {
     if (signal?.aborted) onAbort();
     child.stdout.on('data', (chunk) => {
       stdoutBytes += chunk.length;
-      if (stdoutBytes > CLI_OUTPUT_LIMIT) { terminate(); finish(new Error('Codex CLI output exceeded the 2 MiB limit.')); return; }
+      if (stdoutBytes > CLI_OUTPUT_LIMIT) { terminate(); finish(new Error(`${label} output exceeded the 2 MiB limit.`)); return; }
       stdout += chunk.toString('utf8');
     });
     child.stderr.on('data', () => {}); // Drain diagnostics without retaining or echoing paths or secrets.
-    child.once('error', (error) => finish(cliSpawnError(error)));
+    child.once('error', (error) => finish(cliSpawnError(error, label, command)));
     child.once('close', (code) => {
       if (aborted) { finish(abortError()); return; }
-      if (timedOut) { const error = new Error(`Codex CLI timed out after ${timeoutMs}ms.`); error.name = 'TimeoutError'; finish(error); return; }
-      if (code !== 0) { finish(new Error(`Codex CLI exited with status ${code}. Check that the CLI is installed and signed in.`)); return; }
+      if (timedOut) { const error = new Error(`${label} timed out after ${timeoutMs}ms.`); error.name = 'TimeoutError'; finish(error); return; }
+      if (code !== 0) { finish(new Error(`${label} exited with status ${code}. Check that the CLI is installed and signed in.`)); return; }
       finish(null, stdout);
     });
     child.stdin.once('error', () => {});
@@ -137,10 +163,10 @@ function killCliProcess(child, signal) {
   }
 }
 
-function cliSpawnError(error) {
-  if (process.platform === 'win32' && ['ENOENT', 'EINVAL'].includes(error?.code)) return new Error('Could not start Codex CLI. Install a native `codex.exe` on PATH; Merge Room does not invoke Windows shell shims.');
-  if (error?.code === 'ENOENT') return new Error('Could not start Codex CLI. Install `codex` and sign in with your ChatGPT account first.');
-  return new Error(`Could not start Codex CLI: ${error.message}`);
+function cliSpawnError(error, label, command) {
+  if (process.platform === 'win32' && ['ENOENT', 'EINVAL'].includes(error?.code)) return new Error(`Could not start ${label}. Install a native \`${command}.exe\` on PATH; Merge Room does not invoke Windows shell shims.`);
+  if (error?.code === 'ENOENT') return new Error(`Could not start ${label}. Install \`${command}\` and sign in with its account first.`);
+  return new Error(`Could not start ${label}: ${error.message}`);
 }
 
 export function parseCodexOutput(output) {
@@ -167,6 +193,16 @@ export function parseCodexOutput(output) {
   if (!completed) throw new Error(`Codex CLI output did not include a completed turn (events: ${eventTypes.join(', ') || 'none'}).`);
   if (!text.trim()) throw new Error('Codex CLI completed without a final assistant message.');
   return { text: text.trim(), inputTokens, outputTokens };
+}
+
+export function parseClaudeCodeOutput(output) {
+  let body;
+  try { body = JSON.parse(String(output).trim()); }
+  catch { throw new Error('Claude Code CLI emitted malformed JSON output.'); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Claude Code CLI returned an invalid JSON response.');
+  if (body.is_error === true || body.subtype === 'error') throw new Error('Claude Code CLI reported a failed turn. Check its local sign-in and CLI status.');
+  if (typeof body.result !== 'string' || !body.result.trim()) throw new Error('Claude Code CLI completed without a final assistant message.');
+  return { text: body.result.trim(), inputTokens: body.usage?.input_tokens, outputTokens: body.usage?.output_tokens };
 }
 
 export class OpenAICompatibleProvider {

@@ -10,7 +10,7 @@ import { DEFAULT_CONFIG, loadConfig, safeBaseUrl, validateProviderBaseUrl, VERSI
 import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.js';
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from '../src/engine.js';
 import { liquidGlassLogoLines } from '../src/logo.js';
-import { AnthropicProvider, CodexCliProvider, createProvider, DemoProvider, OpenAICompatibleProvider, parseCodexOutput } from '../src/providers.js';
+import { AnthropicProvider, ClaudeCodeCliProvider, CodexCliProvider, createProvider, DemoProvider, OpenAICompatibleProvider, parseClaudeCodeOutput, parseCodexOutput } from '../src/providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
 import { buildResumeRequest, main } from '../src/cli.js';
@@ -565,6 +565,60 @@ test('Codex JSONL parser keeps final assistant text and rejects malformed output
   assert.throws(() => parseCodexOutput('{broken json}'), /malformed JSONL/);
   assert.throws(() => parseCodexOutput(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Truncated' } })), /did not include a completed turn/);
   assert.throws(() => parseCodexOutput(JSON.stringify({ type: 'turn.completed' })), /without a final assistant message/);
+});
+
+test('Claude Code CLI profiles use restricted JSON with tools and session persistence disabled', async () => {
+  const oldPath = process.env.PATH;
+  const oldApiKey = process.env.ANTHROPIC_API_KEY;
+  const oldConfigDir = process.env.CLAUDE_CONFIG_DIR;
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-claude-cli-'));
+  const bin = path.join(root, 'bin');
+  const probe = path.join(root, 'probe.json');
+  await fs.mkdir(bin);
+  process.env.PATH = `${bin}${path.delimiter}${oldPath || ''}`;
+  process.env.ANTHROPIC_API_KEY = 'must-not-reach-the-cli';
+  process.env.CLAUDE_CONFIG_DIR = path.join(root, 'claude-config');
+  await fs.writeFile(path.join(bin, 'claude'), `#!/usr/bin/env node\nconst fs = require('node:fs');\nlet input = '';\nprocess.stdin.setEncoding('utf8');\nprocess.stdin.on('data', (chunk) => input += chunk);\nprocess.stdin.on('end', () => { const output = JSON.stringify({ result: 'A Claude answer', is_error: false, usage: { input_tokens: 9, output_tokens: 4 } }); fs.writeFileSync(${JSON.stringify(probe)}, JSON.stringify({ args: process.argv.slice(2), input, output, apiKey: process.env.ANTHROPIC_API_KEY, configDir: process.env.CLAUDE_CONFIG_DIR })); process.stdout.write(output); });\n`);
+  await fs.chmod(path.join(bin, 'claude'), 0o755);
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ providers: { claude: { type: 'claude-code-cli' } }, defaultProvider: 'claude', agents: [{ id: 'scout', provider: 'claude' }] }));
+    const config = await loadConfig(root);
+    const provider = createProvider(config, root);
+    assert.ok(provider.profiles.get('claude') instanceof ClaudeCodeCliProvider);
+    const answer = await provider.complete({ provider: 'claude', system: 'Stay focused.', prompt: 'review this project' });
+    const received = JSON.parse(await fs.readFile(probe, 'utf8'));
+    assert.equal(answer.text, 'A Claude answer');
+    assert.equal(answer.model, 'claude-code-default');
+    assert.equal(answer.inputTokens, 9);
+    assert.equal(answer.outputTokens, 4);
+    assert.ok(received.args.includes('--restricted'));
+    assert.ok(received.args.includes('--no-session-persistence'));
+    assert.ok(received.args.includes('--print'));
+    assert.ok(received.args.includes('--output-format'));
+    assert.ok(received.args.includes('--system-prompt'));
+    assert.ok(received.args.includes('Stay focused.'));
+    assert.ok(received.args.includes('--tools'));
+    assert.equal(received.args[received.args.indexOf('--tools') + 1], '');
+    assert.ok(received.args.includes('mcp__*'));
+    assert.equal(received.args.includes('--model'), false);
+    assert.equal(received.input, 'review this project');
+    assert.equal(received.apiKey, undefined);
+    assert.equal(received.configDir, process.env.CLAUDE_CONFIG_DIR);
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ providers: { claude: { type: 'claude-code-cli', apiKeyEnv: 'ANTHROPIC_API_KEY' } } }));
+    await assert.rejects(() => loadConfig(root), /claude-code-cli.*does not accept.*apiKeyEnv/);
+  } finally {
+    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+    if (oldApiKey === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = oldApiKey;
+    if (oldConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = oldConfigDir;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Claude Code JSON parser rejects errors and malformed output', () => {
+  assert.deepEqual(parseClaudeCodeOutput(JSON.stringify({ result: 'Final report', usage: { input_tokens: 5, output_tokens: 3 } })), { text: 'Final report', inputTokens: 5, outputTokens: 3 });
+  assert.throws(() => parseClaudeCodeOutput('{broken json}'), /malformed JSON/);
+  assert.throws(() => parseClaudeCodeOutput(JSON.stringify({ result: '', is_error: false })), /without a final assistant message/);
+  assert.throws(() => parseClaudeCodeOutput(JSON.stringify({ result: 'failed', is_error: true })), /reported a failed turn/);
 });
 
 test('CLI profile override routes every agent and lead through the selected profile', async () => {
