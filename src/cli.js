@@ -397,6 +397,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   }
 
   function redraw() {
+    if (closing) return;
     renderer.render();
     reprompt();
   }

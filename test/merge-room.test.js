@@ -3362,12 +3362,13 @@ test('Cockpit ignores a saved-session load that finishes after quit', async () =
       main(['--cwd', ${JSON.stringify(root)}, 'interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream'], {
         readSessionFn: async (...args) => {
           process.stderr.write('READ_STARTED\\n');
-          await new Promise((resolve) => setTimeout(resolve, 250));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          process.stderr.write('READ_RELEASED\\n');
           return readSession(...args);
         }
-      }).catch((error) => { console.error(error); process.exitCode = 1; });
+      }).then(() => process.stderr.write('MAIN_RETURNED\\n')).catch((error) => { console.error(error); process.exitCode = 1; });
     `;
-    const { stdout } = await new Promise((resolve, reject) => {
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
       let stdout = '';
       let stderr = '';
@@ -3399,7 +3400,10 @@ test('Cockpit ignores a saved-session load that finishes after quit', async () =
     const cleanOutput = stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
     const exitIndex = cleanOutput.lastIndexOf('Both rooms closed');
     assert.notEqual(exitIndex, -1);
-    assert.doesNotMatch(cleanOutput.slice(exitIndex + 1), /saved room answer|Loaded delayed-show into Room/);
+    const mainReturnedIndex = stderr.indexOf('MAIN_RETURNED');
+    const readReleasedIndex = stderr.indexOf('READ_RELEASED');
+    assert.ok(mainReturnedIndex >= 0 && mainReturnedIndex < readReleasedIndex, 'quit should return before the saved-session read completes');
+    assert.doesNotMatch(cleanOutput.slice(exitIndex + 1), /saved room answer|Loaded delayed-show into Room|MERGE ROOM/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
