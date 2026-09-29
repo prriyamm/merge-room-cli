@@ -421,7 +421,7 @@ async function readAnthropicStream(body, onDelta) {
   } finally {
     // Releasing a reader leaves an unfinished response body flowing. Cancel on
     // success and every exceptional exit so fetch can close the underlying stream.
-    try { await reader.cancel(); } catch { /* Keep the stream result or error. */ }
+    try { void reader.cancel().catch(() => {}); } catch { /* Keep the stream result or error. */ }
     reader.releaseLock();
   }
 }
