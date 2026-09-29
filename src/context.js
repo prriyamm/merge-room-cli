@@ -138,9 +138,9 @@ function redactSecrets(text) {
 async function readIgnoreRules(cwd) {
   let source;
   try { source = await fs.readFile(path.join(cwd, '.gitignore'), 'utf8'); } catch { return []; }
-  return source.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#')).map((pattern) => {
-    const negate = pattern.startsWith('!');
-    const value = (negate ? pattern.slice(1) : pattern).replaceAll('\\', '/');
+  return source.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#')).map((rawPattern) => {
+    const negate = rawPattern.startsWith('!');
+    const value = (negate ? rawPattern.slice(1) : rawPattern).replaceAll('\\', '/');
     const pattern = value.replace(/^\//, '').replace(/\/$/, '');
     return { negate, directoryOnly: value.endsWith('/'), pattern, regex: ignorePatternRegex(pattern), baseRegex: pattern.endsWith('/**') ? ignorePatternRegex(pattern.slice(0, -3)) : null };
   });
