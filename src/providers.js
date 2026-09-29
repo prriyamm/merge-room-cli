@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import { estimateTokens } from './tokens.js';
 import { validateProviderBaseUrl } from './config.js';
 
@@ -103,6 +104,7 @@ function runCliProcess(command, args, input, { cwd, signal, timeoutMs, label, en
     catch (error) { reject(cliSpawnError(error, label, command)); return; }
     let stdout = '';
     let stdoutBytes = 0;
+    const stdoutDecoder = new StringDecoder('utf8');
     let timedOut = false;
     let aborted = false;
     let settled = false;
@@ -135,7 +137,7 @@ function runCliProcess(command, args, input, { cwd, signal, timeoutMs, label, en
     child.stdout.on('data', (chunk) => {
       stdoutBytes += chunk.length;
       if (stdoutBytes > CLI_OUTPUT_LIMIT) { terminate(); finish(new Error(`${label} output exceeded the 2 MiB limit.`)); return; }
-      stdout += chunk.toString('utf8');
+      stdout += stdoutDecoder.write(chunk);
     });
     child.stderr.on('data', () => {}); // Drain diagnostics without retaining or echoing paths or secrets.
     child.once('error', (error) => finish(cliSpawnError(error, label, command)));
@@ -143,6 +145,7 @@ function runCliProcess(command, args, input, { cwd, signal, timeoutMs, label, en
       if (aborted) { finish(abortError()); return; }
       if (timedOut) { const error = new Error(`${label} timed out after ${timeoutMs}ms.`); error.name = 'TimeoutError'; finish(error); return; }
       if (code !== 0) { finish(new Error(`${label} exited with status ${code}. Check that the CLI is installed and signed in.`)); return; }
+      stdout += stdoutDecoder.end();
       finish(null, stdout);
     });
     child.stdin.once('error', () => {});

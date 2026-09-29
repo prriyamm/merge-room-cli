@@ -635,7 +635,7 @@ test('Codex CLI profiles use bounded JSONL with read-only permissions and local 
   process.env.OPENAI_API_KEY = 'must-not-reach-the-cli';
   process.env.CODEX_API_KEY = 'also-must-not-reach-the-cli';
   process.env.CODEX_HOME = path.join(root, 'codex-home');
-  await fs.writeFile(path.join(bin, 'codex'), `#!/usr/bin/env node\nconst fs = require('node:fs');\nconst nl = String.fromCharCode(10);\nlet input = '';\nprocess.stdin.setEncoding('utf8');\nprocess.stdin.on('data', (chunk) => input += chunk);\nprocess.stdin.on('end', () => { const output = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'A read-only answer' } }) + nl + JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 12, output_tokens: 7 } }) + nl; fs.writeFileSync(${JSON.stringify(probe)}, JSON.stringify({ args: process.argv.slice(2), input, output, openai: process.env.OPENAI_API_KEY, codex: process.env.CODEX_API_KEY, codexHome: process.env.CODEX_HOME })); process.stdout.write(output); });\n`);
+  await fs.writeFile(path.join(bin, 'codex'), `#!/usr/bin/env node\nconst fs = require('node:fs');\nconst nl = String.fromCharCode(10);\nlet input = '';\nprocess.stdin.setEncoding('utf8');\nprocess.stdin.on('data', (chunk) => input += chunk);\nprocess.stdin.on('end', () => { const output = JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'A read-only 🙂 answer' } }) + nl + JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 12, output_tokens: 7 } }) + nl; fs.writeFileSync(${JSON.stringify(probe)}, JSON.stringify({ args: process.argv.slice(2), input, output, openai: process.env.OPENAI_API_KEY, codex: process.env.CODEX_API_KEY, codexHome: process.env.CODEX_HOME })); const bytes = Buffer.from(output); const split = bytes.indexOf(Buffer.from('🙂')) + 2; process.stdout.write(bytes.subarray(0, split)); setTimeout(() => process.stdout.write(bytes.subarray(split)), 5); });\n`);
   await fs.chmod(path.join(bin, 'codex'), 0o755);
   try {
     await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ providers: { chatgpt: { type: 'codex-cli', model: 'gpt-test' } }, defaultProvider: 'chatgpt', agents: [{ id: 'scout', provider: 'chatgpt' }] }));
@@ -647,7 +647,7 @@ test('Codex CLI profiles use bounded JSONL with read-only permissions and local 
     try { answer = await provider.complete({ provider: 'chatgpt', system: 'Stay focused.', prompt: 'inspect this project', model: 'gpt-override' }); }
     catch (error) { const received = JSON.parse(await fs.readFile(probe, 'utf8')); assert.fail(`${error.message}; output=${received.output}`); }
     const received = JSON.parse(await fs.readFile(probe, 'utf8'));
-    assert.equal(answer.text, 'A read-only answer');
+    assert.equal(answer.text, 'A read-only 🙂 answer');
     assert.equal(answer.provider, 'chatgpt');
     assert.equal(answer.model, 'gpt-override');
     assert.equal(answer.inputTokens, 12);
