@@ -1456,6 +1456,45 @@ test('provider stream rejects malformed complete data frames instead of returnin
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test('OpenAI-compatible stream errors fail instead of returning partial answers', async () => {
+  const originalFetch = globalThis.fetch;
+  const provider = new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.openai.com/v1', retries: 2 }, 'openai-secret');
+  let calls = 0;
+  const deltas = [];
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response([
+      'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n',
+      'data: {"error":{"message":"generation failed","type":"server_error","status":500}}\n\n',
+      'data: [DONE]\n\n'
+    ].join(''), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  };
+  try {
+    await assert.rejects(
+      () => provider.complete({ system: 'system', prompt: 'prompt', onDelta: (delta) => deltas.push(delta) }),
+      (error) => error.name === 'ProviderError' && /generation failed/.test(error.message)
+    );
+    assert.equal(calls, 1);
+    assert.deepEqual(deltas, ['partial']);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('OpenAI-compatible stream retries a retryable error before emitting output', async () => {
+  const originalFetch = globalThis.fetch;
+  const provider = new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.openai.com/v1', retries: 1 }, 'openai-secret');
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) return new Response('data: {"error":{"message":"rate limited","code":"rate_limit_exceeded"}}\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    return new Response('data: {"choices":[{"delta":{"content":"recovered"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  };
+  try {
+    const response = await provider.complete({ system: 'system', prompt: 'prompt', onDelta() {} });
+    assert.equal(calls, 2);
+    assert.equal(response.text, 'recovered');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test('openai-compatible adapter can disable streaming for older servers', async () => {
   const originalFetch = global.fetch;
   let requestBody;

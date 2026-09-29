@@ -247,6 +247,8 @@ export class OpenAICompatibleProvider {
         return result(text, body.usage?.prompt_tokens, body.usage?.completion_tokens, system, prompt, this.name, model);
       } catch (error) {
         if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Provider request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
+        if (error.name === 'ProviderError') providerError = true;
+        if (error.name === 'ProviderError' && error.retryable && attempt < attempts - 1 && !emittedDelta) { await delay(250 * (attempt + 1), signal); continue; }
         if (attempt < attempts - 1 && !providerError && !emittedDelta && !['AbortError', 'ProtocolError'].includes(error.name)) { await delay(250 * (attempt + 1), signal); continue; }
         throw error;
       } finally {
@@ -438,6 +440,14 @@ async function readStream(body, onDelta) {
       const protocolError = new Error('Provider stream contained malformed JSON data.');
       protocolError.name = 'ProtocolError';
       throw protocolError;
+    }
+    if (parsed.error && typeof parsed.error === 'object') {
+      const providerError = new Error(parsed.error.message || 'Provider reported a stream error.');
+      providerError.name = 'ProviderError';
+      const status = parsed.error.status ?? parsed.error.status_code ?? parsed.status;
+      const code = String(parsed.error.code || parsed.error.type || '').toLowerCase();
+      providerError.retryable = status === 429 || (Number.isInteger(status) && status >= 500) || /rate_limit|overload|server_error|service_unavailable|temporarily_unavailable/.test(code);
+      throw providerError;
     }
     const piece = normalizeContent(parsed.choices?.[0]?.delta?.content);
     if (piece) { text += piece; onDelta(piece); }
