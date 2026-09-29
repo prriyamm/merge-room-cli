@@ -35,7 +35,7 @@ export async function listSessions(cwd = process.cwd(), directory = '.merge-room
       const contents = await readRegularFile(path.join(root, name));
       if (contents === null) continue;
       const data = JSON.parse(contents);
-      sessions.push({ id: data.id || name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request: data.request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) });
+      sessions.push({ id: name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request: data.request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) });
       if (limit !== undefined && sessions.length >= limit) break;
     } catch { /* Ignore a partial or hand-edited session file. */ }
   }
@@ -49,7 +49,9 @@ export async function readSession(id, cwd = process.cwd(), directory = '.merge-r
   const file = path.join(root, `${id}.json`);
   try {
     const contents = await readRegularFile(file);
-    return contents === null ? null : JSON.parse(contents);
+    if (contents === null) return null;
+    const session = JSON.parse(contents);
+    return session && typeof session === 'object' && !Array.isArray(session) ? { ...session, id } : session;
   } catch (error) {
     if (error.code === 'ENOENT') return null;
     throw error;
