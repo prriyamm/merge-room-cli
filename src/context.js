@@ -212,18 +212,22 @@ async function readIgnoreRulesForPath(workspaceRoot, targetPath, signal, cache =
 
 function isIgnored(relative, rules, directory = false) {
   const normalized = relative.replaceAll('\\', '/');
-  let ignored = false;
-  for (const rule of rules) {
-    const scopedPath = rule.base
-      ? normalized.startsWith(`${rule.base}/`) ? normalized.slice(rule.base.length + 1) : null
-      : normalized;
-    if (scopedPath === null) continue;
-    const scopedPrefixes = scopedPath.split('/').map((_, index, parts) => parts.slice(0, index + 1).join('/'));
-    const matches = ((!rule.directoryOnly || directory) && rule.regex.test(scopedPath))
-      || scopedPrefixes.slice(0, -1).some((prefix) => rule.regex.test(prefix));
-    if (matches) ignored = !rule.negate;
+  const parts = normalized.split('/').filter(Boolean);
+  for (let length = 1; length <= parts.length; length += 1) {
+    const candidate = parts.slice(0, length).join('/');
+    const isTarget = length === parts.length;
+    let ignored = false;
+    for (const rule of rules) {
+      const scopedPath = rule.base
+        ? candidate.startsWith(`${rule.base}/`) ? candidate.slice(rule.base.length + 1) : null
+        : candidate;
+      if (scopedPath === null) continue;
+      const candidateIsDirectory = !isTarget || directory;
+      if ((!rule.directoryOnly || candidateIsDirectory) && rule.regex.test(scopedPath)) ignored = !rule.negate;
+    }
+    if (ignored) return true;
   }
-  return ignored;
+  return false;
 }
 
 function hasNegatedDescendant(relative, rules) {
@@ -338,7 +342,8 @@ async function filterGitStatus(cwd, rawStatus, signal) {
     const isDirectory = normalized.endsWith('/');
     const rules = await readIgnoreRulesForPath(cwd, path.resolve(cwd, normalized), signal, ignoreRuleCache);
     if (isIgnored(normalized.replace(/\/$/, ''), rules, isDirectory)) continue;
-    safeEntries.push(`${code} ${relative}`);
+    const printablePath = relative.replace(/[\u0000-\u001f\u007f]/g, '?');
+    safeEntries.push(`${code} ${printablePath}`);
   }
   return [branch, ...safeEntries].filter(Boolean).join('\n').trim();
 }
