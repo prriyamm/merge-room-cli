@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { estimateTokens } from './tokens.js';
-import { providerTemperature, validateProviderBaseUrl } from './config.js';
+import { providerTemperature, reachableProviderIds, validateProviderBaseUrl } from './config.js';
 
 export function createProvider(config, workspace = process.cwd()) {
   const mode = String(config.provider || 'auto').trim().toLowerCase();
@@ -19,11 +19,11 @@ export function createProvider(config, workspace = process.cwd()) {
 }
 
 function validateConfiguredProviderTemperatures(config) {
-  const defaultProvider = config.defaultProvider || Object.keys(config.providers)[0];
+  const reachable = reachableProviderIds(config);
   for (const [id, profile] of Object.entries(config.providers)) {
-    if (!['openai-compatible', 'anthropic'].includes(profile.type)) continue;
+    if (!reachable.has(id) || !['openai-compatible', 'anthropic'].includes(profile.type)) continue;
     const profileModel = profile.model || config.model;
-    const models = new Set([profileModel, ...config.agents.filter((agent) => agent.provider === id || (!agent.provider && defaultProvider === id)).map((agent) => agent.model || profileModel)]);
+    const models = new Set([profileModel, ...config.agents.filter((agent) => (agent.provider || config.defaultProvider || Object.keys(config.providers)[0]) === id).map((agent) => agent.model || profileModel)]);
     for (const model of models) {
       try { providerTemperature(config.temperature, profile.type, model); }
       catch (error) { throw new Error(`Provider profile \`${id}\`: ${error.message}`); }

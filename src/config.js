@@ -107,9 +107,15 @@ function mergeConfig(base, local) {
   const temperature = Number(local.temperature ?? base.temperature);
   try { providerTemperature(temperature); }
   catch { throw new Error('merge-room.config.json `temperature` must be a finite number between 0 and 2.'); }
-  const defaultProfileId = local.defaultProvider ?? Object.keys(providers)[0];
+  const defaultProfileId = local.defaultProvider ?? base.defaultProvider ?? Object.keys(providers)[0] ?? null;
+  const leadProfileId = local.leadProvider ?? base.leadProvider ?? defaultProfileId;
+  const reachableProfiles = new Set([
+    defaultProfileId,
+    leadProfileId,
+    ...sourceAgents.map((agent) => agent?.provider || defaultProfileId)
+  ].filter(Boolean));
   for (const [id, profile] of Object.entries(providers)) {
-    if (!['openai-compatible', 'anthropic'].includes(profile.type)) continue;
+    if (!reachableProfiles.has(id) || !['openai-compatible', 'anthropic'].includes(profile.type)) continue;
     const profileModel = profile.model || local.model || base.model;
     const routedModels = sourceAgents.filter((agent) => agent?.provider === id || (agent?.provider == null && defaultProfileId === id)).map((agent) => agent.model || profileModel);
     for (const model of new Set([profileModel, ...routedModels])) {
@@ -209,6 +215,18 @@ export function providerTemperature(value, providerType = 'openai-compatible', m
     if (temperature !== 1) throw new Error(`Anthropic model ${model} only supports its default temperature; set temperature to 1 or use the application default.`);
   }
   return temperature;
+}
+
+export function reachableProviderIds(config) {
+  const providers = config.providers || {};
+  const firstProvider = Object.keys(providers)[0] || null;
+  const defaultProvider = config.defaultProvider || firstProvider;
+  const leadProvider = config.leadProvider || defaultProvider;
+  return new Set([
+    defaultProvider,
+    leadProvider,
+    ...(config.agents || []).map((agent) => agent.provider || defaultProvider)
+  ].filter(Boolean));
 }
 
 function anthropicModelRequiresDefaultTemperature(model) {
