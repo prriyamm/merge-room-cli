@@ -3059,6 +3059,39 @@ test('saved sessions and their directory have private POSIX permissions', { skip
   }
 });
 
+test('session directory permission update does not follow a substituted symlink', { skip: process.platform === 'win32' }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-symlink-race-'));
+  const sessions = path.join(root, 'sessions');
+  const movedSessions = path.join(root, 'sessions-moved');
+  const victim = path.join(root, 'victim');
+  const originalOpen = fs.open;
+  let substituted = false;
+  try {
+    await fs.mkdir(sessions, { mode: 0o755 });
+    await fs.mkdir(victim, { mode: 0o755 });
+    await fs.chmod(sessions, 0o755);
+    await fs.chmod(victim, 0o755);
+
+    fs.open = async (file, ...args) => {
+      if (!substituted && file === sessions) {
+        substituted = true;
+        await fs.rename(sessions, movedSessions);
+        await fs.symlink(victim, sessions, 'dir');
+      }
+      return originalOpen(file, ...args);
+    };
+
+    await assert.rejects(saveSession({ request: 'do not chmod the symlink target' }, root, 'sessions'));
+    assert.equal(substituted, true, 'the path should be swapped after validation and before open');
+    assert.equal((await fs.stat(victim)).mode & 0o777, 0o755, 'the symlink target permissions must remain unchanged');
+  } finally {
+    fs.open = originalOpen;
+    try { await fs.rm(sessions, { force: true }); } catch {}
+    try { await fs.rename(movedSessions, sessions); } catch {}
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('saving sessions outside the workspace does not chmod an ancestor', { skip: process.platform === 'win32' }, async () => {
   const container = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-external-permissions-'));
   const workspace = path.join(container, 'workspace');
