@@ -196,20 +196,29 @@ test('compact cockpit preserves an answer preview when one row shorter', () => {
   assert.equal(lines.length, 6);
 });
 
-test('compact Cockpit more help keeps later commands visible at narrow widths', () => {
+test('compact Cockpit more help pages reveal each command at widths 46, 40, and 30', () => {
   for (const columns of [46, 40, 30]) {
-    const lines = [];
-    const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
-    const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns, rows: 5, write: (line) => lines.push(line) });
-    renderer.state.message = 'Help more: /again repeats the selected room’s last mission as a new turn, carrying its conversation · /cancel [1|2] /agents [id] /team [all|ids] /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage';
-
-    renderer.render();
-
-    const output = lines.join('\n');
-    assert.match(output, /\/export/, `${columns}-column help should show /export`);
-    assert.match(output, /\/usage/, `${columns}-column help should show /usage`);
-    assert.equal(lines.length, 4);
-    assert.doesNotMatch(output, /Room 1:|\/new reset/);
+    const pages = cockpitHelpMorePages(columns);
+    let currentPage = 0;
+    const allVisible = [];
+    for (let index = 0; index < pages.length; index += 1) {
+      const lines = [];
+      const renderer = createCockpitRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' }, force: true, columns, rows: 14, write: (line) => lines.push(line) });
+      const page = cockpitHelpMorePage(columns, currentPage);
+      currentPage = page.nextPage;
+      renderer.state.message = page.message;
+      renderer.render();
+      const output = lines.join('\n');
+      const compactOutput = output.replace(/\s/g, '');
+      for (const command of pages[index]) assert.ok(compactOutput.includes(command.replace(/\s/g, '')), `${command} at ${columns} columns`);
+      assert.match(output, /\/help\s+more/, `next-page control at ${columns} columns`);
+      assert.ok(lines.every((line) => line.length <= columns), `line width at ${columns} columns`);
+      assert.doesNotMatch(output, /Room 1:|\/new reset/);
+      allVisible.push(...pages[index]);
+    }
+    assert.equal(allVisible.length, 11);
+    assert.equal(new Set(allVisible).size, allVisible.length);
+    assert.equal(currentPage, 0);
   }
 });
 
