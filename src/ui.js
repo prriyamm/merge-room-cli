@@ -268,7 +268,7 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
       const useShortHelp = isHelpMessage && (terminalHeight <= 3 || fullHelpLines.length > messageCapacity);
       const message = useShortHelp ? shortHelp : fullMessage;
       const wrappedMessage = useShortHelp ? wrap(message, Math.max(1, terminalWidth - 2)) : fullHelpLines;
-      const messageLines = showMessage && !wrappedMessage.length ? [''] : wrappedMessage;
+      const messageLines = showMessage ? (wrappedMessage.length ? wrappedMessage : ['']) : [];
       const visibleMessageLines = messageLines.slice(0, messageCapacity);
       const contentHeight = isHelpMessage ? 0 : Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp) - visibleMessageLines.length);
       const activeRoom = state.rooms[state.activeRoom];
