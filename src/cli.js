@@ -203,7 +203,7 @@ export async function main(args = [], { signal, readSessionFn = readSession } = 
     else printPlan(plan);
     return;
   }
-  if (cockpitByDefault || command === 'interactive' || command === 'chat') return interactive(runConfig, provider, noContext, noSave, signal, trace, workspace, readSessionFn);
+  if (cockpitByDefault || command === 'interactive' || command === 'chat') return interactive(runConfig, provider, noContext, noSave, signal, trace, workspace, readSessionFn, configuredRun);
   const requestParts = command === 'run' || command === 'ask' || command === 'resume' || command === 'review' || command === 'brainstorm' ? cleanArgs.slice(1) : cleanArgs;
   const request = await readMissionInput(requestParts, promptFileValue, workspace, signal);
   if (!request) return printHelp();
@@ -359,7 +359,7 @@ function stripOptions(args, valueOptions, booleanOptions) {
   return args.filter((_, index) => !skip.has(index));
 }
 
-async function interactive(config, provider, noContext = false, noSave = false, signal, trace = false, workspace = process.cwd(), readSessionFn = readSession) {
+async function interactive(config, provider, noContext = false, noSave = false, signal, trace = false, workspace = process.cwd(), readSessionFn = readSession, allTeamsConfig = config) {
   if (signal?.aborted) throw abortError();
   let activeConfig = config;
   let activeProfile = config.defaultProvider || Object.keys(config.providers || {})[0] || null;
@@ -567,9 +567,9 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       setMessage(names.length ? `Current team (${names.length}): ${names.join(', ')}` : 'No specialists are selected.');
       return true;
     }
-    if (request === '/team all') { activeConfig = profileOverrideActive ? selectProfile(config, activeProfile) : config; setMessage(`All ${activeConfig.agents.length} agents selected.`); return true; }
+    if (request === '/team all') { activeConfig = profileOverrideActive ? selectProfile(allTeamsConfig, activeProfile) : allTeamsConfig; setMessage(`All ${activeConfig.agents.length} agents selected.`); return true; }
     if (request.startsWith('/team ')) {
-      try { activeConfig = selectTeam(config, request.slice('/team '.length)); if (profileOverrideActive) activeConfig = selectProfile(activeConfig, activeProfile); setMessage(`Team: ${activeConfig.agents.map((agent) => agent.name).join(', ')}`); }
+      try { activeConfig = selectTeam(allTeamsConfig, request.slice('/team '.length)); if (profileOverrideActive) activeConfig = selectProfile(activeConfig, activeProfile); setMessage(`Team: ${activeConfig.agents.map((agent) => agent.name).join(', ')}`); }
       catch (error) { setMessage(error.message); }
       return true;
     }
