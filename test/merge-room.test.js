@@ -271,6 +271,23 @@ test('compact Cockpit reserves an answer row when mission and handoff details fi
   assert.ok(lines.length <= 8);
 });
 
+test('compact Cockpit labels a cancelled tail preview as partial', () => {
+  const lines = [];
+  const renderer = createCockpitRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' }, force: true, columns: 60, rows: 8, write: (line) => lines.push(line) });
+  const room = renderer.state.rooms[0];
+  room.status = 'cancelled';
+  room.request = 'Review the interrupted release';
+  room.final = ['ANSWER-START', ...Array.from({ length: 12 }, (_, index) => `middle answer line ${index + 1}`), 'ANSWER-END'].join('\n');
+
+  renderer.render();
+
+  const output = lines.join('\n');
+  assert.match(output, /PARTIAL ANSWER/);
+  assert.match(output, /earlier omitted/);
+  assert.doesNotMatch(output, /Answer:.*earlier omitted/);
+  assert.ok(lines.some((line) => /earlier omitted.*ANSWER-END/.test(line)), 'the cancelled room keeps its latest answer tail');
+});
+
 test('wide Cockpit marks omitted answer text when only one answer row remains', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };

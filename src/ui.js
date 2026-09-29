@@ -340,7 +340,7 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
           const prefix = ` PARTIAL${detail}: `;
           const preview = previewAnswerLines(answer, 1, Math.max(1, terminalWidth - visibleLength(prefix)))[0] || '';
           lines.splice(0, lines.length, ` ${color('yellow', 'PARTIAL')}${terminalWidth >= 30 ? ` · ${color('red', status)}${reasonText ? ` (${reasonText})` : ''}` : ''}: ${preview}`);
-        } else if (!activeRoom.error && lines.length >= contentHeight - 1) {
+        } else if (!activeRoom.error && activeRoom.status !== 'cancelled' && lines.length >= contentHeight - 1) {
           if (lines.length >= contentHeight) lines.splice(Math.max(0, contentHeight - 1));
           const preview = previewAnswerLines(answer, 1, Math.max(1, terminalWidth - 10))[0] || '';
           lines.push(` Answer: ${preview}`);
