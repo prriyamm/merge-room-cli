@@ -1441,6 +1441,10 @@ test('project configuration rejects unknown top-level options', async () => {
   try {
     await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ maxConcurency: 2 }), 'utf8');
     await assert.rejects(() => loadConfig(root), /unknown option: `maxConcurency`/);
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ context: { maxByte: 4096 } }), 'utf8');
+    await assert.rejects(() => loadConfig(root), /unknown context option: `maxByte`/);
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({ context: { include: ['README.md'] } }), 'utf8');
+    assert.deepEqual((await loadConfig(root)).context.include, ['README.md']);
 
     await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify(DEFAULT_CONFIG), 'utf8');
     const config = await loadConfig(root);
