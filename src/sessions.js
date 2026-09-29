@@ -5,12 +5,13 @@ import path from 'node:path';
 
 export async function saveSession(result, cwd = process.cwd(), directory = '.merge-room/sessions') {
   const root = await createSessionDirectory(cwd, directory);
-  const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
- const id = `${stamp}-${randomUUID()}`;
+  const savedAt = new Date().toISOString();
+  const stamp = savedAt.replaceAll(':', '-').replaceAll('.', '-');
+  const id = `${stamp}-${randomUUID()}`;
  const file = path.join(root, `${id}.json`);
   const temporary = path.join(root, `.${id}.tmp-${process.pid}`);
   try {
-    await fs.writeFile(temporary, `${JSON.stringify({ ...result, id, savedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
+    await fs.writeFile(temporary, `${JSON.stringify({ ...result, id, savedAt }, null, 2)}\n`, 'utf8');
     await fs.rename(temporary, file);
   } finally {
     await fs.rm(temporary, { force: true }).catch(() => {});
