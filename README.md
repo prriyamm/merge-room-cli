@@ -81,7 +81,7 @@ export OPENAI_API_KEY="your-key"
 merge-room "Review the architecture in this repository"
 ```
 
-Merge Room also reads `MERGE_ROOM_API_KEY`, `MERGE_ROOM_BASE_URL`, and `MERGE_ROOM_MODEL` (with the corresponding `OPENAI_*` variables as fallbacks). Use `--provider=demo` or `MERGE_ROOM_PROVIDER=demo` to force offline demo mode even when an API key is present. Keys are never printed in diagnostics or saved transcripts.
+Merge Room also reads `MERGE_ROOM_API_KEY`, `MERGE_ROOM_BASE_URL`, and `MERGE_ROOM_MODEL` (with the corresponding `OPENAI_*` variables as fallbacks). Named provider profiles can route different specialists and the lead through separate OpenAI-compatible or Anthropic API accounts. Use `--provider=demo` or `MERGE_ROOM_PROVIDER=demo` to force offline demo mode even when API keys are present. Keys are read from environment variables and are never saved in project config, diagnostics, or transcripts.
 
 ## Why Merge Room works as an agent harness
 
@@ -149,6 +149,7 @@ Useful options:
 --retries=0                     Control transient retries
 --theme=ember                   Select the terminal theme for this run
 --provider=demo                 Force local demo mode for CI or offline work
+--profile=claude                Set the default and lead provider profile
 --config=<path>                 Use an explicit project profile
 --format=md|json                Choose export format
 --output=<path>                 Write an export file
@@ -206,6 +207,20 @@ Example `merge-room.config.json`:
   "model": "gpt-4o-mini",
   "baseUrl": "https://api.openai.com/v1",
   "provider": "auto",
+  "defaultProvider": "openai",
+  "leadProvider": "openai",
+  "providers": {
+    "openai": {
+      "type": "openai-compatible",
+      "model": "gpt-4o-mini",
+      "apiKeyEnv": "OPENAI_API_KEY"
+    },
+    "claude": {
+      "type": "anthropic",
+      "model": "claude-model-name",
+      "apiKeyEnv": "ANTHROPIC_API_KEY"
+    }
+  },
   "theme": "ocean",
   "strategy": "staged",
   "streaming": true,
@@ -225,6 +240,7 @@ Example `merge-room.config.json`:
       "name": "Scout",
       "specialty": "scope & risks",
       "stage": 1,
+      "provider": "openai",
       "prompt": "Map the request into assumptions, risks, and a first acceptance check."
     },
     {
@@ -232,13 +248,14 @@ Example `merge-room.config.json`:
       "name": "Maker",
       "specialty": "solution draft",
       "stage": 2,
+      "provider": "claude",
       "prompt": "Draft the smallest concrete solution and a verification step."
     }
   ]
 }
 ```
 
-Agent stages are `1` (orientation), `2` (draft), and `3` (review). Each custom agent needs a unique id; `model` is optional per agent. `maxCalls: 0` disables the call cap, while a positive value provides a hard per-run guard.
+Agent stages are `1` (orientation), `2` (draft), and `3` (review). Each custom agent needs a unique id; `provider` selects a named profile and `model` can override its profile model. `leadProvider` optionally routes final synthesis; otherwise `defaultProvider` (or the first profile) is used. OpenAI-compatible profiles use `OPENAI_API_KEY` by default; Anthropic profiles use `ANTHROPIC_API_KEY`. Set `apiKeyEnv` to reference another environment variable for a separate API account. These profiles use provider API credentials; they do not use ChatGPT Plus or Claude Pro subscription sign-in. `maxCalls: 0` disables the call cap, while a positive value provides a hard per-run guard.
 
 Configuration can also be supplied with environment variables or command-line flags. An explicitly supplied `--config` path must exist; Merge Room reports a clear error instead of silently falling back to defaults. `merge-room config` prints a safe effective view with provider URL credentials redacted.
 

@@ -1,20 +1,50 @@
 import { estimateTokens } from './tokens.js';
 
 export function createProvider(config) {
-  const apiKey = process.env.MERGE_ROOM_API_KEY || process.env.OPENAI_API_KEY;
   const mode = String(config.provider || 'auto').trim().toLowerCase();
   if (!['auto', 'demo'].includes(mode)) throw new Error('Provider mode must be `auto` or `demo`.');
-  if (mode === 'demo' || !apiKey) return new DemoProvider(config);
+  if (mode === 'demo') return new DemoProvider(config);
+  if (config.providers && Object.keys(config.providers).length) return new ProviderRouter(config);
+  const apiKey = process.env.MERGE_ROOM_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) return new DemoProvider(config);
   return new OpenAICompatibleProvider(config, apiKey);
 }
 
+class ProviderRouter {
+  constructor(config) {
+    this.config = config;
+    this.profiles = new Map();
+    for (const [id, profile] of Object.entries(config.providers)) {
+      const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
+      const apiKey = process.env[envName];
+      const adapterConfig = { ...config, ...profile, providerId: id, baseUrl: profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl), model: profile.model || config.model, streaming: config.streaming };
+      const adapter = profile.type === 'anthropic'
+        ? new AnthropicProvider(adapterConfig, apiKey)
+        : new OpenAICompatibleProvider(adapterConfig, apiKey);
+      this.profiles.set(id, adapter);
+    }
+    this.defaultProvider = config.defaultProvider || Object.keys(config.providers)[0];
+    this.name = 'multi-provider';
+    this.model = config.providers[this.defaultProvider]?.model || config.model;
+  }
+
+  complete(options) {
+    const id = options.provider || this.defaultProvider;
+    const adapter = this.profiles.get(id);
+    if (!adapter) throw new Error(`Unknown provider profile \`${id}\`.`);
+    if (!adapter.apiKey) throw new Error(`Missing ${adapter.keyEnv} for provider profile \`${id}\`. Set that environment variable to use this route.`);
+    return adapter.complete(options);
+  }
+}
+
 export class OpenAICompatibleProvider {
-  constructor(config, apiKey) { this.config = config; this.apiKey = apiKey; this.name = 'openai-compatible'; this.model = config.model; }
+  constructor(config, apiKey) { this.config = config; this.apiKey = apiKey; this.keyEnv = config.apiKeyEnv || 'OPENAI_API_KEY'; this.name = config.providerId || 'openai-compatible'; this.model = config.model || config.defaultModel; }
 
   async complete({ system, prompt, signal, onDelta, model: modelOverride }) {
     const url = `${this.config.baseUrl.replace(/\/$/, '')}/chat/completions`;
     const streaming = typeof onDelta === 'function' && this.config.streaming !== false;
-    const payload = { model: modelOverride || this.config.model, temperature: this.config.temperature, max_tokens: this.config.maxTokens, ...(streaming ? { stream: true, ...(this.config.streamUsage ? { stream_options: { include_usage: true } } : {}) } : {}), messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }] };
+    const model = modelOverride || this.model || this.config.model;
+    const payload = { model, temperature: this.config.temperature, max_tokens: this.config.maxTokens, ...(streaming ? { stream: true, ...(this.config.streamUsage ? { stream_options: { include_usage: true } } : {}) } : {}), messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }] };
     const attempts = Math.max(0, Number(this.config.retries) || 0) + 1;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const controller = new AbortController();
@@ -36,12 +66,12 @@ export class OpenAICompatibleProvider {
         if (streaming && response.body?.getReader) {
           const streamed = await readStream(response.body, onDelta);
           if (!streamed.text) throw new Error('Provider returned an empty response');
-          return { text: streamed.text, inputTokens: streamed.usage?.prompt_tokens ?? estimateTokens(`${system}\n${prompt}`), outputTokens: streamed.usage?.completion_tokens ?? estimateTokens(streamed.text), inputEstimated: streamed.usage?.prompt_tokens == null, outputEstimated: streamed.usage?.completion_tokens == null };
+          return result(streamed.text, streamed.usage?.prompt_tokens, streamed.usage?.completion_tokens, system, prompt, this.name, model);
         }
         const body = await response.json().catch(() => ({}));
         const text = normalizeContent(body.choices?.[0]?.message?.content).trim();
         if (!text) throw new Error('Provider returned an empty response');
-        return { text, inputTokens: body.usage?.prompt_tokens ?? estimateTokens(`${system}\n${prompt}`), outputTokens: body.usage?.completion_tokens ?? estimateTokens(text), inputEstimated: body.usage?.prompt_tokens == null, outputEstimated: body.usage?.completion_tokens == null };
+        return result(text, body.usage?.prompt_tokens, body.usage?.completion_tokens, system, prompt, this.name, model);
       } catch (error) {
         if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Provider request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
         if (attempt < attempts - 1 && !providerError && error.name !== 'AbortError') { await delay(250 * (attempt + 1), signal); continue; }
@@ -53,6 +83,53 @@ export class OpenAICompatibleProvider {
     }
     throw new Error('Provider request failed after retries');
   }
+}
+
+export class AnthropicProvider {
+  constructor(config, apiKey) { this.config = config; this.apiKey = apiKey; this.keyEnv = config.apiKeyEnv || 'ANTHROPIC_API_KEY'; this.name = config.providerId || 'anthropic'; this.model = config.model || config.defaultModel; }
+
+  async complete({ system, prompt, signal, onDelta, model: modelOverride }) {
+    const baseUrl = (this.config.baseUrl || 'https://api.anthropic.com').replace(/\/$/, '');
+    const model = modelOverride || this.model;
+    const streaming = typeof onDelta === 'function' && this.config.streaming !== false;
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, this.config.requestTimeoutMs);
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) controller.abort();
+    try {
+      const response = await fetch(`${baseUrl}/v1/messages`, {
+        method: 'POST', signal: controller.signal,
+        headers: { 'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model, max_tokens: this.config.maxTokens, temperature: this.config.temperature, system, messages: [{ role: 'user', content: prompt }], ...(streaming ? { stream: true } : {}) })
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error?.message || `Anthropic returned HTTP ${response.status}`);
+      }
+      if (streaming && response.body?.getReader) {
+        const streamed = await readAnthropicStream(response.body, onDelta);
+        if (!streamed.text) throw new Error('Anthropic returned an empty response');
+        return result(streamed.text, streamed.inputTokens, streamed.outputTokens, system, prompt, this.name, model);
+      }
+      const body = await response.json().catch(() => ({}));
+      const text = normalizeContent(body.content).trim();
+      if (!text) throw new Error('Anthropic returned an empty response');
+      if (typeof onDelta === 'function') onDelta(text);
+      return result(text, body.usage?.input_tokens, body.usage?.output_tokens, system, prompt, this.name, model);
+    } catch (error) {
+      if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Anthropic request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', abort);
+    }
+  }
+}
+
+function result(text, input, output, system, prompt, provider, model) {
+  return { text, inputTokens: input ?? estimateTokens(`${system}\n${prompt}`), outputTokens: output ?? estimateTokens(text), inputEstimated: input == null, outputEstimated: output == null, provider, model };
 }
 
 export class DemoProvider {
@@ -70,7 +147,7 @@ export class DemoProvider {
       const pieces = text.split(/(?<=\s)/);
       for (const piece of pieces) { if (signal?.aborted) throw abortError(); onDelta(piece); await delay(10, signal); }
     } else await delay(160 + Math.random() * 280, signal);
-    return { text, inputTokens: estimateTokens(`${system}\n${prompt}`), outputTokens: estimateTokens(text), inputEstimated: true, outputEstimated: true };
+    return { text, inputTokens: estimateTokens(`${system}\n${prompt}`), outputTokens: estimateTokens(text), inputEstimated: true, outputEstimated: true, provider: this.name, model: this.model };
   }
 }
 
@@ -103,6 +180,42 @@ function normalizeContent(value) {
     if (!part || typeof part !== 'object') return '';
     return normalizeContent(part.text ?? part.content ?? '');
   }).join('');
+}
+
+
+async function readAnthropicStream(body, onDelta) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let text = '';
+  let inputTokens;
+  let outputTokens;
+  const consume = (line) => {
+    if (!line.startsWith('data:')) return;
+    const data = line.slice(5).trim();
+    if (!data) return;
+    try {
+      const event = JSON.parse(data);
+      if (event.type === 'error') throw new Error(event.error?.message || 'Anthropic stream failed.');
+      if (event.type === 'message_start') inputTokens = event.message?.usage?.input_tokens;
+      if (event.type === 'message_delta') outputTokens = event.usage?.output_tokens;
+      const piece = event.type === 'content_block_delta' && event.delta?.type === 'text_delta' ? event.delta.text : '';
+      if (piece) { text += piece; onDelta(piece); }
+    } catch (error) {
+      if (error instanceof SyntaxError) return;
+      throw error;
+    }
+  };
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || '';
+    lines.forEach(consume);
+    if (done) break;
+  }
+  if (buffer) consume(buffer);
+  return { text: text.trim(), inputTokens, outputTokens };
 }
 
 async function readStream(body, onDelta) {

@@ -386,7 +386,7 @@ export function printHelp() {
 export function printAgents(config) {
   printBanner({ provider: 'configured', model: config.model });
   console.log(`  ${color('bold', 'SPECIALIST ROSTER')}\n`);
-  for (const agent of config.agents) console.log(`  ${color(agent.color, agent.mark)} ${color('bold', agent.name.padEnd(13))} ${color('gray', `${agent.specialty} · stage ${agent.stage}`)}${agent.model ? ` ${color('purple', `· ${agent.model}`)}` : ''}\n     ${color('dim', agent.prompt)}\n`);
+  for (const agent of config.agents) console.log(`  ${color(agent.color, agent.mark)} ${color('bold', agent.name.padEnd(13))} ${color('gray', `${agent.specialty} · stage ${agent.stage}${agent.provider ? ` · ${agent.provider}` : ''}`)}${agent.model ? ` ${color('purple', `· ${agent.model}`)}` : ''}\n     ${color('dim', agent.prompt)}\n`);
 }
 
 export function printConfig(config) {
