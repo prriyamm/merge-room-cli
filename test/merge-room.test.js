@@ -404,19 +404,32 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
       let stderr = '';
       let started = false;
       let commandsSent = false;
+      let cancelSent = false;
+      let missionSent = false;
       let quitSent = false;
-      const timeout = setTimeout(() => { child.kill(); reject(new Error('Timed out waiting for the interactive cancellation flow.')); }, 5000);
+      const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for the interactive cancellation flow. Output: ${stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')}\n${stderr}`)); }, 5000);
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk) => {
         stdout += chunk;
-        if (!started && /Start a mission|Room 1.*ready/i.test(stdout)) {
+        const visibleOutput = stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+        if (!started && /Start a mission|Room 1.*ready|room 1\s*›/i.test(stdout)) {
           started = true;
           child.stdin.write('First room mission\n');
-        } else if (started && !commandsSent && stdout.includes('Room 1 started turn 1')) {
+        }
+        if (started && !commandsSent && /Scout.*working/i.test(visibleOutput)) {
           commandsSent = true;
-          child.stdin.write('/2\n/cancel 1\nSecond room mission\n');
-        } else if (commandsSent && !quitSent && /Room 2\s+done/.test(stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, ''))) {
+          child.stdin.write('/2\n');
+        }
+        if (commandsSent && !cancelSent && visibleOutput.includes('Switched to Room 2.')) {
+          cancelSent = true;
+          child.stdin.write('/cancel 1\n');
+        }
+        if (cancelSent && !missionSent && visibleOutput.includes('Cancellation requested for Room 1.')) {
+          missionSent = true;
+          child.stdin.write('Second room mission\n');
+        }
+        if (missionSent && !quitSent && visibleOutput.includes('Room 2 finished. Continue there or switch rooms.')) {
           quitSent = true;
           child.stdin.write('/quit\n');
         }
@@ -430,10 +443,11 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
     });
 
     const output = `${stdout}\n${stderr}`.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-    assert.match(output, /Room 1\s+cancelled/);
-    assert.match(output, /Room 2.*Second room mission|\[Room 2\].*Second room mission/);
-    assert.doesNotMatch(output, /Room 1.*Second room mission|\[Room 1\].*Second room mission/);
-    assert.match(output, /Room 2\s+done/);
+    assert.match(output, /Cancellation requested for Room 1\./i);
+    assert.match(output, /Room 1\s+cancelled[^\n]*\n[^\n]*First room mission/i);
+    assert.match(output, /Room 2\s+done[^\n]*\n[^\n]*Second room mission/i);
+    assert.doesNotMatch(output, /Room 1\s+cancelled[^\n]*\n[^\n]*Second room mission/i);
+    assert.match(output, /Room 2 finished\. Continue there or switch rooms\./i);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -3340,6 +3354,74 @@ test('interactive export explains when session history is disabled', async () =>
 
     assert.match(`${stdout}\n${stderr}`, /Session history is disabled\./);
     assert.doesNotMatch(`${stdout}\n${stderr}`, /path argument.*null|ERR_INVALID_ARG_TYPE/i);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Cockpit ignores a saved-session load that finishes after quit', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-show-after-quit-'));
+  try {
+    const sessionDir = path.join(root, '.merge-room', 'sessions');
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(path.join(sessionDir, 'delayed-show.json'), JSON.stringify({ id: 'delayed-show', request: 'saved room request', answer: 'saved room answer', agents: [] }), 'utf8');
+    const cliUrl = new URL('../src/cli.js', import.meta.url).href;
+    const script = `
+      process.stdin.isTTY = true;
+      process.stdout.isTTY = true;
+      process.env.TERM = 'xterm-256color';
+      const { main } = await import(${JSON.stringify(cliUrl)});
+      let rejectRead;
+      const delayedRead = new Promise((resolve, reject) => { rejectRead = reject; });
+      main(['--cwd', ${JSON.stringify(root)}, 'interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream'], {
+        readSessionFn: async () => {
+          process.stderr.write('READ_STARTED\\n');
+          await delayedRead;
+        }
+      }).then(async () => {
+        process.stderr.write('MAIN_RETURNED\\n');
+        rejectRead(new Error('deferred show rejection after quit'));
+        await new Promise((resolve) => setImmediate(resolve));
+        process.stderr.write('READ_REJECTED\\n');
+      }).catch((error) => { console.error(error); process.exitCode = 1; });
+    `;
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      let showSent = false;
+      let quitSent = false;
+      const timeout = setTimeout(() => { child.kill(); reject(new Error('Timed out waiting for delayed Cockpit show shutdown.')); }, 5000);
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+        if (!showSent && stdout.includes('MERGE ROOM')) {
+          showSent = true;
+          child.stdin.write('/show delayed-show\n');
+        }
+      });
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk;
+        if (!quitSent && stderr.includes('READ_STARTED')) {
+          quitSent = true;
+          child.stdin.write('/quit\n');
+        }
+      });
+      child.once('error', (error) => { clearTimeout(timeout); reject(error); });
+      child.once('close', (code) => {
+        clearTimeout(timeout);
+        code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`CLI exited ${code}: ${stderr}`));
+      });
+    });
+    const cleanOutput = stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+    const exitIndex = cleanOutput.lastIndexOf('Both rooms closed');
+    assert.notEqual(exitIndex, -1);
+    const mainReturnedIndex = stderr.indexOf('MAIN_RETURNED');
+    const readRejectedIndex = stderr.indexOf('READ_REJECTED');
+    assert.ok(mainReturnedIndex >= 0 && mainReturnedIndex < readRejectedIndex, 'quit should return before the deferred saved-session read rejects');
+    assert.doesNotMatch(cleanOutput.slice(exitIndex + 1), /saved room answer|Loaded delayed-show into Room|MERGE ROOM/);
+    assert.doesNotMatch(cleanOutput, /deferred show rejection after quit/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

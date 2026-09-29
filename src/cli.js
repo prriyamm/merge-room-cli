@@ -34,7 +34,7 @@ export function cockpitHelpMorePage(width = 80, currentPage = 0) {
   };
 }
 
-export async function main(args = [], { signal } = {}) {
+export async function main(args = [], { signal, readSessionFn = readSession } = {}) {
   const separator = args.indexOf('--');
   const optionArgs = separator < 0 ? args : args.slice(0, separator);
   const literalArgs = separator < 0 ? [] : args.slice(separator + 1);
@@ -203,7 +203,7 @@ export async function main(args = [], { signal } = {}) {
     else printPlan(plan);
     return;
   }
-  if (cockpitByDefault || command === 'interactive' || command === 'chat') return interactive(runConfig, provider, noContext, noSave, signal, trace, workspace);
+  if (cockpitByDefault || command === 'interactive' || command === 'chat') return interactive(runConfig, provider, noContext, noSave, signal, trace, workspace, readSessionFn);
   const requestParts = command === 'run' || command === 'ask' || command === 'resume' || command === 'review' || command === 'brainstorm' ? cleanArgs.slice(1) : cleanArgs;
   const request = await readMissionInput(requestParts, promptFileValue, workspace, signal);
   if (!request) return printHelp();
@@ -359,7 +359,7 @@ function stripOptions(args, valueOptions, booleanOptions) {
   return args.filter((_, index) => !skip.has(index));
 }
 
-async function interactive(config, provider, noContext = false, noSave = false, signal, trace = false, workspace = process.cwd()) {
+async function interactive(config, provider, noContext = false, noSave = false, signal, trace = false, workspace = process.cwd(), readSessionFn = readSession) {
   if (signal?.aborted) throw abortError();
   let activeConfig = config;
   let activeProfile = config.defaultProvider || Object.keys(config.providers || {})[0] || null;
@@ -396,6 +396,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   }
 
   function redraw() {
+    if (closing) return;
     renderer.render();
     reprompt();
   }
@@ -581,11 +582,15 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       const showRequestId = ++showRequestSequence;
       showRequests.set(roomIndex, showRequestId);
       try {
+        if (closing) return true;
         if (!sessionConfig.sessionDir) throw new Error('Session history is disabled.');
         if (targetRoom.running) throw new Error(`Room ${roomIndex + 1} is working. Switch rooms before loading a saved mission.`);
-        const session = await readSession(await resolveSessionId(value, sessionConfig, workspace), workspace, sessionConfig.sessionDir);
+        const sessionId = await resolveSessionId(value, sessionConfig, workspace);
+        if (closing || showRequests.get(roomIndex) !== showRequestId) return true;
+        const session = await readSessionFn(sessionId, workspace, sessionConfig.sessionDir);
         if (!session) throw new Error(`Session not found: ${value}`);
-        if (showRequests.get(roomIndex) !== showRequestId || renderer.state.rooms[roomIndex] !== targetRoom || targetRoom.running || targetRoom.turn !== targetTurn) {
+        if (closing || showRequests.get(roomIndex) !== showRequestId || renderer.state.rooms[roomIndex] !== targetRoom || targetRoom.running || targetRoom.turn !== targetTurn) {
+          if (closing) return true;
           throw new Error(`Room ${roomIndex + 1} changed while loading. Switch to it and try /show again.`);
         }
         const room = targetRoom;
@@ -608,7 +613,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         setMessage(`Loaded ${session.id} into Room ${room.id}.`, inputNoticeSequence);
         if (isTerminal) renderer.loaded(session);
         else printSession(session);
-      } catch (error) { if (showRequests.get(roomIndex) === showRequestId) setMessage(error.message, inputNoticeSequence); }
+      } catch (error) { if (!closing && showRequests.get(roomIndex) === showRequestId) setMessage(error.message, inputNoticeSequence); }
       return true;
     }
     if (request === '/export' || request.startsWith('/export ')) {
