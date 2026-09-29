@@ -234,7 +234,7 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     const help = ' /1 /2 switch · /new reset · /cancel turn · /help · /quit';
     if (terminalWidth < 84 || terminalRows < 24) {
       const isHelpMessage = state.message.startsWith('Help:') || state.message.startsWith('/agents [id] /team');
-      const useShortHelp = isHelpMessage && (terminalHeight <= 3 || terminalWidth < 60 && terminalHeight <= 4);
+      const useShortHelp = isHelpMessage && terminalHeight <= 3;
       const isPrimaryHelp = state.message.startsWith('Help: mission');
       const shortHelp = terminalWidth >= 60
         ? isPrimaryHelp ? 'Help: /run /1 /2 /new /wait /cancel /help more' : 'Help: /agents /team /profile /context /history /show …'
