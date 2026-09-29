@@ -81,6 +81,8 @@ function mergeConfig(base, local) {
   const sourceAgents = Array.isArray(local.agents) && local.agents.length ? local.agents : base.agents;
   const agents = sourceAgents.map((agent, index) => {
     if (!agent || typeof agent !== 'object' || Array.isArray(agent)) throw new Error(`merge-room.config.json agent ${index + 1} must be a JSON object.`);
+    const unknownAgentKeys = Object.keys(agent).filter((key) => !['id', 'name', 'mark', 'color', 'specialty', 'stage', 'prompt', 'provider', 'model'].includes(key));
+    if (unknownAgentKeys.length) throw new Error(`merge-room.config.json agent ${index + 1} contains unknown option${unknownAgentKeys.length === 1 ? '' : 's'}: ${unknownAgentKeys.map((key) => `\`${key}\``).join(', ')}.`);
     if (agent.stage != null && typeof agent.stage !== 'number') throw new Error(`merge-room.config.json agent ${index + 1} \`stage\` must be a JSON number.`);
     if (agent.model !== undefined && (typeof agent.model !== 'string' || !agent.model.trim())) throw new Error(`merge-room.config.json agent ${index + 1} \`model\` must be a non-empty string.`);
     const fallback = base.agents[index] || base.agents[0];
