@@ -1525,6 +1525,22 @@ test('workspace context matches root files for leading gitignore globstars', asy
   }
 });
 
+test('workspace context keeps leading-slash gitignore patterns anchored at the root', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-root-anchor-'));
+  try {
+    await fs.mkdir(path.join(root, 'nested'), { recursive: true });
+    await fs.writeFile(path.join(root, '.gitignore'), '/config.json\n', 'utf8');
+    await fs.writeFile(path.join(root, 'config.json'), 'root config\n', 'utf8');
+    await fs.writeFile(path.join(root, 'nested', 'config.json'), 'nested config\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
+    assert.equal(context.entries.some((entry) => entry.includes('config.json') && !entry.includes('nested/')), false);
+    assert.equal(context.entries.some((entry) => entry.includes('nested/config.json')), true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('workspace formatting keeps an opt-in diff clearly bounded', () => {
   const formatted = formatWorkspaceContext({
     fileCount: 1,
