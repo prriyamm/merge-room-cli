@@ -1211,6 +1211,41 @@ test('cockpit can switch provider profiles without resetting room context', asyn
   }
 });
 
+test('cockpit reports the selected team and updates it after profile and team changes', async () => {
+  const originalLog = console.log;
+  const stdinDescriptor = Object.getOwnPropertyDescriptor(process, 'stdin');
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-cockpit-team-inspection-'));
+  let output = '';
+  Object.defineProperty(process, 'stdin', { configurable: true, value: Readable.from([
+    '/team scout\n/team\n/profile claude\n/team\n/team all\n/team\n/quit\n'
+  ]) });
+  console.log = (line) => { output += `${line}\n`; };
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      providers: {
+        openai: { type: 'openai-compatible', model: 'gpt-test', baseUrl: 'https://openai.test/v1' },
+        claude: { type: 'anthropic', model: 'claude-test' }
+      },
+      defaultProvider: 'openai', leadProvider: 'openai',
+      agents: [{ id: 'scout', name: 'Scout' }, { id: 'critic', name: 'Critic', stage: 3 }]
+    }));
+    await main(['--cwd', root, 'interactive', '--no-context', '--no-save', '--no-stream'], { signal: new AbortController().signal });
+    const teamMessages = output.split('\n').filter((line) => /^(?:Team:|Current team|Provider profile|All \d+)/.test(line));
+    assert.deepEqual(teamMessages, [
+      'Team: Scout',
+      'Current team (1): Scout',
+      'Provider profile claude selected for future turns.',
+      'Current team (1): Scout',
+      'All 2 agents selected.',
+      'Current team (2): Scout, Critic'
+    ]);
+  } finally {
+    console.log = originalLog;
+    Object.defineProperty(process, 'stdin', stdinDescriptor);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('named OpenAI profile uses its endpoint, API key, and model', async () => {
   const originalFetch = globalThis.fetch;
   const oldKey = process.env.MERGE_ROOM_TEST_OPENAI;
