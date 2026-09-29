@@ -621,6 +621,48 @@ test('Claude Code JSON parser rejects errors and malformed output', () => {
   assert.throws(() => parseClaudeCodeOutput(JSON.stringify({ result: 'failed', is_error: true })), /reported a failed turn/);
 });
 
+test('providers command reports routes and binary presence without revealing API keys', async () => {
+  const oldPath = process.env.PATH;
+  const oldKey = process.env.MERGE_ROOM_TEST_PROVIDER_KEY;
+  const originalLog = console.log;
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-providers-'));
+  const bin = path.join(root, 'bin');
+  await fs.mkdir(bin);
+  await fs.writeFile(path.join(bin, 'codex'), '#!/bin/sh\nexit 0\n');
+  await fs.chmod(path.join(bin, 'codex'), 0o755);
+  process.env.PATH = bin;
+  process.env.MERGE_ROOM_TEST_PROVIDER_KEY = 'never-print-this-secret';
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      providers: {
+        api: { type: 'openai-compatible', model: 'gpt-test', apiKeyEnv: 'MERGE_ROOM_TEST_PROVIDER_KEY' },
+        chatgpt: { type: 'codex-cli' },
+        claude: { type: 'claude-code-cli' }
+      },
+      defaultProvider: 'api', leadProvider: 'claude',
+      agents: [{ id: 'scout', provider: 'chatgpt' }, { id: 'maker', provider: 'claude' }]
+    }));
+    let output = '';
+    console.log = (line) => { output = String(line); };
+    await main(['providers', '--json', '--cwd', root]);
+    const report = JSON.parse(output);
+    assert.equal(report.defaultProvider, 'api');
+    assert.equal(report.leadProvider, 'claude');
+    assert.deepEqual(report.profiles[0].agents, []);
+    assert.equal(report.profiles[0].configured, true);
+    assert.equal(report.profiles[1].binaryAvailable, true);
+    assert.deepEqual(report.profiles[1].agents, ['scout']);
+    assert.equal(report.profiles[2].binaryAvailable, false);
+    assert.deepEqual(report.profiles[2].agents, ['maker']);
+    assert.equal(JSON.stringify(report).includes('never-print-this-secret'), false);
+  } finally {
+    console.log = originalLog;
+    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+    if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_PROVIDER_KEY; else process.env.MERGE_ROOM_TEST_PROVIDER_KEY = oldKey;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI profile override routes every agent and lead through the selected profile', async () => {
   const originalFetch = globalThis.fetch;
   const originalLog = console.log;
