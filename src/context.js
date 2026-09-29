@@ -169,7 +169,11 @@ function redactSecrets(text) {
   }
   const withAuthorizationHeadersRedacted = lines.join('');
   const withAuthSchemeCredentialsRedacted = withAuthorizationHeadersRedacted.replace(/\b((?:Bearer|Basic|Token|Digest|HOBA|Mutual|Negotiate|OAuth|SCRAM(?:-[A-Z0-9-]+)?|VAPID|AWS4-HMAC-SHA256|Signature|DPoP)\s+)(?![=:])[^\r\n]*/gi, '$1[redacted]');
-  return withAuthSchemeCredentialsRedacted.replace(/(^|[^A-Za-z0-9_])((?:api[_-]?key|(?:api|access|refresh|id|auth|session|provider)[_-]?token|token|auth|password|passwd|secret)["']?\s*[=:]\s*["']?)([^\s"'`,}]+)/gi, '$1$2[redacted]');
+  return withAuthSchemeCredentialsRedacted.replace(/(^|[^A-Za-z0-9_])((?:api[_-]?key|(?:api|access|refresh|id|auth|session|provider)[_-]?token|token|auth|password|passwd|secret)["']?\s*[=:]\s*)(?:"(?:\\.|[^"\\\r\n])*"|'(?:\\.|[^'\\\r\n])*'|[^\s"'`,}]+)/gi, (match, boundary, prefix) => {
+    const firstValueChar = match[boundary.length + prefix.length];
+    const quote = firstValueChar === '"' || firstValueChar === "'" ? firstValueChar : '';
+    return `${boundary}${prefix}${quote}[redacted]${quote}`;
+  });
 }
 
 async function readIgnoreRules(cwd, base = '', signal) {
