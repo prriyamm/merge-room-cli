@@ -24,6 +24,16 @@ export function cockpitHelpMorePages(width = 80) {
   return Array.from({ length: Math.ceil(commands.length / pageSize) }, (_, index) => commands.slice(index * pageSize, (index + 1) * pageSize));
 }
 
+export function cockpitHelpMorePage(width = 80, currentPage = 0) {
+  const pages = cockpitHelpMorePages(width);
+  const page = ((currentPage % pages.length) + pages.length) % pages.length;
+  const repeat = page + 1 < pages.length ? 'Next' : 'Again';
+  return {
+    message: `Help more ${page + 1}/${pages.length}: ${pages[page].join(' · ')}; ${repeat}: /help more`,
+    nextPage: (page + 1) % pages.length
+  };
+}
+
 export async function main(args = [], { signal } = {}) {
   const separator = args.indexOf('--');
   const optionArgs = separator < 0 ? args : args.slice(0, separator);
@@ -490,11 +500,9 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); const waitingSequence = noticeSequence; await waitForCockpitTasks(tasks); setMessage('Both rooms are ready.', waitingSequence); return true; }
     if (request === '/help more') {
       const terminalWidth = process.stdout.columns || 80;
-      const pages = cockpitHelpMorePages(terminalWidth);
-      const page = helpMorePage % pages.length;
-      helpMorePage = (page + 1) % pages.length;
-      const repeat = page + 1 < pages.length ? 'Next: /help more' : 'Again: /help more';
-      setMessage(`Help more ${page + 1}/${pages.length}: ${pages[page].join(' · ')}; ${repeat}`);
+      const page = cockpitHelpMorePage(terminalWidth, helpMorePage);
+      helpMorePage = page.nextPage;
+      setMessage(page.message);
       return true;
     }
     if (request === '/help') { setMessage('Help: mission or /run <mission> · rooms /1 /2 /switch · turns /again /new /clear /wait /cancel [1|2] · /help more · /quit /exit'); return true; }

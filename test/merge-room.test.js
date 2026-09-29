@@ -14,7 +14,7 @@ import { liquidGlassLogoLines } from '../src/logo.js';
 import { AnthropicProvider, ClaudeCodeCliProvider, CodexCliProvider, createProvider, DemoProvider, OpenAICompatibleProvider, parseClaudeCodeOutput, parseCodexOutput } from '../src/providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
-import { buildResumeRequest, cockpitHelpMorePages, main } from '../src/cli.js';
+import { buildResumeRequest, cockpitHelpMorePage, cockpitHelpMorePages, main } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
 import { applyCockpitEvent, beginCockpitTurn, createCockpitState, finishCockpitTurn, resetCockpitRoom, resolveAgentReference, restoreAgentStatuses, selectCockpitRoom, waitForCockpitTasks } from '../src/cockpit.js';
 import { createCockpitRenderer, createConversationRenderer, printResult, printSession, startupPatternLines } from '../src/ui.js';
@@ -241,11 +241,13 @@ test('compact expanded Cockpit help pages expose every command and next-page con
   for (const columns of [17, 8]) {
     const pages = cockpitHelpMorePages(columns);
     const allVisible = [];
+    let currentPage = 0;
     for (let index = 0; index < pages.length; index += 1) {
       const lines = [];
       const renderer = createCockpitRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' }, force: true, columns, rows: 18, write: (line) => lines.push(line) });
-      const next = index + 1 < pages.length ? 'Next' : 'Again';
-      renderer.state.message = `Help more ${index + 1}/${pages.length}: ${pages[index].join(' · ')}; ${next}: /help more`;
+      const page = cockpitHelpMorePage(columns, currentPage);
+      currentPage = page.nextPage;
+      renderer.state.message = page.message;
       renderer.render();
       const output = lines.join('\n');
       const compactOutput = output.replace(/\s/g, '');
@@ -256,6 +258,7 @@ test('compact expanded Cockpit help pages expose every command and next-page con
     }
     assert.equal(allVisible.length, 11);
     assert.equal(new Set(allVisible).size, allVisible.length);
+    assert.equal(currentPage, 0, `help more paging wraps at ${columns} columns`);
   }
 });
 
