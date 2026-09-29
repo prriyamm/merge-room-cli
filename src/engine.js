@@ -92,7 +92,6 @@ export class MergeRoomEngine {
       const route = leadRoute;
       const profile = this.config.providers?.[route];
       const failedModel = resolveModel(this.provider, this.config, route, profile?.model);
-      this.ledger.add(0, 0, { model: profile ? `${route}/${failedModel}` : failedModel });
       this.emit({ type: 'synthesis:error', error: error.message });
       final = { text: fallbackAnswer(request, results, error.message), inputTokens: 0, outputTokens: 0, inputEstimated: false, outputEstimated: false, provider: profile ? route : this.provider.name, model: failedModel };
     }

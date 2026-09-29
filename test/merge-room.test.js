@@ -687,6 +687,23 @@ test('token ledger tracks input, output, and total', () => {
  assert.equal(typeof snapshot.startedAt, 'number');
 });
 
+test('failed synthesis records one provider call in the usage ledger', async () => {
+  const config = { ...DEFAULT_CONFIG, agents: [DEFAULT_CONFIG.agents[0]] };
+  const provider = {
+    name: 'test-provider', defaultProvider: 'test', model: 'test-model',
+    async complete({ system }) {
+      if (system.includes('Scout')) return { text: 'Scout note', inputTokens: 7, outputTokens: 3, provider: 'test', model: 'test-model' };
+      throw new Error('lead unavailable');
+    }
+  };
+  const result = await new MergeRoomEngine({ config, provider }).run('ledger mission');
+
+  assert.equal(result.providerCallsStarted, 2);
+  assert.equal(result.usage.calls, 2);
+  assert.equal(result.usage.byModel['test-model'].calls, 2);
+  assert.equal(result.status, 'degraded');
+});
+
 test('openai-compatible adapter cancels retry backoff', async () => {
   const originalFetch = global.fetch;
   let calls = 0;
