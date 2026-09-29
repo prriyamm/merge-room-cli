@@ -108,6 +108,7 @@ test('cockpit renderer exposes the conversation controls used by the terminal lo
   finishCockpitTurn(renderer.state, 0, result);
   renderer.refresh();
   renderer.loaded();
+  assert.equal(renderer.state.message, 'Cancellation requested.');
   beginCockpitTurn(renderer.state, 1, 'Review cancellation', config.agents);
   renderer.event(1)({ type: 'run:cancelled', error: 'Mission cancelled.' });
   const cancelled = new Error('Mission cancelled.');
@@ -116,7 +117,6 @@ test('cockpit renderer exposes the conversation controls used by the terminal lo
   renderer.refresh();
 
   assert.equal(renderer.state.rooms[0].request, 'Plan the release');
-  assert.equal(renderer.state.message, 'Cancellation requested.');
   assert.equal(renderer.state.rooms[0].status, 'done');
   assert.equal(renderer.state.rooms[0].running, false);
   assert.equal(renderer.state.rooms[1].status, 'cancelled');
