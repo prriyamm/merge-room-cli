@@ -1973,6 +1973,35 @@ test('session saving does not create directories below a symbolic-link ancestor'
   }
 });
 
+test('limited session listing keeps newest valid sessions and skips corrupt files', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-limit-'));
+  const directory = path.join(root, 'sessions');
+  try {
+    await fs.mkdir(directory);
+    await fs.writeFile(path.join(directory, '2026-01-03.json'), '{partial JSON');
+    await fs.writeFile(path.join(directory, '2026-01-02.json'), JSON.stringify({ id: 'newest valid', request: 'newest request' }));
+    await fs.writeFile(path.join(directory, '2026-01-01.json'), JSON.stringify({ id: 'older valid', request: 'older request' }));
+
+    const sessions = await listSessions(root, 'sessions', { limit: 2 });
+    assert.deepEqual(sessions.map(({ id }) => id), ['newest valid', 'older valid']);
+    assert.deepEqual(sessions.map(({ request }) => request), ['newest request', 'older request']);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('limited session listing returns no sessions for a zero limit', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-zero-limit-'));
+  const directory = path.join(root, 'sessions');
+  try {
+    await fs.mkdir(directory);
+    await fs.writeFile(path.join(directory, '2026-01-01.json'), JSON.stringify({ id: 'newest' }));
+    assert.deepEqual(await listSessions(root, 'sessions', { limit: 0 }), []);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('custom agents receive stable ids and inherited defaults', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-config-'));
   try {
