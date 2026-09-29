@@ -1466,6 +1466,22 @@ test('openai-compatible adapter returns JSON refusal when message content is abs
   }
 });
 
+test('openai-compatible adapter falls back to JSON refusal when message content is empty', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const content of ['', '  \n  ']) {
+      globalThis.fetch = async () => new Response(JSON.stringify({
+        choices: [{ message: { content, refusal: 'I cannot help with that request.' } }]
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+      const response = await new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, retries: 0 }, 'secret')
+        .complete({ system: 'system', prompt: 'prompt' });
+      assert.equal(response.text, 'I cannot help with that request.');
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('openai-compatible adapter retries a transient provider failure', async () => {
   const originalFetch = global.fetch;
   let calls = 0;
@@ -1530,6 +1546,25 @@ test('openai-compatible adapter streams refusal deltas when content is absent', 
       .complete({ system: 'system', prompt: 'prompt', onDelta: (delta) => deltas.push(delta) });
     assert.deepEqual(deltas, ['I cannot ', 'help with that request.']);
     assert.equal(response.text, 'I cannot help with that request.');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('openai-compatible adapter falls back to streaming refusal when delta content is empty', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const content of ['', '  \n  ']) {
+      globalThis.fetch = async () => new Response([
+        `data: ${JSON.stringify({ choices: [{ delta: { content, refusal: 'I cannot help with that request.' } }] })}\n\n`,
+        'data: [DONE]\n\n'
+      ].join(''), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      const deltas = [];
+      const response = await new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, retries: 0 }, 'secret')
+        .complete({ system: 'system', prompt: 'prompt', onDelta: (delta) => deltas.push(delta) });
+      assert.deepEqual(deltas, ['I cannot help with that request.']);
+      assert.equal(response.text, 'I cannot help with that request.');
+    }
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -244,7 +244,8 @@ export class OpenAICompatibleProvider {
         }
         const body = await response.json().catch(() => ({}));
         const message = body.choices?.[0]?.message;
-        const text = normalizeContent(message?.content ?? message?.refusal).trim();
+        const content = normalizeContent(message?.content);
+        const text = (content.trim() ? content : normalizeContent(message?.refusal)).trim();
         if (!text) throw new Error('Provider returned an empty response');
         if (streaming) emitDelta(text);
         return result(text, body.usage?.prompt_tokens, body.usage?.completion_tokens, system, prompt, this.name, model);
@@ -455,7 +456,8 @@ async function readStream(body, onDelta) {
       throw providerError;
     }
     const delta = parsed.choices?.[0]?.delta;
-    const piece = normalizeContent(delta?.content ?? delta?.refusal);
+    const content = normalizeContent(delta?.content);
+    const piece = content.trim() ? content : normalizeContent(delta?.refusal);
     if (piece) { text += piece; onDelta(piece); }
     if (parsed.usage) usage = parsed.usage;
   };
