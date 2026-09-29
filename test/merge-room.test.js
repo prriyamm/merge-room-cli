@@ -12,7 +12,7 @@ import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from '../src/engine.js';
 import { liquidGlassLogoLines } from '../src/logo.js';
 import { AnthropicProvider, ClaudeCodeCliProvider, CodexCliProvider, createProvider, DemoProvider, OpenAICompatibleProvider, parseClaudeCodeOutput, parseCodexOutput } from '../src/providers.js';
-import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from '../src/sessions.js';
+import { formatSessionMarkdown, listSessions, readSession, saveSession, selectNewestSessionNames, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
 import { buildResumeRequest, cockpitHelpMorePage, cockpitHelpMorePages, main } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
@@ -3402,6 +3402,21 @@ test('limited session listing keeps newest valid sessions and skips corrupt file
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test('bounded session name selection streams entries and keeps only the newest limit', async () => {
+  let yielded = 0;
+  async function* entries() {
+    for (let index = 0; index < 10000; index += 1) {
+      yielded += 1;
+      yield { name: `2026-${String(index).padStart(5, '0')}.json` };
+      if (index % 100 === 0) yield { name: `notes-${index}.md` };
+    }
+  }
+
+  const newest = await selectNewestSessionNames(entries(), 3);
+  assert.equal(yielded, 10000);
+  assert.deepEqual(newest, ['2026-09999.json', '2026-09998.json', '2026-09997.json']);
 });
 
 test('limited session listing returns no sessions for a zero limit', async () => {
