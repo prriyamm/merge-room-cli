@@ -334,7 +334,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (isTerminal && rl && !closing) {
       readline.clearLine(process.stdout, 0);
       readline.cursorTo(process.stdout, 0);
-      rl.setPrompt(` room ${renderer.state.activeRoom + 1} › `);
+      rl.setPrompt((process.stdout.columns || 80) < 12 ? '> ' : ` room ${renderer.state.activeRoom + 1} › `);
       rl.prompt(true);
     }
   }

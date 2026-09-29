@@ -12,7 +12,21 @@ const surface = (text) => colorsEnabled ? `${activeTheme.colors.bg}${String(text
 const clear = () => { if (live) process.stdout.write('\x1b[2J\x1b[H'); };
 const width = () => Math.max(48, Math.min(process.stdout.columns || 92, 118) - 2);
 const line = (char = '─') => char.repeat(width());
-const crop = (value, max) => String(value).replace(/\s+/g, ' ').slice(0, max) + (String(value).length > max ? '…' : '');
+const crop = (value, max) => {
+  const text = String(value).replace(/\s+/g, ' ');
+  const limit = Math.max(0, Math.floor(max));
+  if (visibleLength(text) <= limit) return text;
+  if (limit <= 0) return '';
+  let output = '';
+  let used = 0;
+  for (const character of text) {
+    const width = characterWidth(character);
+    if (used + width > limit - 1) break;
+    output += character;
+    used += width;
+  }
+  return `${output}…`;
+};
 const wrap = (value, max) => String(value).split(/\s+/).reduce((lines, word) => {
   const current = lines.at(-1) || '';
   if (!current) lines.push(word);
@@ -157,14 +171,53 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     if (!live && !force) return;
     lastRenderAt = Date.now();
     clear();
-    const terminalWidth = Math.max(68, Math.min(columns || process.stdout.columns || 108, 140));
-    const terminalHeight = Math.max(22, rows || process.stdout.rows || 32);
+    const terminalWidth = Math.max(1, Math.min(columns || process.stdout.columns || 108, 140));
+    const terminalRows = Math.max(1, rows || process.stdout.rows || 32);
+    const terminalHeight = Math.max(1, terminalRows - 1);
+    const header = ` ${color('bold', 'MERGE ROOM')} ${color('gray', `· ${provider.name} · two live sessions`)}`;
+    const help = ' /1 /2 switch · /new reset · /cancel turn · /help · /quit';
+    if (terminalWidth < 84 || terminalRows < 24) {
+      const showRoomStatus = terminalHeight >= 3;
+      const showHelp = terminalHeight >= 5;
+      const showMessage = terminalHeight >= 3;
+      const contentHeight = Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp) - Number(showMessage));
+      const activeRoom = state.rooms[state.activeRoom];
+      const otherRoom = state.rooms[state.activeRoom === 0 ? 1 : 0];
+      const lines = [];
+      const latestNote = Object.entries(activeRoom.notes).at(-1);
+      const latestEvent = activeRoom.events.at(-1);
+      const answer = activeRoom.final || activeRoom.answerDraft;
+      if (activeRoom.request) lines.push(` Mission: ${crop(activeRoom.request, Math.max(0, terminalWidth - 10))}`);
+      if (latestNote && latestEvent && answer && contentHeight <= 3) {
+        const detailWidth = Math.max(0, Math.floor((terminalWidth - 24) / 2));
+        lines.push(` Handoff: ${crop(latestNote[1], detailWidth)} · Latest: ${crop(latestEvent.message, detailWidth)}`);
+      } else {
+        if (latestNote) lines.push(` Handoff: ${crop(latestNote[1], Math.max(0, terminalWidth - 10))}`);
+        if (latestEvent) lines.push(` Latest: ${crop(latestEvent.message, Math.max(0, terminalWidth - 9))}`);
+      }
+      if (answer && contentHeight > 0) {
+        lines.splice(Math.max(0, contentHeight - 1));
+        if (contentHeight === lines.length + 1) {
+          lines.push(` Answer: ${crop(answer, Math.max(0, terminalWidth - 10))}`);
+        } else {
+          lines.push(` ${color('bold', 'MERGE ROOM SAYS')}`);
+          const answerRows = Math.max(0, contentHeight - lines.length);
+          if (answerRows > 0) lines.push(...wrap(answer, Math.max(1, terminalWidth - 2)).slice(-answerRows).map((item) => ` ${color('white', item)}`));
+        }
+      }
+      if (!lines.length && contentHeight > 0) lines.push(' Type a mission to start this room.');
+      write(fit(header, terminalWidth));
+      if (showRoomStatus) write(surface(fit(` Room ${activeRoom.id}: ${activeRoom.status} · Room ${otherRoom.id}: ${otherRoom.status}`, terminalWidth)));
+      for (const item of lines.slice(0, contentHeight)) write(surface(fit(item, terminalWidth)));
+      if (showHelp) write(surface(fit(help, terminalWidth)));
+      if (showMessage) write(surface(fit(` ${state.message}`, terminalWidth)));
+      return;
+    }
     const sidebarWidth = Math.min(34, Math.max(27, Math.floor(terminalWidth * 0.3)));
     const mainWidth = terminalWidth - sidebarWidth - 3;
-    const contentHeight = Math.max(15, terminalHeight - 6);
+    const contentHeight = Math.max(0, terminalHeight - 4);
     const sidebar = cockpitSidebar(state, config, sidebarWidth, contentHeight);
     const main = cockpitMain(state, config, workspace, mainWidth, contentHeight);
-    const header = ` ${color('bold', 'MERGE ROOM')} ${color('gray', `· ${provider.name} · two live sessions`)}`;
     write(`${color('teal', '╭')}${fit(header, terminalWidth - 2)}${color('teal', '╮')}`);
     for (let index = 0; index < contentHeight; index += 1) {
       write(`${color('teal', '│')}${fit(sidebar[index] || '', sidebarWidth)}${color('teal', '│')}${fit(main[index] || '', mainWidth)}${color('teal', '│')}`);
@@ -273,8 +326,8 @@ function cockpitSidebar(state, config, maxWidth, height) {
     for (const agent of visibleAgents) {
       const agentStatus = room.statuses[agent.id] || 'idle';
       const icon = agentStatus === 'done' ? color('green', '●') : agentStatus === 'working' ? color('yellow', '◌') : agentStatus === 'error' ? color('red', '×') : agentStatus === 'skipped' || agentStatus === 'cancelled' ? color('yellow', '–') : color('gray', '○');
-      const activity = agentStatus === 'working' ? agent.specialty : agentStatus;
-      section.push(`   ${icon} ${crop(agent.name, 10).padEnd(10)} ${color('gray', crop(activity, maxWidth - 18))}`);
+      const activity = agentStatus === 'working' ? `working · ${agent.specialty}` : agentStatus;
+      section.push(`   ${icon} ${crop(agent.name, 10).padEnd(10)} ${color('gray', crop(activity, maxWidth - 16))}`);
     }
     if (roomAgents.length > visibleAgents.length) section.push(`     ${color('gray', `+${roomAgents.length - visibleAgents.length} more agents`)}`);
     while (section.length < roomHeight) section.push('');
@@ -319,7 +372,23 @@ function cockpitMain(state, config, workspace, maxWidth, height) {
 }
 
 function visibleLength(value) {
-  return String(value).replace(/\x1b\[[0-9;]*m/g, '').length;
+  return [...String(value).replace(/\x1b\[[0-9;]*m/g, '')].reduce((width, character) => width + characterWidth(character), 0);
+}
+
+function characterWidth(character) {
+  const codePoint = character.codePointAt(0);
+  if (codePoint === 0x200d || /\p{Mark}/u.test(character)) return 0;
+  return codePoint >= 0x1100 && (
+    codePoint <= 0x115f || codePoint === 0x2329 || codePoint === 0x232a
+    || (codePoint >= 0x2e80 && codePoint <= 0xa4cf && codePoint !== 0x303f)
+    || (codePoint >= 0xac00 && codePoint <= 0xd7a3)
+    || (codePoint >= 0xf900 && codePoint <= 0xfaff)
+    || (codePoint >= 0xfe10 && codePoint <= 0xfe19)
+    || (codePoint >= 0xfe30 && codePoint <= 0xfe6f)
+    || (codePoint >= 0xff00 && codePoint <= 0xff60)
+    || (codePoint >= 0xffe0 && codePoint <= 0xffe6)
+    || (codePoint >= 0x1f300 && codePoint <= 0x1faff)
+  ) ? 2 : 1;
 }
 
 function fit(value, max) {
