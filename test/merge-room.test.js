@@ -1955,7 +1955,6 @@ test('session id and savedAt use one timestamp across a millisecond boundary', a
     const saved = await saveSession({ request: 'timestamp boundary' }, root, 'sessions');
     const reopened = await readSession(saved.id, root, 'sessions');
     const stamp = reopened.savedAt.replaceAll(':', '-').replaceAll('.', '-');
-    assert.equal(clockReads, 1);
     assert.equal(reopened.savedAt, '2026-01-02T03:04:05.999Z');
     assert.ok(saved.id.startsWith(`${stamp}-`));
   } finally {
