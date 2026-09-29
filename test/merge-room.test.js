@@ -436,7 +436,7 @@ test('compact cockpit crops wide characters to terminal cell width', () => {
   renderer.state.rooms[0].request = '界'.repeat(20);
   renderer.render();
 
-  const cellWidth = (line) => [...line].reduce((width, character) => {
+  const cellWidth = (line) => [...line.replace(/\x1b\[[0-?]*[ -/]*m/g, '')].reduce((width, character) => {
     const codePoint = character.codePointAt(0);
     return width + (codePoint >= 0x2e80 && codePoint <= 0xa4cf ? 2 : 1);
   }, 0);
