@@ -47,8 +47,9 @@ const crop = (value, max) => {
 const graphemes = (value) => typeof Intl.Segmenter === 'function'
   ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].map(({ segment }) => segment)
   : [...value];
-const graphemeWidth = (value) => /\p{Extended_Pictographic}/u.test(value) || value.includes('\u200d')
-  || value.includes('\u20e3') || [...value].length === 2 && [...value].every((character) => /\p{Regional_Indicator}/u.test(character))
+const graphemeWidth = (value) => /\p{Emoji_Presentation}/u.test(value) || value.includes('\u200d')
+  || value.includes('\ufe0f') || value.includes('\u20e3')
+  || [...value].length === 2 && [...value].every((character) => /\p{Regional_Indicator}/u.test(character))
   ? 2
   : [...value].reduce((total, character) => total + characterWidth(character), 0);
 const wrap = (value, max) => {
