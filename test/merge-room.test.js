@@ -1049,6 +1049,53 @@ test('openai-compatible adapter streams lead text and usage', async () => {
   }
 });
 
+test('provider stream parsers accept bare carriage return delimiters', async () => {
+  const originalFetch = globalThis.fetch;
+  const encoder = new TextEncoder();
+  const responseFor = (text) => {
+    const bytes = encoder.encode(text);
+    const body = new ReadableStream({
+      start(controller) {
+        for (let index = 0; index < bytes.length; index += 7) controller.enqueue(bytes.subarray(index, index + 7));
+        controller.close();
+      }
+    });
+    return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  };
+  try {
+    const openAiEvents = [
+      { choices: [{ delta: { content: 'hello ' } }] },
+      { choices: [{ delta: { content: 'world' } }] },
+      { choices: [], usage: { prompt_tokens: 8, completion_tokens: 2 } }
+    ].map((event) => `data: ${JSON.stringify(event)}\r\r`).join('') + 'data: [DONE]\r\r';
+    globalThis.fetch = async () => responseFor(openAiEvents);
+    const openAiDeltas = [];
+    const openAi = await new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, retries: 0 }, 'openai-secret')
+      .complete({ system: 'system', prompt: 'prompt', onDelta: (delta) => openAiDeltas.push(delta) });
+    assert.equal(openAi.text, 'hello world');
+    assert.deepEqual(openAiDeltas, ['hello ', 'world']);
+    assert.deepEqual({ input: openAi.inputTokens, output: openAi.outputTokens }, { input: 8, output: 2 });
+
+    const anthropicEvents = [
+      { type: 'message_start', message: { usage: { input_tokens: 13 } } },
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hello ' } },
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Claude' } },
+      { type: 'message_delta', usage: { output_tokens: 4 } },
+      { type: 'message_stop' }
+    ].map((event) => `event: ${event.type}\rdata: ${JSON.stringify(event)}\r\r`).join('');
+    globalThis.fetch = async () => responseFor(anthropicEvents);
+    const anthropicDeltas = [];
+    const anthropic = await new AnthropicProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.anthropic.com', retries: 0 }, 'anthropic-secret')
+      .complete({ system: 'system', prompt: 'prompt', onDelta: (delta) => anthropicDeltas.push(delta) });
+    assert.equal(anthropic.text, 'Hello Claude');
+    assert.deepEqual(anthropicDeltas, ['Hello ', 'Claude']);
+    assert.equal(anthropic.inputTokens, 13);
+    assert.equal(anthropic.outputTokens, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('provider stream failures do not retry after emitting partial output', async () => {
   const originalFetch = globalThis.fetch;
   const cases = [
