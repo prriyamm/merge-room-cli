@@ -392,13 +392,44 @@ export function createConversationRenderer({ config, provider, workspace = proce
     if (!enabled) return;
     let visibleUpdate = false;
     const prefix = color('gray', `room ${roomIndex + 1}`);
-    if (payload.type === 'agent:start') { emit(`  ${prefix} ${color('gray', '○')} ${color(payload.agent.color, sanitizeUntrustedText(payload.agent.name))} ${color('gray', 'is working')}`); visibleUpdate = true; }
-    if (payload.type === 'agent:done') { emit(`  ${prefix} ${color('green', '✓')} ${color(payload.agent.color, sanitizeUntrustedText(payload.agent.name))} ${color('gray', 'handed back a note')}`); visibleUpdate = true; }
-    if (payload.type === 'agent:error') { emit(`  ${color('red', '×')} ${prefix} ${color('red', crop(payload.error, 76))}`); visibleUpdate = true; }
-    if (payload.type === 'agent:skipped') { emit(`  ${color('yellow', '–')} ${prefix} ${color('gray', crop(payload.error, 76))}`); visibleUpdate = true; }
-    if (payload.type === 'synthesis:start') { emit(`  ${prefix} ${color('purple', '◇')} ${color('gray', 'Merging the room’s notes…')}`); visibleUpdate = true; }
-    if (payload.type === 'synthesis:error') { emit(`  ${prefix} ${color('yellow', '△')} ${color('gray', 'Lead synthesis unavailable; keeping the specialist notes.')}`); visibleUpdate = true; }
-    if (payload.type === 'run:cancelled') { emit(`  ${color('yellow', '△')} ${prefix} ${color('gray', sanitizeUntrustedText(payload.error || 'Mission cancelled.'))}`); visibleUpdate = true; }
+    const cropAfter = (message, before) => crop(message, Math.max(0, width() - visibleLength(before)));
+    if (payload.type === 'agent:start') {
+      const before = `  ${prefix} ${color('gray', '○')} `;
+      const name = cropAfter(payload.agent.name, `${before}${color('gray', ' is working')}`);
+      emit(`${before}${color(payload.agent.color, name)} ${color('gray', 'is working')}`);
+      visibleUpdate = true;
+    }
+    if (payload.type === 'agent:done') {
+      const before = `  ${prefix} ${color('green', '✓')} `;
+      const name = cropAfter(payload.agent.name, `${before}${color('gray', ' handed back a note')}`);
+      emit(`${before}${color(payload.agent.color, name)} ${color('gray', 'handed back a note')}`);
+      visibleUpdate = true;
+    }
+    if (payload.type === 'agent:error') {
+      const before = `  ${color('red', '×')} ${prefix} `;
+      emit(`${before}${color('red', cropAfter(payload.error, before))}`);
+      visibleUpdate = true;
+    }
+    if (payload.type === 'agent:skipped') {
+      const before = `  ${color('yellow', '–')} ${prefix} `;
+      emit(`${before}${color('gray', cropAfter(payload.error, before))}`);
+      visibleUpdate = true;
+    }
+    if (payload.type === 'synthesis:start') {
+      const before = `  ${prefix} ${color('purple', '◇')} `;
+      emit(`${before}${color('gray', cropAfter('Merging the room’s notes…', before))}`);
+      visibleUpdate = true;
+    }
+    if (payload.type === 'synthesis:error') {
+      const before = `  ${prefix} ${color('yellow', '△')} `;
+      emit(`${before}${color('gray', cropAfter('Lead synthesis unavailable; keeping the specialist notes.', before))}`);
+      visibleUpdate = true;
+    }
+    if (payload.type === 'run:cancelled') {
+      const before = `  ${color('yellow', '△')} ${prefix} `;
+      emit(`${before}${color('gray', cropAfter(payload.error || 'Mission cancelled.', before))}`);
+      visibleUpdate = true;
+    }
     if (payload.type === 'run:done') {
       visibleUpdate = true;
       emit('');
@@ -409,7 +440,10 @@ export function createConversationRenderer({ config, provider, workspace = proce
       }
       const usage = payload.result.usage || {};
       const degraded = Boolean(payload.result.degraded);
-      if (degraded) emit(`  ${prefix} ${color('yellow', '△')} ${color('gray', 'Best-effort run: one or more specialists were unavailable.')}`);
+      if (degraded) {
+        const before = `  ${prefix} ${color('yellow', '△')} `;
+        emit(`${before}${color('gray', cropAfter('Best-effort run: one or more specialists were unavailable.', before))}`);
+      }
       emit('');
       emit(`  ${color(degraded ? 'yellow' : 'green', degraded ? '△' : '✓')} ${color('bold', `Room ${roomIndex + 1} ${degraded ? 'best effort' : 'complete'}`)} ${color('gray', `· ${formatTokens(usage.total || 0)} tokens · ${usage.calls || 0} calls`)}`);
     }
