@@ -1481,17 +1481,23 @@ test('OpenAI-compatible stream errors fail instead of returning partial answers'
 
 test('OpenAI-compatible stream retries a retryable error before emitting output', async () => {
   const originalFetch = globalThis.fetch;
-  const provider = new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.openai.com/v1', retries: 1 }, 'openai-secret');
-  let calls = 0;
-  globalThis.fetch = async () => {
-    calls += 1;
-    if (calls === 1) return new Response('data: {"error":{"message":"rate limited","code":"rate_limit_exceeded"}}\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
-    return new Response('data: {"choices":[{"delta":{"content":"recovered"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
-  };
   try {
-    const response = await provider.complete({ system: 'system', prompt: 'prompt', onDelta() {} });
-    assert.equal(calls, 2);
-    assert.equal(response.text, 'recovered');
+    for (const error of [
+      { message: 'rate limited', code: 'rate_limit_exceeded' },
+      { message: 'unavailable', status: '503' },
+      { message: 'server failed', code: 500 }
+    ]) {
+      const provider = new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.openai.com/v1', retries: 1 }, 'openai-secret');
+      let calls = 0;
+      globalThis.fetch = async () => {
+        calls += 1;
+        if (calls === 1) return new Response(`data: ${JSON.stringify({ error })}\n\n`, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        return new Response('data: {"choices":[{"delta":{"content":"recovered"}}]}\n\ndata: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      };
+      const response = await provider.complete({ system: 'system', prompt: 'prompt', onDelta() {} });
+      assert.equal(calls, 2);
+      assert.equal(response.text, 'recovered');
+    }
   } finally { globalThis.fetch = originalFetch; }
 });
 

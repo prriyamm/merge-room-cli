@@ -444,9 +444,11 @@ async function readStream(body, onDelta) {
     if (parsed.error && typeof parsed.error === 'object') {
       const providerError = new Error(parsed.error.message || 'Provider reported a stream error.');
       providerError.name = 'ProviderError';
-      const status = parsed.error.status ?? parsed.error.status_code ?? parsed.status;
-      const code = String(parsed.error.code || parsed.error.type || '').toLowerCase();
-      providerError.retryable = status === 429 || (Number.isInteger(status) && status >= 500) || /rate_limit|overload|server_error|service_unavailable|temporarily_unavailable/.test(code);
+      const status = Number(parsed.error.status ?? parsed.error.status_code ?? parsed.status);
+      const codeValue = parsed.error.code;
+      const codeStatus = typeof codeValue === 'number' || /^\d+$/.test(String(codeValue ?? '')) ? Number(codeValue) : NaN;
+      const code = String(codeValue || parsed.error.type || '').toLowerCase();
+      providerError.retryable = [status, codeStatus].some((value) => value === 429 || (Number.isInteger(value) && value >= 500)) || /rate_limit|overload|server_error|service_unavailable|temporarily_unavailable/.test(code);
       throw providerError;
     }
     const piece = normalizeContent(parsed.choices?.[0]?.delta?.content);
