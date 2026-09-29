@@ -5,7 +5,7 @@ import { resolveTheme, themeSummaries } from './themes.js';
 import { applyCockpitEvent, createCockpitState } from './cockpit.js';
 
 const live = Boolean(process.stdout.isTTY && process.env.TERM !== 'dumb');
-const colorsEnabled = Boolean(live && !process.env.NO_COLOR);
+const colorsEnabled = Boolean(live && process.env.NO_COLOR === undefined);
 let activeTheme = resolveTheme(process.env.MERGE_ROOM_THEME || 'merge-room');
 const color = (name, text) => colorsEnabled ? `${activeTheme.colors[name] || activeTheme.colors.gray}${text}${activeTheme.colors.reset}` : String(text);
 const surface = (text) => colorsEnabled ? `${activeTheme.colors.bg}${String(text).replaceAll(activeTheme.colors.reset, `${activeTheme.colors.reset}${activeTheme.colors.bg}`)}${activeTheme.colors.reset}` : String(text);
