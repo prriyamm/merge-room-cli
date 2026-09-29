@@ -492,7 +492,7 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
   const configFile = path.join(root, 'merge-room.config.json');
   await fs.writeFile(configFile, JSON.stringify({ provider: 'demo', sessionDir: null }), 'utf8');
   const cliUrl = new URL('../src/cli.js', import.meta.url).href;
-  const script = `process.stdin.isTTY = true; process.stdout.isTTY = true; const { main } = await import(${JSON.stringify(cliUrl)}); main(['--config', ${JSON.stringify(configFile)}, 'interactive', '--no-context', '--no-save', '--no-stream', '--team=scout']).catch((error) => { console.error(error); process.exitCode = 1; });`;
+  const script = `process.stdin.isTTY = true; process.stdout.isTTY = true; process.env.TERM = 'xterm'; const { main } = await import(${JSON.stringify(cliUrl)}); main(['--config', ${JSON.stringify(configFile)}, 'interactive', '--no-context', '--no-save', '--no-stream', '--team=scout']).catch((error) => { console.error(error); process.exitCode = 1; });`;
   try {
     const { stdout, stderr } = await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -1514,7 +1514,9 @@ test('provider profiles route agents and lead across OpenAI and Anthropic', asyn
   }
 });
 
-test('Codex CLI profiles use bounded JSONL with read-only permissions and local sign-in', async () => {
+test('Codex CLI profiles use bounded JSONL with read-only permissions and local sign-in', {
+  skip: process.platform === 'win32' ? 'This process integration fixture is a POSIX shebang script; Windows requires a native codex.exe.' : false
+}, async () => {
   const oldPath = process.env.PATH;
   const oldOpenAI = process.env.OPENAI_API_KEY;
   const oldCodex = process.env.CODEX_API_KEY;
@@ -1649,7 +1651,9 @@ test('Codex JSONL parser keeps final assistant text and rejects malformed output
   assert.throws(() => parseCodexOutput(JSON.stringify({ type: 'turn.completed' })), /without a final assistant message/);
 });
 
-test('Claude Code CLI profiles use restricted JSON with tools and session persistence disabled', async () => {
+test('Claude Code CLI profiles use restricted JSON with tools and session persistence disabled', {
+  skip: process.platform === 'win32' ? 'This process integration fixture is a POSIX shebang script; Windows requires a native claude.exe.' : false
+}, async () => {
   const oldPath = process.env.PATH;
   const oldApiKey = process.env.ANTHROPIC_API_KEY;
   const oldConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -1713,10 +1717,16 @@ test('providers command reports routes and binary presence without revealing API
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-providers-'));
   const bin = path.join(root, 'bin');
   await fs.mkdir(bin);
-  await fs.writeFile(path.join(bin, 'codex'), '#!/bin/sh\nexit 0\n');
-  await fs.writeFile(path.join(root, 'claude'), '#!/bin/sh\nexit 0\n');
-  await fs.chmod(path.join(bin, 'codex'), 0o755);
-  await fs.chmod(path.join(root, 'claude'), 0o755);
+  if (process.platform === 'win32') {
+    // providers only checks that these native executable paths exist; it does not launch them.
+    await fs.writeFile(path.join(bin, 'codex.exe'), '');
+    await fs.writeFile(path.join(bin, 'claude.exe'), '');
+  } else {
+    await fs.writeFile(path.join(bin, 'codex'), '#!/bin/sh\nexit 0\n');
+    await fs.writeFile(path.join(root, 'claude'), '#!/bin/sh\nexit 0\n');
+    await fs.chmod(path.join(bin, 'codex'), 0o755);
+    await fs.chmod(path.join(root, 'claude'), 0o755);
+  }
   process.env.PATH = `${bin}${path.delimiter}${path.delimiter}`;
   process.env.MERGE_ROOM_TEST_PROVIDER_KEY = 'never-print-this-secret';
   try {
@@ -3035,17 +3045,25 @@ test('workspace context honors escaped literals and trailing spaces in gitignore
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-escaped-space-'));
   try {
     await fs.writeFile(path.join(root, '.gitignore'), 'private\\ \nliteral\\*\nliteral\\?\n', 'utf8');
-    await fs.writeFile(path.join(root, 'private '), 'must not be sent\n', 'utf8');
-    await fs.writeFile(path.join(root, 'literal*'), 'must not be sent\n', 'utf8');
-    await fs.writeFile(path.join(root, 'literal?'), 'must not be sent\n', 'utf8');
+    await fs.mkdir(path.join(root, 'private'));
+    await fs.writeFile(path.join(root, 'private', 'keep.md'), 'the escaped trailing-space pattern must not ignore this directory\n', 'utf8');
+    if (process.platform !== 'win32') {
+      // Win32 forbids or normalizes these path characters, so verify exact escaped-literal matches on POSIX only.
+      await fs.writeFile(path.join(root, 'private '), 'must not be sent\n', 'utf8');
+      await fs.writeFile(path.join(root, 'literal*'), 'must not be sent\n', 'utf8');
+      await fs.writeFile(path.join(root, 'literal?'), 'must not be sent\n', 'utf8');
+    }
     await fs.writeFile(path.join(root, 'literalX'), 'ordinary glob characters still match\n', 'utf8');
 
     const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
-    assert.equal(context.entries.some((entry) => entry.startsWith('private ')), false);
-    assert.equal(context.entries.some((entry) => entry.startsWith('literal*')), false);
-    assert.equal(context.entries.some((entry) => entry.startsWith('literal?')), false);
+    assert.equal(context.entries.some((entry) => entry.startsWith('private/keep.md')), true);
+    if (process.platform !== 'win32') {
+      assert.equal(context.entries.some((entry) => entry.startsWith('private ')), false);
+      assert.equal(context.entries.some((entry) => entry.startsWith('literal*')), false);
+      assert.equal(context.entries.some((entry) => entry.startsWith('literal?')), false);
+    }
     assert.equal(context.entries.some((entry) => entry.startsWith('literalX')), true);
-    assert.equal(context.excerpts.some((item) => item.path === 'private '), false);
+    if (process.platform !== 'win32') assert.equal(context.excerpts.some((item) => item.path === 'private '), false);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
