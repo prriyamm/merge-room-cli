@@ -19,11 +19,11 @@ Merge Room is a small, dependency-free CLI for thinking with a team of agents. A
 
 ![Merge Room CLI startup screen](docs/screenshots/merge-room-started.svg)
 
-### Keep two conversations moving
+### Work across two live rooms
 
-![Merge Room CLI scrollable conversation with two active rooms](docs/screenshots/merge-room-mission-cockpit.svg)
+![Merge Room interactive two-room cockpit dashboard](docs/screenshots/merge-room-mission-cockpit.svg)
 
-The screenshots are captured representations of real Merge Room output in local demo mode. Demo mode is deterministic and needs no API key.
+The cockpit keeps both rooms visible while the selected mission, handoffs, and run log update in place. Demo mode is deterministic and needs no API key.
 
 ## Install
 
