@@ -17,12 +17,17 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
   ensureActive(options.signal);
   const workspaceRoot = await fs.realpath(cwd).catch(() => path.resolve(cwd));
   const maxFiles = options.maxFiles ?? 180;
+  // A negated rule can make us walk an ignored tree even when none of its
+  // files can be returned. Bound that work separately from the output cap.
+  const maxTraversalEntries = Math.max(1, maxFiles) * 20;
   const maxBytes = options.maxBytes ?? 18000;
   const maxExcerptBytes = options.maxExcerptBytes ?? 2400;
   const entries = [];
   const excerpts = [];
   const seenFiles = new Set();
   const seenDirectories = new Set();
+  let traversedEntries = 0;
+  let traversalTruncated = false;
   const ignoreRules = await readIgnoreRules(workspaceRoot, '', options.signal);
   let totalBytes = 0;
 
@@ -95,6 +100,11 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
     for (const child of children) {
       ensureActive(options.signal);
       if (entries.length >= maxFiles) break;
+      if (traversedEntries >= maxTraversalEntries) {
+        traversalTruncated = true;
+        break;
+      }
+      traversedEntries += 1;
       if (child.name.startsWith('.') && child.name !== '.github') continue;
       if (DEFAULT_IGNORES.has(child.name) || SECRET_NAMES.test(child.name)) continue;
       const fullPath = path.join(directory, child.name);
@@ -114,7 +124,7 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
   await visit(workspaceRoot, 0, ignoreRules);
   const git = await readGitSnapshot(cwd, options.includeDiff === true, options.signal);
   ensureActive(options.signal);
-  return { cwd, entries, excerpts, fileCount: entries.filter((entry) => !entry.endsWith('/')).length, truncated: entries.length >= maxFiles, git };
+  return { cwd, entries, excerpts, fileCount: entries.filter((entry) => !entry.endsWith('/')).length, truncated: traversalTruncated || entries.length >= maxFiles, git };
 }
 
 function ensureActive(signal) {

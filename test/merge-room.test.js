@@ -2709,6 +2709,27 @@ test('workspace context applies nested gitignore rules within their directory', 
   }
 });
 
+test('workspace context bounds traversal through ignored trees searched for negated patterns', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-traversal-budget-'));
+  try {
+    await fs.mkdir(path.join(root, 'private'), { recursive: true });
+    await fs.writeFile(path.join(root, '.gitignore'), 'private/\n!**/keep.md\n', 'utf8');
+    for (let index = 0; index < 200; index += 1) {
+      await fs.writeFile(path.join(root, 'private', `${String(index).padStart(3, '0')}.js`), 'ignored\n', 'utf8');
+    }
+    await fs.writeFile(path.join(root, 'private', 'zzz-keep.md'), 're-included\n', 'utf8');
+
+    const bounded = await collectWorkspaceContext(root, { maxFiles: 1, maxBytes: 5000 });
+    assert.equal(bounded.entries.some((entry) => entry.includes('private/zzz-keep.md')), false);
+    assert.equal(bounded.truncated, true);
+
+    const withRoom = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
+    assert.equal(withRoom.entries.some((entry) => entry.includes('private/zzz-keep.md')), true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('workspace context does not treat a trailing /** pattern as ignoring its directory', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-double-star-'));
   try {
