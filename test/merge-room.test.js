@@ -1166,7 +1166,7 @@ test('workspace context prioritizes files inside explicitly included directories
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-include-directory-'));
   try {
     await fs.mkdir(path.join(root, 'z-scope', 'private'), { recursive: true });
-    await fs.writeFile(path.join(root, '.gitignore'), 'z-scope/ignored.js\nprivate\n!z-scope/private/keep.md\n', 'utf8');
+    await fs.writeFile(path.join(root, '.gitignore'), 'z-scope/ignored.js\nprivate\n!**/keep.md\n', 'utf8');
     await fs.writeFile(path.join(root, 'a-notes.md'), 'discovered first\n', 'utf8');
     await fs.writeFile(path.join(root, 'z-scope', 'app.js'), 'included first\n', 'utf8');
     await fs.writeFile(path.join(root, 'z-scope', 'ignored.js'), 'ignored by project rules\n', 'utf8');
