@@ -569,6 +569,10 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       const parts = request.slice('/export'.length).trim().split(/\s+/).filter(Boolean);
       if (!parts[0]) { setMessage('Use /export <id> [md|json].'); return true; }
       if (parts.length > 2) { setMessage('Use /export <id> [md|json].'); return true; }
+      if (!/^[a-zA-Z0-9_-]+$/.test(parts[0])) {
+        setMessage('Session ids may only contain letters, numbers, underscores, and dashes.');
+        return true;
+      }
       if (parts[1] && !['md', 'json'].includes(parts[1].toLowerCase())) {
         setMessage(`Unsupported export format: ${parts[1]}. Use md or json.`);
         return true;

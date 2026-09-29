@@ -2552,6 +2552,45 @@ test('CLI initializes a project and exports its latest mission', async () => {
   }
 });
 
+test('Cockpit rejects path-like export IDs before scanning or exporting history', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-cockpit-export-id-'));
+  const sessionDir = path.join(root, '.merge-room', 'sessions');
+  const stdinDescriptor = Object.getOwnPropertyDescriptor(process, 'stdin');
+  const originalLog = console.log;
+  const originalReaddir = fs.readdir;
+  const originalWriteFile = fs.writeFile;
+  const output = [];
+  let historyScans = 0;
+  let fileWrites = 0;
+  try {
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(path.join(sessionDir, 'valid-session.json'), JSON.stringify({ id: 'valid-session' }));
+    fs.readdir = async (target, ...args) => {
+      if (path.resolve(String(target)) === sessionDir) historyScans += 1;
+      return originalReaddir(target, ...args);
+    };
+    fs.writeFile = async (target, ...args) => {
+      if (path.resolve(String(target)).startsWith(`${root}${path.sep}`)) fileWrites += 1;
+      return originalWriteFile(target, ...args);
+    };
+    Object.defineProperty(process, 'stdin', { configurable: true, value: Readable.from(['/export ../outside md\n/quit\n']) });
+    console.log = (...args) => output.push(args.join(' '));
+
+    await main(['--cwd', root, 'interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream']);
+
+    assert.equal(historyScans, 0);
+    assert.equal(fileWrites, 0);
+    assert.match(output.join('\n'), /Session ids may only contain letters, numbers, underscores, and dashes\./);
+    assert.equal(await fs.readFile(path.join(sessionDir, 'valid-session.json'), 'utf8'), JSON.stringify({ id: 'valid-session' }));
+  } finally {
+    console.log = originalLog;
+    fs.readdir = originalReaddir;
+    fs.writeFile = originalWriteFile;
+    Object.defineProperty(process, 'stdin', stdinDescriptor);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('starter config creation is exclusive and preserves a populated config', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-init-exclusive-'));
   try {
