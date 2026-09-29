@@ -481,7 +481,7 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
     assert.match(output.slice(0, repeatOutputStart), /Second room mission/i, 'Room 2 should receive its mission before /again');
     assert.match(output, /Room 2 finished\. Continue there or switch rooms\./i);
     assert.match(output.slice(repeatOutputStart), /Room 1 started turn 2\.|Room 1\s*›\s*First room mission/i, 'Room 1 should keep its mission available to /again after cancellation');
-    assert.match(output.slice(repeatOutputStart), /Room 1 complete/i, 'Room 1 should complete the repeated mission after cancellation');
+    assert.match(output.slice(repeatOutputStart), /Both rooms are ready\./i, 'Room 1 should finish the repeated mission after cancellation');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
