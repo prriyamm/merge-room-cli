@@ -612,6 +612,100 @@ test('cockpit /run accepts slash-prefixed missions and unknown commands show gui
   assert.equal((stdout.match(/Mission complete/g) || []).length, 2);
 });
 
+test('TTY mission input keeps the team selected when the next buffered line changes it', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-cockpit-input-team-race-'));
+  const configFile = path.join(root, 'merge-room.config.json');
+  await fs.writeFile(configFile, JSON.stringify({
+    provider: 'demo',
+    sessionDir: null,
+    agents: [
+      { id: 'scout', name: 'Scout', specialty: 'Research', stage: 1 },
+      { id: 'critic', name: 'Critic', specialty: 'Review', stage: 1 }
+    ]
+  }), 'utf8');
+  const cliUrl = new URL('../src/cli.js', import.meta.url).href;
+  const script = `process.stdin.isTTY = true; process.stdout.isTTY = true; process.env.TERM = 'dumb'; const { main } = await import(${JSON.stringify(cliUrl)}); main(['--config', ${JSON.stringify(configFile)}, 'interactive', '--no-context', '--no-save', '--no-stream', '--team=scout']).catch((error) => { console.error(error); process.exitCode = 1; });`;
+  try {
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      let commandsSent = false;
+      let quitSent = false;
+      const timeout = setTimeout(() => {
+        child.kill();
+        reject(new Error(`Timed out waiting for the buffered mission to start. Output: ${stdout}\n${stderr}`));
+      }, 10000);
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+        if (!commandsSent && /room 1\s*›/i.test(stdout)) {
+          commandsSent = true;
+          child.stdin.write('First mission\n/team critic\n');
+        }
+        if (commandsSent && !quitSent && /room 1[^\r\n]*(?:Scout|Critic)[^\r\n]*is working/i.test(stdout)) {
+          quitSent = true;
+          child.stdin.write('/quit\n');
+        }
+      });
+      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      child.once('error', (error) => { clearTimeout(timeout); reject(error); });
+      child.once('close', (code) => {
+        clearTimeout(timeout);
+        code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`CLI exited ${code}: ${stderr}`));
+      });
+    });
+
+    assert.match(stdout, /Team: Critic/, 'the buffered team command should still run after the mission was entered');
+    assert.match(stdout, /room 1[^\r\n]*Scout[^\r\n]*is working/i, 'the mission should keep the team selected at its input line');
+    assert.doesNotMatch(stdout, /room 1[^\r\n]*Critic[^\r\n]*is working/i, 'the later team command applies only to future turns');
+    assert.doesNotMatch(stderr, /Error|AssertionError/i);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('TTY mission is launched before a following buffered quit closes the cockpit', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-cockpit-input-quit-race-'));
+  const configFile = path.join(root, 'merge-room.config.json');
+  await fs.writeFile(configFile, JSON.stringify({ provider: 'demo', sessionDir: null }), 'utf8');
+  const cliUrl = new URL('../src/cli.js', import.meta.url).href;
+  const script = `process.stdin.isTTY = true; process.stdout.isTTY = true; process.env.TERM = 'dumb'; const { main } = await import(${JSON.stringify(cliUrl)}); main(['--config', ${JSON.stringify(configFile)}, 'interactive', '--no-context', '--no-save', '--no-stream']).catch((error) => { console.error(error); process.exitCode = 1; });`;
+  try {
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      let commandsSent = false;
+      const timeout = setTimeout(() => {
+        child.kill();
+        reject(new Error(`Timed out waiting for the buffered quit flow. Output: ${stdout}\n${stderr}`));
+      }, 10000);
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+        if (!commandsSent && /room 1\s*›/i.test(stdout)) {
+          commandsSent = true;
+          child.stdin.write('First mission\n/quit\n');
+        }
+      });
+      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      child.once('error', (error) => { clearTimeout(timeout); reject(error); });
+      child.once('close', (code) => {
+        clearTimeout(timeout);
+        code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`CLI exited ${code}: ${stderr}`));
+      });
+    });
+
+    assert.match(stdout, /  Room 1\s*›\s*First mission/, 'the mission should launch before the following quit is applied');
+    assert.doesNotMatch(stderr, /Error|AssertionError/i);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('cockpit /again repeats the selected room request with its conversation', async () => {
   const originalLog = console.log;
   const originalFetch = globalThis.fetch;

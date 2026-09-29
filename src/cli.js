@@ -516,7 +516,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       const room = renderer.state.rooms[roomIndex];
       if (room.running) setMessage(`Room ${room.id} is working. Wait for it to finish before using /again.`);
       else if (!room.request) setMessage(`Room ${room.id} has no previous mission to repeat. Run a mission first.`);
-      else { const previousRequest = room.request; await waitForActiveRoom(roomIndex); await launch(previousRequest, inputNoticeSequence, roomIndex); }
+      else { const previousRequest = room.request; if (!isTerminal) await waitForActiveRoom(roomIndex); await launch(previousRequest, inputNoticeSequence, roomIndex); }
       return true;
     }
     if (request === '/agents') {
@@ -644,7 +644,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (/^\/run(?:\s|$)/.test(request)) {
       const mission = request.slice('/run'.length).trim();
       if (!mission) setMessage('Use /run <mission>.');
-      else { const roomIndex = renderer.state.activeRoom; await waitForActiveRoom(roomIndex); await launch(mission, inputNoticeSequence, roomIndex); }
+      else { const roomIndex = renderer.state.activeRoom; if (!isTerminal) await waitForActiveRoom(roomIndex); await launch(mission, inputNoticeSequence, roomIndex); }
       return true;
     }
     if (request.startsWith('/')) {
@@ -652,7 +652,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     const roomIndex = renderer.state.activeRoom;
-    await waitForActiveRoom(roomIndex);
+    if (!isTerminal) await waitForActiveRoom(roomIndex);
     await launch(request, inputNoticeSequence, roomIndex);
     return true;
   }
