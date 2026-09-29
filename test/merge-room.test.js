@@ -2676,15 +2676,15 @@ test('workspace context is bounded and excludes secret-looking files', async () 
 test('workspace context redacts service account private keys and PEM blocks', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-context-service-account-'));
   try {
-    const privateKey = '-----BEGIN PRIVATE KEY-----\\nSERVICE_ACCOUNT_KEY_MATERIAL\\n-----END PRIVATE KEY-----';
+    const privateKey = `-----BEGIN PRIVATE KEY-----\\nSERVICE_ACCOUNT_KEY_MATERIAL_${'X'.repeat(3000)}\\n-----END PRIVATE KEY-----`;
     await fs.writeFile(path.join(root, 'service-account.json'), JSON.stringify({
       type: 'service_account',
       private_key_id: 'SERVICE_ACCOUNT_KEY_ID',
       private_key: privateKey,
     }), 'utf8');
-    await fs.writeFile(path.join(root, 'deployment.txt'), '-----BEGIN RSA PRIVATE KEY-----\nRAW_PEM_KEY_MATERIAL\n-----END RSA PRIVATE KEY-----\n', 'utf8');
+    await fs.writeFile(path.join(root, 'deployment.txt'), `-----BEGIN RSA PRIVATE KEY-----\nRAW_PEM_KEY_MATERIAL_${'Y'.repeat(3000)}\n-----END RSA PRIVATE KEY-----\n`, 'utf8');
 
-    const context = await collectWorkspaceContext(root, { maxBytes: 5000, maxFiles: 10 });
+    const context = await collectWorkspaceContext(root, { maxBytes: 5000, maxFiles: 10, maxExcerptBytes: 2400 });
     const formatted = formatWorkspaceContext(context);
     const serviceAccount = context.excerpts.find((item) => item.path === 'service-account.json');
     assert.ok(serviceAccount);
@@ -2693,6 +2693,27 @@ test('workspace context redacts service account private keys and PEM blocks', as
     assert.equal(formatted.includes('SERVICE_ACCOUNT_KEY_MATERIAL'), false);
     assert.equal(formatted.includes('SERVICE_ACCOUNT_KEY_ID'), false);
     assert.equal(formatted.includes('RAW_PEM_KEY_MATERIAL'), false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('workspace Git diff redacts private-key values clipped at the diff bound', async () => {
+  try { await execFileAsync('git', ['--version']); } catch { return; }
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-context-clipped-key-diff-'));
+  try {
+    await execFileAsync('git', ['init'], { cwd: root });
+    await execFileAsync('git', ['config', 'user.name', 'Merge Room Test'], { cwd: root });
+    await execFileAsync('git', ['config', 'user.email', 'merge-room-test@example.invalid'], { cwd: root });
+    const file = path.join(root, 'service-account.json');
+    await fs.writeFile(file, `{"private_key":"DIFF_PRIVATE_KEY_MATERIAL_${'A'.repeat(14000)}"}\n`, 'utf8');
+    await execFileAsync('git', ['add', 'service-account.json'], { cwd: root });
+    await execFileAsync('git', ['commit', '-m', 'add service account fixture'], { cwd: root });
+    await fs.writeFile(file, `{"private_key":"UPDATED_DIFF_PRIVATE_KEY_MATERIAL_${'B'.repeat(14000)}"}\n`, 'utf8');
+
+    const context = await collectWorkspaceContext(root, { includeDiff: true, maxBytes: 5000 });
+    assert.ok(context.git.diff.length <= 12000);
+    assert.doesNotMatch(context.git.diff, /DIFF_PRIVATE_KEY_MATERIAL|UPDATED_DIFF_PRIVATE_KEY_MATERIAL/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
