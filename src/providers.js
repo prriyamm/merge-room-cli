@@ -410,10 +410,14 @@ async function readAnthropicStream(body, onDelta) {
 
 function anthropicInputTokens(usage) {
   if (!usage || !['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'].some((key) => usage[key] != null)) return undefined;
-  return ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'].reduce((total, key) => {
-    const value = Number(usage[key]);
-    return total + (Number.isFinite(value) && value > 0 ? value : 0);
-  }, 0);
+  let total = 0;
+  for (const key of ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']) {
+    if (usage[key] == null) continue;
+    const value = usage[key];
+    if (!Number.isSafeInteger(value) || value < 0 || !Number.isSafeInteger(total + value)) return undefined;
+    total += value;
+  }
+  return total;
 }
 
 async function readStream(body, onDelta) {
