@@ -149,6 +149,7 @@ export class MergeRoomEngine {
      return result;
     } catch (error) {
       if (error.name === 'AbortError') throw error;
+      ensureActive(signal);
       this.ledger.add(0, 0, { model: modelKey({}, agent, this.provider, this.config) });
       const route = agent.provider || this.provider.defaultProvider;
       const profile = this.config.providers?.[route];
