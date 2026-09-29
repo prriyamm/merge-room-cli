@@ -233,7 +233,7 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     const header = ` ${color('bold', 'MERGE ROOM')} ${color('gray', `· ${sanitizeUntrustedText(provider.name)} · two live sessions`)}`;
     const help = ' /1 /2 switch · /new reset · /cancel turn · /help · /quit';
     if (terminalWidth < 84 || terminalRows < 24) {
-      const isHelpMessage = state.message.startsWith('Help:');
+      const isHelpMessage = state.message.startsWith('Help:') || state.message.startsWith('/agents [id] /team');
       const showRoomStatus = !isHelpMessage && terminalHeight >= 3;
       const showHelp = !isHelpMessage && terminalHeight >= 5;
       const showMessage = terminalHeight >= 3 || isHelpMessage && terminalHeight >= 2;
