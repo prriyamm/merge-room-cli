@@ -2673,6 +2673,31 @@ test('workspace context is bounded and excludes secret-looking files', async () 
   }
 });
 
+test('workspace context redacts service account private keys and PEM blocks', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-context-service-account-'));
+  try {
+    const privateKey = '-----BEGIN PRIVATE KEY-----\\nSERVICE_ACCOUNT_KEY_MATERIAL\\n-----END PRIVATE KEY-----';
+    await fs.writeFile(path.join(root, 'service-account.json'), JSON.stringify({
+      type: 'service_account',
+      private_key_id: 'SERVICE_ACCOUNT_KEY_ID',
+      private_key: privateKey,
+    }), 'utf8');
+    await fs.writeFile(path.join(root, 'deployment.txt'), '-----BEGIN RSA PRIVATE KEY-----\nRAW_PEM_KEY_MATERIAL\n-----END RSA PRIVATE KEY-----\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { maxBytes: 5000, maxFiles: 10 });
+    const formatted = formatWorkspaceContext(context);
+    const serviceAccount = context.excerpts.find((item) => item.path === 'service-account.json');
+    assert.ok(serviceAccount);
+    assert.match(serviceAccount.text, /"private_key":"\[redacted\]"/);
+    assert.match(serviceAccount.text, /"private_key_id":"\[redacted\]"/);
+    assert.equal(formatted.includes('SERVICE_ACCOUNT_KEY_MATERIAL'), false);
+    assert.equal(formatted.includes('SERVICE_ACCOUNT_KEY_ID'), false);
+    assert.equal(formatted.includes('RAW_PEM_KEY_MATERIAL'), false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('workspace excerpts and opt-in Git diffs redact complete Authorization header values', async () => {
   try { await execFileAsync('git', ['--version']); } catch { return; }
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-authorization-redaction-'));

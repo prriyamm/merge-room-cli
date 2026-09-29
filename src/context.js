@@ -225,6 +225,7 @@ function formatBytes(bytes) {
 }
 
 function redactSecrets(text) {
+  text = text.replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g, '[redacted]');
   const lines = text.split(/(\r\n|\n|\r)/);
   const unifiedDiff = /^(?:diff --git |@@ )/m.test(text);
   for (let index = 0; index < lines.length; index += 2) {
@@ -248,7 +249,7 @@ function redactSecrets(text) {
   }
   const withAuthorizationHeadersRedacted = lines.join('');
   const withAuthSchemeCredentialsRedacted = withAuthorizationHeadersRedacted.replace(/\b((?:Bearer|Basic|Token|Digest|HOBA|Mutual|Negotiate|OAuth|SCRAM(?:-[A-Z0-9-]+)?|VAPID|AWS4-HMAC-SHA256|Signature|DPoP)\s+)(?![=:])[^\r\n]*/gi, '$1[redacted]');
-  const assignmentPattern = /(^|[^A-Za-z0-9_])((?:[A-Za-z][A-Za-z0-9_-]*[-_])?(?:api[_-]?key|(?:api|access|refresh|id|auth|session|provider)[_-]?token|token|auth|password|passwd|secret)["']?\s*[=:]\s*)(?:"(?:\\.|[^"\\\r\n])*"|'(?:''|\\.|[^'\\\r\n])*'|[^\s"'`,}]+)/gi;
+  const assignmentPattern = /(^|[^A-Za-z0-9_])((?:[A-Za-z][A-Za-z0-9_-]*[-_])?(?:private[_-]?key(?:[_-]?id)?|api[_-]?key|(?:api|access|refresh|id|auth|session|provider)[_-]?token|token|auth|password|passwd|secret)["']?\s*[=:]\s*)(?:"(?:\\.|[^"\\\r\n])*"|'(?:''|\\.|[^'\\\r\n])*'|[^\s"'`,}]+)/gi;
   const usageTokenPrefixes = new Set(['input', 'output', 'prompt', 'completion', 'total', 'reasoning', 'cached', 'read', 'write', 'creation']);
   return withAuthSchemeCredentialsRedacted.split(/(\r\n|\n|\r)/).map((line, index) => {
     if (index % 2 === 1) return line;
