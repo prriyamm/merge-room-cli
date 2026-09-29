@@ -482,7 +482,7 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
       try {
         const diffArgs = ['diff', ...(diffBase ? [diffBase] : []), '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=2', '--', ...pathArgs];
         const diffResult = await execFileAsync('git', diffArgs, { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
-        diff = redactSecrets(diffResult.stdout.trim().slice(0, 12000));
+        diff = clipUtf8(redactSecrets(diffResult.stdout.trim()), 12000);
       } catch { /* A diff is optional context; status and stats remain useful without it. */ }
     }
     if (includeDiff && untrackedDiffPaths.length && Buffer.byteLength(diff, 'utf8') < 12000) {
@@ -499,7 +499,7 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
         chunks.push(chunk);
         diffBytes += Buffer.byteLength(chunk, 'utf8');
       }
-      diff = redactSecrets(chunks.join('\n').trim().slice(0, 12000));
+      diff = clipUtf8(redactSecrets(chunks.join('\n').trim()), 12000);
     }
     return { status, diffStat, diff };
   } catch (error) {
@@ -546,6 +546,9 @@ function formatUntrackedDiff(relative, buffer, maxBytes) {
   if (Buffer.byteLength(header, 'utf8') + 20 >= maxBytes) return '';
   const text = buffer.toString('utf8');
   const lines = text.split(/\r?\n/);
+  const hasFinalNewline = /(?:\r\n|\n)$/.test(text);
+  if (hasFinalNewline) lines.pop();
+  else if (!text) lines.length = 0;
   const additions = [];
   let usedBytes = Buffer.byteLength(header, 'utf8') + 32;
   for (const line of lines) {
@@ -557,12 +560,13 @@ function formatUntrackedDiff(relative, buffer, maxBytes) {
   }
   const truncated = buffer.length > 12000 || additions.length < lines.length;
   const marker = truncated ? '+[diff excerpt truncated]\n' : '';
-  const markerBytes = Buffer.byteLength(marker, 'utf8');
+  const noNewlineMarker = !truncated && text.length > 0 && !hasFinalNewline ? '\\ No newline at end of file\n' : '';
+  const markerBytes = Buffer.byteLength(marker + noNewlineMarker, 'utf8');
   while (additions.length && usedBytes + markerBytes > maxBytes) {
     usedBytes -= Buffer.byteLength(additions.pop(), 'utf8');
   }
-  const hunk = `@@ -0,0 +1,${additions.length} @@\n`;
-  return `${header}${hunk}${additions.join('')}${marker}`;
+  const hunk = `@@ -0,0 +1,${additions.length + (truncated ? 1 : 0)} @@\n`;
+  return `${header}${hunk}${additions.join('')}${marker}${noNewlineMarker}`;
 }
 
 async function getDiffStat(cwd, base, pathArgs, signal) {
