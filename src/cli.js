@@ -554,9 +554,10 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       const parts = request.slice('/export'.length).trim().split(/\s+/).filter(Boolean);
       if (!parts[0]) { setMessage('Use /export <id> [md|json].'); return true; }
       try {
-        if (!activeConfig.sessionDir) throw new Error('Session history is disabled.');
-        const sessionId = await resolveSessionId(parts[0], activeConfig, workspace);
-        const session = await readSession(sessionId, workspace, activeConfig.sessionDir);
+        const sessionConfig = activeConfig;
+        if (!sessionConfig.sessionDir) throw new Error('Session history is disabled.');
+        const sessionId = await resolveSessionId(parts[0], sessionConfig, workspace);
+        const session = await readSession(sessionId, workspace, sessionConfig.sessionDir);
         if (!session) throw new Error(`Session not found: ${parts[0]}`);
         const extension = String(parts[1] || 'md').toLowerCase() === 'json' ? 'json' : 'md';
         const file = await writeSessionExport(session, workspace, `merge-room-${sessionId}.${extension}`, extension);
