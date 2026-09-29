@@ -111,6 +111,21 @@ test('cockpit wait includes tasks added while existing work is finishing', async
   assert.equal(tasks.size, 0);
 });
 
+test('cockpit wait catches work queued in the same readline turn while idle', async () => {
+  const tasks = new Map();
+  let finishMission;
+  let finished = false;
+  const waiting = waitForCockpitTasks(tasks).then(() => { finished = true; });
+  const mission = new Promise((resolve) => { finishMission = resolve; }).finally(() => tasks.delete('mission'));
+  tasks.set('mission', mission);
+
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(finished, false);
+  finishMission();
+  await waiting;
+  assert.equal(tasks.size, 0);
+});
+
 test('cockpit renders a left activity rail and a focused room pane', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };
