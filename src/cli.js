@@ -699,12 +699,14 @@ function abortError() {
 
 function publicProviderProfile(profile, config) {
   if (profile.type === 'codex-cli') return { type: profile.type, model: profile.model || config.model || 'codex-default', authentication: 'Codex CLI sign-in', configured: null };
+  if (profile.type === 'claude-code-cli') return { type: profile.type, model: profile.model || 'claude-code-default', authentication: 'Claude Code CLI sign-in', configured: null };
   const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
   return { type: profile.type, model: profile.model || config.model, baseUrl: safeBaseUrl(profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl)), apiKeyEnv: envName, configured: Boolean(process.env[envName]) };
 }
 
 function doctorProviderProfile(profile, config) {
   if (profile.type === 'codex-cli') return { type: profile.type, model: profile.model || config.model || 'codex-default', authentication: 'Codex CLI sign-in', configured: null };
+  if (profile.type === 'claude-code-cli') return { type: profile.type, model: profile.model || 'claude-code-default', authentication: 'Claude Code CLI sign-in', configured: null };
   const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
   return { type: profile.type, model: profile.model || config.model, baseUrl: safeBaseUrl(profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl)), credentialEnv: envName, configured: Boolean(process.env[envName]) };
 }
