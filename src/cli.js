@@ -734,10 +734,10 @@ async function exportMission({ cleanArgs, config, formatValue, outputValue, json
   if (outputValue) {
     const sourceFile = path.resolve(workspace, config.sessionDir, `${sessionId}.json`);
     const outputFile = path.resolve(workspace, outputValue);
-    const sameFile = process.platform === 'win32'
+    const samePath = process.platform === 'win32'
       ? sourceFile.toLowerCase() === outputFile.toLowerCase()
       : sourceFile === outputFile;
-    if (sameFile) throw new Error('Cannot export a session to its own saved file. Choose a different output path.');
+    if (samePath || await refersToSameFile(sourceFile, outputFile)) throw new Error('Cannot export a session to its own saved file. Choose a different output path.');
     const file = await writeSessionExport(session, workspace, outputValue, normalizedFormat);
     if (json) console.log(JSON.stringify({ id: sessionId, format: normalizedFormat, file }, null, 2));
     else console.log(`  Exported ${sessionId} → ${file}`);
@@ -746,6 +746,38 @@ async function exportMission({ cleanArgs, config, formatValue, outputValue, json
   } else {
     console.log(formatSessionMarkdown(session));
   }
+}
+
+async function refersToSameFile(sourceFile, outputFile) {
+  let sourceStats;
+  let outputStats;
+  try {
+    [sourceStats, outputStats] = await Promise.all([
+      fs.stat(sourceFile, { bigint: true }),
+      fs.stat(outputFile, { bigint: true })
+    ]);
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+
+  // Node exposes the volume and file index on Windows as dev/ino too. These
+  // identify hard links, while stat follows symlinks on every supported OS.
+  if (sourceStats.dev === outputStats.dev && sourceStats.ino !== 0n && sourceStats.ino === outputStats.ino) return true;
+
+  // Keep symlink detection reliable on filesystems that do not expose a useful
+  // inode number, and account for platform-specific path casing.
+  let sourceRealPath;
+  let outputRealPath;
+  try {
+    [sourceRealPath, outputRealPath] = await Promise.all([fs.realpath(sourceFile), fs.realpath(outputFile)]);
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+  return process.platform === 'win32'
+    ? sourceRealPath.toLowerCase() === outputRealPath.toLowerCase()
+    : sourceRealPath === outputRealPath;
 }
 
 function summarizeUsage(sessions) {
