@@ -2388,14 +2388,20 @@ test('workspace context keeps leading-slash gitignore patterns anchored at the r
   }
 });
 
-test('workspace context honors escaped trailing spaces in gitignore patterns', async () => {
+test('workspace context honors escaped literals and trailing spaces in gitignore patterns', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-escaped-space-'));
   try {
-    await fs.writeFile(path.join(root, '.gitignore'), 'private\\ \n', 'utf8');
+    await fs.writeFile(path.join(root, '.gitignore'), 'private\\ \nliteral\\*\nliteral\\?\n', 'utf8');
     await fs.writeFile(path.join(root, 'private '), 'must not be sent\n', 'utf8');
+    await fs.writeFile(path.join(root, 'literal*'), 'must not be sent\n', 'utf8');
+    await fs.writeFile(path.join(root, 'literal?'), 'must not be sent\n', 'utf8');
+    await fs.writeFile(path.join(root, 'literalX'), 'ordinary glob characters still match\n', 'utf8');
 
     const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
     assert.equal(context.entries.some((entry) => entry.startsWith('private ')), false);
+    assert.equal(context.entries.some((entry) => entry.startsWith('literal*')), false);
+    assert.equal(context.entries.some((entry) => entry.startsWith('literal?')), false);
+    assert.equal(context.entries.some((entry) => entry.startsWith('literalX')), true);
     assert.equal(context.excerpts.some((item) => item.path === 'private '), false);
   } finally {
     await fs.rm(root, { recursive: true, force: true });

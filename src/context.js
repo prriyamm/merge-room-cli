@@ -288,7 +288,7 @@ function ignorePatternRegex(pattern, matchBasename = !pattern.includes('/')) {
   for (let index = 0; index < pattern.length; index += 1) {
     const char = pattern[index];
     if (char === '\\' && index + 1 < pattern.length) {
-      body += pattern[++index].replace(/[.+^${}()|[\]\\]/g, '\\$&');
+      body += pattern[++index].replace(/[.*?+^${}()|[\]\\]/g, '\\$&');
     } else if (char === '*' && pattern[index + 1] === '*' && pattern[index + 2] === '/') {
       body += '(?:.*/)?';
       index += 2;
