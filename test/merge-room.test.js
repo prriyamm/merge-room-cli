@@ -1621,6 +1621,32 @@ test('CLI preflight plan resolves effective provider models for agents and lead'
       ['work', 'gpt-work'], ['review', 'claude-review'], ['review', 'custom-review']
     ]);
     assert.equal(plan.waves.flatMap((wave) => wave.agents).find((agent) => agent.id === 'critic').model, 'claude-review');
+
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      provider: 'demo',
+      providers: { work: { type: 'openai-compatible', model: 'gpt-work' } },
+      defaultProvider: 'work', leadProvider: 'work',
+      agents: [{ id: 'scout', name: 'Scout', stage: 1, provider: 'work' }]
+    }));
+    const forced = await execFileAsync(process.execPath, [bin, '-C', root, 'plan', '--no-context', '--json', 'demo audit'], { cwd: root, windowsHide: true });
+    const demoPlan = JSON.parse(forced.stdout);
+    assert.equal(demoPlan.configuredProfilesBypassed, true);
+    assert.equal(demoPlan.effectiveLeadProvider, 'demo');
+    assert.equal(demoPlan.model, 'local-demo');
+    assert.deepEqual([demoPlan.agents[0].provider, demoPlan.agents[0].configuredProvider, demoPlan.agents[0].model], ['demo', 'work', 'local-demo']);
+
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      providers: { codex: { type: 'codex-cli' }, claude: { type: 'claude-code-cli' } },
+      defaultProvider: 'codex', leadProvider: 'claude',
+      agents: [{ id: 'scout', name: 'Scout', stage: 1, provider: 'codex' }, { id: 'critic', name: 'Critic', stage: 3, provider: 'claude' }]
+    }));
+    const native = await execFileAsync(process.execPath, [bin, '-C', root, 'plan', '--no-context', '--json', 'native audit'], { cwd: root, windowsHide: true });
+    const nativePlan = JSON.parse(native.stdout);
+    assert.equal(nativePlan.model, null);
+    assert.equal(nativePlan.modelSource, 'cli-default');
+    assert.deepEqual(nativePlan.agents.map(({ provider, model, modelSource }) => [provider, model, modelSource]), [
+      ['codex', null, 'cli-default'], ['claude', null, 'cli-default']
+    ]);
     assert.deepEqual(await listSessions(root), []);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
