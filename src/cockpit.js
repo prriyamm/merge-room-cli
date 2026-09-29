@@ -16,9 +16,12 @@ export function resolveAgentReference(agents, query) {
 
 export function restoreAgentStatuses(currentAgents = [], savedAgents = []) {
   const statuses = Object.fromEntries(currentAgents.map((agent) => [agent.id, 'idle']));
+  const validStatuses = new Set(['idle', 'queued', 'working', 'done', 'error', 'skipped', 'cancelled']);
   for (const saved of savedAgents) {
     const id = saved.agent?.id;
-    if (id) statuses[id] = saved.status || 'done';
+    if (id && Object.hasOwn(statuses, id)) {
+      statuses[id] = validStatuses.has(saved.status) ? saved.status : 'done';
+    }
   }
   return statuses;
 }

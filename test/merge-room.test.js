@@ -95,13 +95,13 @@ test('cockpit agent lookup prefers an exact ID over another agent name', () => {
   assert.equal(resolveAgentReference(agents, 'unknown'), null);
 });
 
-test('cockpit restores statuses for saved specialists outside the selected team', () => {
+test('cockpit restores statuses only for the current team', () => {
   const currentTeam = [{ id: 'scout' }, { id: 'maker' }];
   const savedAgents = [
     { agent: { id: 'scout' }, status: 'done' },
     { agent: { id: 'critic' }, status: 'error' }
   ];
-  assert.deepEqual(restoreAgentStatuses(currentTeam, savedAgents), { scout: 'done', maker: 'idle', critic: 'error' });
+  assert.deepEqual(restoreAgentStatuses(currentTeam, savedAgents), { scout: 'done', maker: 'idle' });
 });
 
 test('cockpit wait includes tasks added while existing work is finishing', async () => {
