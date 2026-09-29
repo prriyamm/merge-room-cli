@@ -3783,6 +3783,37 @@ test('temperature validation follows configured provider and model capabilities'
   await assert.rejects(() => main(['--temperature', '2.1', '--no-context', 'mission']), /between 0 and 2/);
 });
 
+test('temperature validation ignores unreachable provider profiles but protects routed profiles', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-temperature-routes-'));
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      temperature: 1.5,
+      providers: {
+        openai: { type: 'openai-compatible', model: 'gpt-4o-mini' },
+        unusedClaude: { type: 'anthropic', model: 'claude-sonnet-4-6' }
+      },
+      leadProvider: 'openai',
+      agents: [{ id: 'scout', provider: 'openai' }]
+    }), 'utf8');
+    const config = await loadConfig(root);
+    assert.equal(config.defaultProvider, null);
+    assert.equal(createProvider(config).name, 'multi-provider');
+
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      temperature: 1.5,
+      providers: {
+        openai: { type: 'openai-compatible', model: 'gpt-4o-mini' },
+        claude: { type: 'anthropic', model: 'claude-sonnet-4-6' }
+      },
+      leadProvider: 'openai',
+      agents: [{ id: 'scout', provider: 'claude' }]
+    }), 'utf8');
+    await assert.rejects(() => loadConfig(root), /Anthropic temperature.*between 0 and 1/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('API adapters reject unsupported temperatures before sending requests', async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
