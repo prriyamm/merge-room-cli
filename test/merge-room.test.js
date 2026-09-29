@@ -498,6 +498,14 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
   let fourthTurnOutputStart = 0;
   let phase = 0;
   const roomOneComplete = /Room 1(?:\s+complete|\s+done)/i;
+  const roomOneCompletedForMission = (value, mission) => {
+    const output = value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+    const lines = output.split(/\r?\n/);
+    const workingIndex = lines.findIndex((line, index) =>
+      /Room\s+1\s+working/i.test(line) && lines[index + 1]?.includes(mission)
+    );
+    return workingIndex >= 0 && lines.slice(workingIndex + 1).some((line) => roomOneComplete.test(line));
+  };
   try {
     const { stdout, stderr } = await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -505,14 +513,6 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
       let stderr = '';
       let firstMissionSent = false;
       let quitSent = false;
-      const roomOneCompletedForMission = (value, mission) => {
-        const output = value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-        const lines = output.split(/\r?\n/);
-        const workingIndex = lines.findIndex((line, index) =>
-          /Room\s+1\s+working/i.test(line) && lines[index + 1]?.includes(mission)
-        );
-        return workingIndex >= 0 && lines.slice(workingIndex + 1).some((line) => roomOneComplete.test(line));
-      };
       const roomOneCompletedAfter = (offset, mission) => roomOneCompletedForMission(stdout.slice(offset), mission);
       const timeout = setTimeout(() => {
         child.kill();
