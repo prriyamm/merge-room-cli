@@ -2969,6 +2969,47 @@ test('sessions can be saved, listed, and reopened', async () => {
   }
 });
 
+test('saved sessions and their directory have private POSIX permissions', { skip: process.platform === 'win32' }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-permissions-'));
+  const parent = path.join(root, 'custom');
+  const sessions = path.join(parent, 'sessions');
+  try {
+    await fs.mkdir(parent, { mode: 0o755 });
+    await fs.mkdir(sessions, { mode: 0o755 });
+    await fs.chmod(root, 0o755);
+    await fs.chmod(parent, 0o755);
+    await fs.chmod(sessions, 0o755);
+
+    const saved = await saveSession({ request: 'private mission' }, root, 'custom/sessions');
+    const rootMode = (await fs.stat(root)).mode & 0o777;
+    const parentMode = (await fs.stat(parent)).mode & 0o777;
+    const sessionMode = (await fs.stat(sessions)).mode & 0o777;
+    const fileMode = (await fs.stat(saved.file)).mode & 0o777;
+    assert.equal(rootMode, 0o755, 'workspace directory permissions should remain unchanged');
+    assert.equal(parentMode, 0o755, 'custom ancestor permissions should remain unchanged');
+    assert.equal(sessionMode, 0o700);
+    assert.equal(fileMode, 0o600);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('saving sessions outside the workspace does not chmod an ancestor', { skip: process.platform === 'win32' }, async () => {
+  const container = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-external-permissions-'));
+  const workspace = path.join(container, 'workspace');
+  try {
+    await fs.mkdir(workspace, { mode: 0o755 });
+    await fs.chmod(container, 0o755);
+    await fs.chmod(workspace, 0o755);
+
+    const saved = await saveSession({ request: 'external destination' }, workspace, '..');
+    assert.equal((await fs.stat(container)).mode & 0o777, 0o755, 'external destination directory permissions should remain unchanged');
+    assert.equal((await fs.stat(saved.file)).mode & 0o777, 0o600);
+  } finally {
+    await fs.rm(container, { recursive: true, force: true });
+  }
+});
+
 test('session filenames remain canonical when saved JSON is hand-edited', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-canonical-id-'));
   const sessions = path.join(root, 'sessions');
