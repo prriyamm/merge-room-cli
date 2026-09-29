@@ -11,7 +11,7 @@ export async function saveSession(result, cwd = process.cwd(), directory = '.mer
  const file = path.join(root, `${id}.json`);
   const temporary = path.join(root, `.${id}.tmp-${process.pid}`);
   try {
-    await fs.writeFile(temporary, `${JSON.stringify({ ...result, id, savedAt }, null, 2)}\n`, 'utf8');
+    await fs.writeFile(temporary, `${JSON.stringify({ ...result, id, savedAt }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     await fs.rename(temporary, file);
   } finally {
     await fs.rm(temporary, { force: true }).catch(() => {});
@@ -98,6 +98,14 @@ async function createSessionDirectory(cwd, directory) {
   }
   const root = await resolveSessionDirectory(base, requestedRoot);
   if (!root) throw new Error('Session directory must not contain symbolic links.');
+  const relativeRoot = path.relative(path.resolve(base), path.resolve(root));
+  const rootIsWithinWorkspace = relativeRoot !== ''
+    && relativeRoot !== '..'
+    && !relativeRoot.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relativeRoot);
+  if (process.platform !== 'win32' && rootIsWithinWorkspace) {
+    await fs.chmod(root, 0o700);
+  }
   return root;
 }
 
