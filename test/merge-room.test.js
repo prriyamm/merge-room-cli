@@ -506,9 +506,9 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
       let firstMissionSent = false;
       let quitSent = false;
       const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for the repeated mission. Output: ${stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')}\n${stderr}`)); }, 15000);
-      const roomOneTurnFinishedAfter = (offset) => {
+      const roomOneTurnFinishedAfter = (offset, turn) => {
         const output = stdout.slice(offset).replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-        const turnStartMarkers = [output.indexOf('Scout is working'), output.search(/Room 1 started turn \d+\./i)].filter((index) => index >= 0);
+        const turnStartMarkers = [output.indexOf('Scout is working'), output.indexOf(`Room 1 started turn ${turn}.`)].filter((index) => index >= 0);
         const turnStartedAt = turnStartMarkers.length ? Math.min(...turnStartMarkers) : -1;
         return turnStartedAt >= 0 && roomOneComplete.test(output.slice(turnStartedAt));
       };
@@ -520,22 +520,22 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
           firstMissionSent = true;
           child.stdin.write('First room mission\n');
         }
-        if (phase === 0 && firstMissionSent && roomOneTurnFinishedAfter(0)) {
+        if (phase === 0 && firstMissionSent && roomOneTurnFinishedAfter(0, 1)) {
           phase = 1;
           secondTurnOutputStart = stdout.length;
           child.stdin.write('/again\n/2\n');
         }
-        if (phase === 1 && roomOneTurnFinishedAfter(secondTurnOutputStart)) {
+        if (phase === 1 && roomOneTurnFinishedAfter(secondTurnOutputStart, 2)) {
           phase = 2;
           thirdTurnOutputStart = stdout.length;
           child.stdin.write('/1\nThird room mission\n/2\n');
         }
-        if (phase === 2 && roomOneTurnFinishedAfter(thirdTurnOutputStart)) {
+        if (phase === 2 && roomOneTurnFinishedAfter(thirdTurnOutputStart, 3)) {
           phase = 3;
           fourthTurnOutputStart = stdout.length;
           child.stdin.write('/1\n/run Fourth room mission\n/2\n');
         }
-        if (phase === 3 && !quitSent && roomOneTurnFinishedAfter(fourthTurnOutputStart)) {
+        if (phase === 3 && !quitSent && roomOneTurnFinishedAfter(fourthTurnOutputStart, 4)) {
           phase = 4;
           quitSent = true;
           child.stdin.write('/quit\n');
