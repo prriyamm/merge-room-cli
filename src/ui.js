@@ -255,7 +255,7 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
           ? isMoreHelpMessage ? compactMoreHelp : isPrimaryHelp ? 'Help: /run /again /help more' : 'Help: /team /profile …'
         : terminalWidth >= 17
             ? isMoreHelpMessage ? compactMoreHelp : isPrimaryHelp ? 'Help: /again /help more' : 'Help: /team …'
-            : terminalWidth >= 8 ? isMoreHelpMessage && tinyMoreHelpMatch
+            : terminalWidth >= 8 ? terminalHeight < 4 ? 'Need height' : isMoreHelpMessage && tinyMoreHelpMatch
               ? `${tinyMoreHelpMatch[1]} ${tinyMoreHelpMatch[2]} /help more`
               : isPrimaryHelp ? '/again /help more' : '…' : '…';
       const showRoomStatus = !isHelpMessage && terminalHeight >= 4;
