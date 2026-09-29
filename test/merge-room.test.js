@@ -1292,7 +1292,7 @@ test('providers command reports routes and binary presence without revealing API
   }
 });
 
-test('CLI profile override routes every agent and lead through the selected profile', async () => {
+test('CLI profile and model overrides route every agent and lead through the selected profile and model', async () => {
   const originalFetch = globalThis.fetch;
   const originalLog = console.log;
   const oldKey = process.env.MERGE_ROOM_TEST_OPENAI;
@@ -1313,12 +1313,13 @@ test('CLI profile override routes every agent and lead through the selected prof
         work: { type: 'openai-compatible', model: 'gpt-test', baseUrl: 'https://openai.test/v1', apiKeyEnv: 'MERGE_ROOM_TEST_OPENAI' }
       },
       defaultProvider: 'claude', leadProvider: 'claude',
-      agents: [{ id: 'scout', provider: 'claude' }, { id: 'critic', provider: 'claude', stage: 3 }]
+      agents: [{ id: 'scout', provider: 'claude', model: 'agent-model' }, { id: 'critic', provider: 'claude', stage: 3 }]
     }));
-    await main(['--cwd', root, '--profile=work', '--no-context', '--no-save', '--no-stream', '--json', 'switch provider'], { signal: new AbortController().signal });
+    await main(['--cwd', root, '--profile=work', '--model=cli-model', '--no-context', '--no-save', '--no-stream', '--json', 'switch provider'], { signal: new AbortController().signal });
     const result = JSON.parse(output);
     assert.equal(requests.length, 3);
     assert.ok(requests.every((request) => request.url === 'https://openai.test/v1/chat/completions'));
+    assert.ok(requests.every((request) => request.body.model === 'cli-model'));
     assert.ok(result.agents.every((agent) => agent.provider === 'work'));
     assert.equal(result.provider, 'work');
   } finally {
