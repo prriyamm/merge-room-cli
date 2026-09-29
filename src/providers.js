@@ -236,7 +236,8 @@ export class OpenAICompatibleProvider {
           if (retryable && attempt < attempts - 1) { await delay(250 * (attempt + 1), signal); continue; }
           throw new Error(body.error?.message || `Provider returned HTTP ${response.status}`);
         }
-        if (streaming && response.body?.getReader) {
+        const contentType = response.headers?.get('content-type') || '';
+        if (streaming && /\btext\/event-stream\b/i.test(contentType) && response.body?.getReader) {
           const streamed = await readStream(response.body, emitDelta);
           if (!streamed.text) throw new Error('Provider returned an empty response');
           return result(streamed.text, streamed.usage?.prompt_tokens, streamed.usage?.completion_tokens, system, prompt, this.name, model);
