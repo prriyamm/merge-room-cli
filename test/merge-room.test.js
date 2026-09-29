@@ -3604,3 +3604,11 @@ test('CLI rejects unknown options instead of treating them as mission text', asy
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test('CLI rejects empty and duplicate option values before interpreting the mission', async () => {
+  await assert.rejects(() => main(['--max-calls', '', 'mission']), /--max-calls expects a value/);
+  await assert.rejects(() => main(['--temperature', '   ', 'mission']), /--temperature expects a value/);
+  await assert.rejects(() => main(['--max-calls=2', '--max-calls', '3', 'mission']), /--max-calls may only be specified once/);
+  await assert.rejects(() => main(['--max-calls', '2', '--max-calls=3', 'mission']), /--max-calls may only be specified once/);
+  await assert.rejects(() => main(['--cwd', '.', '-C', '.', 'mission']), /--cwd may only be specified once/);
+});
