@@ -47,6 +47,8 @@ export class OpenAICompatibleProvider {
     const model = modelOverride || this.model || this.config.model;
     const payload = { model, temperature: this.config.temperature, max_tokens: this.config.maxTokens, ...(streaming ? { stream: true, ...(this.config.streamUsage ? { stream_options: { include_usage: true } } : {}) } : {}), messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }] };
     const attempts = Math.max(0, Number(this.config.retries) || 0) + 1;
+    let emittedDelta = false;
+    const emitDelta = (delta) => { if (!delta) return; emittedDelta = true; onDelta?.(delta); };
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const controller = new AbortController();
       let timedOut = false;
@@ -65,7 +67,7 @@ export class OpenAICompatibleProvider {
           throw new Error(body.error?.message || `Provider returned HTTP ${response.status}`);
         }
         if (streaming && response.body?.getReader) {
-          const streamed = await readStream(response.body, onDelta);
+          const streamed = await readStream(response.body, emitDelta);
           if (!streamed.text) throw new Error('Provider returned an empty response');
           return result(streamed.text, streamed.usage?.prompt_tokens, streamed.usage?.completion_tokens, system, prompt, this.name, model);
         }
@@ -75,7 +77,7 @@ export class OpenAICompatibleProvider {
         return result(text, body.usage?.prompt_tokens, body.usage?.completion_tokens, system, prompt, this.name, model);
       } catch (error) {
         if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Provider request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
-        if (attempt < attempts - 1 && !providerError && error.name !== 'AbortError') { await delay(250 * (attempt + 1), signal); continue; }
+        if (attempt < attempts - 1 && !providerError && !emittedDelta && error.name !== 'AbortError') { await delay(250 * (attempt + 1), signal); continue; }
         throw error;
       } finally {
         clearTimeout(timeout);
@@ -94,6 +96,8 @@ export class AnthropicProvider {
     const model = modelOverride || this.model;
     const streaming = typeof onDelta === 'function' && this.config.streaming !== false;
     const attempts = Math.max(0, Number(this.config.retries) || 0) + 1;
+    let emittedDelta = false;
+    const emitDelta = (delta) => { if (!delta) return; emittedDelta = true; onDelta?.(delta); };
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const controller = new AbortController();
       let timedOut = false;
@@ -115,18 +119,18 @@ export class AnthropicProvider {
           throw new Error(body.error?.message || `Anthropic returned HTTP ${response.status}`);
         }
         if (streaming && response.body?.getReader) {
-          const streamed = await readAnthropicStream(response.body, onDelta);
+          const streamed = await readAnthropicStream(response.body, emitDelta);
           if (!streamed.text) throw new Error('Anthropic returned an empty response');
           return result(streamed.text, streamed.inputTokens, streamed.outputTokens, system, prompt, this.name, model);
         }
         const body = await response.json().catch(() => ({}));
         const text = normalizeContent(body.content).trim();
         if (!text) throw new Error('Anthropic returned an empty response');
-        if (typeof onDelta === 'function') onDelta(text);
+        emitDelta(text);
         return result(text, body.usage?.input_tokens, body.usage?.output_tokens, system, prompt, this.name, model);
       } catch (error) {
         if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Anthropic request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
-        if (attempt < attempts - 1 && !providerError && error.name !== 'AbortError') { await delay(250 * (attempt + 1), signal); continue; }
+        if (attempt < attempts - 1 && !providerError && !emittedDelta && error.name !== 'AbortError') { await delay(250 * (attempt + 1), signal); continue; }
         throw error;
       } finally {
         clearTimeout(timeout);
