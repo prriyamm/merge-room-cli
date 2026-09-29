@@ -688,7 +688,7 @@ test('token ledger tracks input, output, and total', () => {
 });
 
 test('failed synthesis records one provider call in the usage ledger', async () => {
-  const config = { ...DEFAULT_CONFIG, defaultProvider: 'test', leadProvider: 'test', agents: [DEFAULT_CONFIG.agents[0]] };
+  const config = { ...DEFAULT_CONFIG, model: 'test-model', defaultProvider: 'test', leadProvider: 'test', agents: [DEFAULT_CONFIG.agents[0]] };
   const provider = {
     name: 'test-provider', defaultProvider: 'test', model: 'test-model',
     async complete({ system }) {
