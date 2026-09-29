@@ -1564,7 +1564,10 @@ test('openai-compatible JSON fallback emits one final streaming delta', async ()
   let requestBody;
   global.fetch = async (_url, options) => {
     requestBody = JSON.parse(options.body);
-    return new Response(JSON.stringify({ choices: [{ message: { content: 'compat response' } }], usage: { prompt_tokens: 3, completion_tokens: 2 } }), { status: 200 });
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'compat response' } }], usage: { prompt_tokens: 3, completion_tokens: 2 } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
   };
   try {
     const deltas = [];
