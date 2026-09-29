@@ -1695,6 +1695,37 @@ test('openai-compatible adapter streams lead text and usage', async () => {
   }
 });
 
+test('openai-compatible adapter stops reading after [DONE] on an open response', async () => {
+  const originalFetch = globalThis.fetch;
+  let cancelled = false;
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode([
+        'data: {"choices":[{"delta":{"content":"Finished"}}]}\n\n',
+        'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":1}}\n\n',
+        'data: [DONE]\n\n'
+      ].join('')));
+    },
+    cancel() {
+      cancelled = true;
+      return new Promise(() => {});
+    }
+  }, { highWaterMark: 0 }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  let timeoutId;
+  try {
+    const completion = new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, requestTimeoutMs: 2000, retries: 0 }, 'secret')
+      .complete({ system: 'system', prompt: 'prompt', onDelta: () => {} });
+    const timeout = new Promise((_, reject) => { timeoutId = setTimeout(() => reject(new Error('OpenAI-compatible stream did not stop at [DONE]')), 250); });
+    const response = await Promise.race([completion, timeout]);
+    assert.equal(response.text, 'Finished');
+    assert.equal(response.inputTokens, 3);
+    assert.equal(cancelled, true);
+  } finally {
+    clearTimeout(timeoutId);
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('openai-compatible adapter streams refusal deltas when content is absent', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response([

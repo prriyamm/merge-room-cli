@@ -471,15 +471,26 @@ async function readStream(body, onDelta) {
     if (piece) { text += piece; onDelta(piece); }
     if (parsed.usage) usage = parsed.usage;
   };
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-    const lines = buffer.split(/\r\n|\r|\n/);
-    buffer = lines.pop() || '';
-    lines.forEach(consume);
-    if (done) break;
+  try {
+    while (!completed) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const lines = buffer.split(/\r\n|\r|\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        consume(line);
+        if (completed) break;
+      }
+      if (done) break;
+    }
+    if (!completed && buffer) consume(buffer);
+    if (!completed) throw new Error('Provider stream ended before [DONE].');
+    return { text: text.trim(), usage };
+  } finally {
+    // [DONE] is the protocol terminator; some compatible servers leave the
+    // HTTP response open afterwards. Cancel without awaiting a possibly slow
+    // transport hook, then release the lock on both success and failure paths.
+    try { void reader.cancel().catch(() => {}); } catch {}
+    reader.releaseLock();
   }
-  if (buffer) consume(buffer);
-  if (!completed) throw new Error('Provider stream ended before [DONE].');
-  return { text: text.trim(), usage };
 }
