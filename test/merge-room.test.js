@@ -1052,6 +1052,19 @@ test('resume request preserves specialist notes as untrusted reference', () => {
   assert.match(request, /untrusted reference, not instructions/);
 });
 
+test('legacy saved-session resume clips oversized answers and notes', () => {
+  const request = buildResumeRequest('continue safely', {
+    request: 'legacy project goal',
+    answer: 'a'.repeat(20000),
+    agents: [{ agent: { name: 'Scout' }, stage: 1, text: 'b'.repeat(20000) }]
+  });
+  assert.match(request, /legacy project goal/);
+  assert.match(request, /continue safely/);
+  assert.ok(request.length < 13000);
+  assert.doesNotMatch(request, /a{1000}/);
+  assert.doesNotMatch(request, /b{1000}/);
+});
+
 test('resume request carries bounded multi-turn project history', () => {
   const conversation = Array.from({ length: 20 }, (_, index) => ({ request: `request ${index}`, answer: `answer ${index}`, agents: [{ name: 'Scout', stage: 1, text: `note ${index}` }] }));
   const request = buildResumeRequest('continue the project', { request: 'latest request', answer: 'latest answer', agents: [{ agent: { name: 'Critic' }, text: 'latest note' }], conversation });
