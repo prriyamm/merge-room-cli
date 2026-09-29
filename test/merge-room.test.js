@@ -627,6 +627,8 @@ test('Claude Code JSON parser rejects errors and malformed output', () => {
 test('providers command reports routes and binary presence without revealing API keys', async () => {
   const oldPath = process.env.PATH;
   const oldKey = process.env.MERGE_ROOM_TEST_PROVIDER_KEY;
+  const oldOpenAIKey = process.env.OPENAI_API_KEY;
+  const oldMergeKey = process.env.MERGE_ROOM_API_KEY;
   const oldCwd = process.cwd();
   const originalLog = console.log;
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-providers-'));
@@ -662,11 +664,25 @@ test('providers command reports routes and binary presence without revealing API
     assert.equal(report.profiles[2].binaryAvailable, true);
     assert.deepEqual(report.profiles[2].agents, ['maker']);
     assert.equal(JSON.stringify(report).includes('never-print-this-secret'), false);
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), '{}');
+    process.env.OPENAI_API_KEY = 'direct-key-must-not-print';
+    delete process.env.MERGE_ROOM_API_KEY;
+    await main(['providers', '--json', '--cwd', root]);
+    const direct = JSON.parse(output);
+    assert.equal(direct.profiles.length, 0);
+    assert.equal(direct.directFallback.type, 'openai-compatible');
+    assert.equal(direct.directFallback.configured, true);
+    assert.equal(JSON.stringify(direct).includes('direct-key-must-not-print'), false);
+    delete process.env.OPENAI_API_KEY;
+    await main(['providers', '--json', '--cwd', root]);
+    assert.equal(JSON.parse(output).directFallback.type, 'demo');
   } finally {
     process.chdir(oldCwd);
     console.log = originalLog;
     if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
     if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_PROVIDER_KEY; else process.env.MERGE_ROOM_TEST_PROVIDER_KEY = oldKey;
+    if (oldOpenAIKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = oldOpenAIKey;
+    if (oldMergeKey === undefined) delete process.env.MERGE_ROOM_API_KEY; else process.env.MERGE_ROOM_API_KEY = oldMergeKey;
     await fs.rm(root, { recursive: true, force: true });
   }
 });

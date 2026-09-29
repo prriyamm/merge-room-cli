@@ -724,9 +724,15 @@ async function printProviderStatus(config, json = false) {
     const apiKeyEnv = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
     return { id, type: profile.type, model: profile.model || config.model, default: defaultProvider === id, lead: leadProvider === id, agents, apiKeyEnv, configured: Boolean(process.env[apiKeyEnv]) };
   }));
-  const report = { defaultProvider, leadProvider, profiles };
+  const directFallback = profiles.length ? null : directProviderStatus(config);
+  const report = { defaultProvider, leadProvider, profiles, ...(directFallback ? { directFallback } : {}) };
   if (json) { console.log(JSON.stringify(report, null, 2)); return; }
-  if (!profiles.length) { console.log('No named provider profiles are configured. Add `providers` to merge-room.config.json.'); return; }
+  if (!profiles.length) {
+    if (directFallback.type === 'demo') console.log(`No named profiles · Demo mode${directFallback.apiKeyEnv ? ` · ${directFallback.apiKeyEnv} missing` : ''}`);
+    else console.log(`No named profiles · OpenAI-compatible direct route · ${directFallback.apiKeyEnv} set · ${directFallback.model}`);
+    console.log('Add `providers` to merge-room.config.json to route specialists and the lead separately.');
+    return;
+  }
   console.log('Provider profiles');
   for (const profile of profiles) {
     const roles = [profile.default ? 'default' : null, profile.lead ? 'lead' : null].filter(Boolean);
@@ -735,6 +741,13 @@ async function printProviderStatus(config, json = false) {
     else console.log(`    ${profile.authentication}: ${profile.binaryAvailable ? 'CLI found; sign-in not checked' : 'CLI not found'}${profile.agents.length ? ` · agents: ${profile.agents.join(', ')}` : ''}`);
   }
   console.log('  Authentication values are never displayed; CLI sign-in state is not probed.');
+}
+
+function directProviderStatus(config) {
+  const apiKeyEnv = process.env.MERGE_ROOM_API_KEY ? 'MERGE_ROOM_API_KEY' : 'OPENAI_API_KEY';
+  const configured = Boolean(process.env.MERGE_ROOM_API_KEY || process.env.OPENAI_API_KEY);
+  const demo = config.provider === 'demo' || !configured;
+  return { type: demo ? 'demo' : 'openai-compatible', model: demo ? 'local-demo' : config.model, apiKeyEnv: config.provider === 'demo' ? null : apiKeyEnv, configured: config.provider === 'demo' ? null : configured };
 }
 
 async function findExecutable(command) {
