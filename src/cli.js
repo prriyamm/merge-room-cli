@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
 import { beginCockpitTurn, finishCockpitTurn, resetCockpitRoom, resolveAgentReference, restoreAgentStatuses, selectCockpitRoom, waitForCockpitTasks } from './cockpit.js';
-import { VERSION, loadConfig, safeBaseUrl, writeStarterConfig } from './config.js';
+import { providerTemperature, VERSION, loadConfig, safeBaseUrl, writeStarterConfig } from './config.js';
 import { completionScript, defaultShell } from './completions.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from './context.js';
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from './engine.js';
@@ -185,7 +185,7 @@ export async function main(args = [], { signal, readSessionFn = readSession } = 
     ...(providerValue !== null ? { provider: normalizeProvider(providerValue) } : {}),
     ...(baseUrlValue !== null ? { baseUrl: baseUrlValue } : {}),
     ...(maxTokensValue !== null ? { maxTokens: numericFlag(maxTokensValue, '--max-tokens', 1, true) } : {}),
-    ...(temperatureValue !== null ? { temperature: numericFlag(temperatureValue, '--temperature', 0, false) } : {}),
+    ...(temperatureValue !== null ? { temperature: providerTemperature(numericFlag(temperatureValue, '--temperature', 0, false)) } : {}),
     ...(concurrencyValue !== null ? { maxConcurrency: numericFlag(concurrencyValue, '--concurrency', 1, true) } : {}),
     ...(timeoutValue !== null ? { requestTimeoutMs: numericFlag(timeoutValue, '--timeout', 100, true) } : {}),
     ...(retriesValue !== null ? { retries: numericFlag(retriesValue, '--retries', 0, true) } : {}),

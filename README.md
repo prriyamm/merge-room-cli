@@ -273,6 +273,8 @@ Agent stages are `1` (orientation), `2` (draft), and `3` (review). Each custom a
 
 Configuration can also be supplied with environment variables or command-line flags. An explicitly supplied `--config` path must exist; Merge Room reports a clear error instead of silently falling back to defaults. `merge-room config` prints a safe effective view with provider URL credentials redacted. Provider endpoints must use HTTPS; plain HTTP is accepted only for loopback development servers. Merge Room rejects embedded URL credentials and does not follow redirects when sending API keys. A custom HTTPS endpoint still receives the selected profile's API key, so only use endpoints from configuration you trust. `--base-url` overrides the fallback OpenAI-compatible endpoint for a single run; an explicit `baseUrl` on a named profile takes precedence.
 
+Temperature must be between 0 and 2 for OpenAI-compatible routes and between 0 and 1 for Anthropic routes. Claude Opus 4.7 and later and Claude Mythos Preview reject non-default temperatures: for those models Merge Room omits the application default value `0.35` so the provider uses its default, and rejects other configured temperatures except `1`.
+
 Use `--cwd <path>` (or `-C <path>`) to target a different project. Relative config paths, session history, context discovery, initialization, and export destinations are resolved from that workspace, while help, version, and completion generation remain available even if a workspace is unavailable.
 
 ## Context and privacy

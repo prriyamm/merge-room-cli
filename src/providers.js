@@ -2,16 +2,33 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { estimateTokens } from './tokens.js';
-import { validateProviderBaseUrl } from './config.js';
+import { providerTemperature, validateProviderBaseUrl } from './config.js';
 
 export function createProvider(config, workspace = process.cwd()) {
   const mode = String(config.provider || 'auto').trim().toLowerCase();
   if (!['auto', 'demo'].includes(mode)) throw new Error('Provider mode must be `auto` or `demo`.');
   if (mode === 'demo') return new DemoProvider(config);
-  if (config.providers && Object.keys(config.providers).length) return new ProviderRouter(config, workspace);
+  if (config.providers && Object.keys(config.providers).length) {
+    validateConfiguredProviderTemperatures(config);
+    return new ProviderRouter(config, workspace);
+  }
   const apiKey = process.env.MERGE_ROOM_API_KEY || process.env.OPENAI_API_KEY;
   if (!apiKey) return new DemoProvider(config);
+  providerTemperature(config.temperature, 'openai-compatible', config.model);
   return new OpenAICompatibleProvider(config, apiKey);
+}
+
+function validateConfiguredProviderTemperatures(config) {
+  const defaultProvider = config.defaultProvider || Object.keys(config.providers)[0];
+  for (const [id, profile] of Object.entries(config.providers)) {
+    if (!['openai-compatible', 'anthropic'].includes(profile.type)) continue;
+    const profileModel = profile.model || config.model;
+    const models = new Set([profileModel, ...config.agents.filter((agent) => agent.provider === id || (!agent.provider && defaultProvider === id)).map((agent) => agent.model || profileModel)]);
+    for (const model of models) {
+      try { providerTemperature(config.temperature, profile.type, model); }
+      catch (error) { throw new Error(`Provider profile \`${id}\`: ${error.message}`); }
+    }
+  }
 }
 
 class ProviderRouter {
@@ -220,6 +237,7 @@ export class OpenAICompatibleProvider {
     const url = `${this.config.baseUrl.replace(/\/$/, '')}/chat/completions`;
     const streaming = typeof onDelta === 'function' && this.config.streaming !== false;
     const model = modelOverride || this.model || this.config.model;
+    providerTemperature(this.config.temperature, 'openai-compatible', model);
     const payload = { model, temperature: this.config.temperature, max_tokens: this.config.maxTokens, ...(streaming ? { stream: true, ...(this.config.streamUsage ? { stream_options: { include_usage: true } } : {}) } : {}), messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }] };
     const attempts = Math.max(0, Number(this.config.retries) || 0) + 1;
     let emittedDelta = false;
@@ -275,6 +293,7 @@ export class AnthropicProvider {
   async complete({ system, prompt, signal, onDelta, model: modelOverride }) {
     const baseUrl = this.config.baseUrl;
     const model = modelOverride || this.model;
+    const temperature = providerTemperature(this.config.temperature, 'anthropic', model);
     const streaming = typeof onDelta === 'function' && this.config.streaming !== false;
     const attempts = Math.max(0, Number(this.config.retries) || 0) + 1;
     let emittedDelta = false;
@@ -291,7 +310,7 @@ export class AnthropicProvider {
         const response = await fetch(`${baseUrl}/v1/messages`, {
           method: 'POST', signal: controller.signal, redirect: 'error',
           headers: { 'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01' },
-          body: JSON.stringify({ model, max_tokens: this.config.maxTokens, temperature: this.config.temperature, system, messages: [{ role: 'user', content: prompt }], ...(streaming ? { stream: true } : {}) })
+          body: JSON.stringify({ model, max_tokens: this.config.maxTokens, ...(temperature !== undefined ? { temperature } : {}), system, messages: [{ role: 'user', content: prompt }], ...(streaming ? { stream: true } : {}) })
         });
         if (!response.ok) {
           providerError = true;
