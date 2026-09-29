@@ -144,10 +144,14 @@ function slugify(value) {
 
 export async function writeStarterConfig(cwd = process.cwd()) {
   const file = path.join(cwd, 'merge-room.config.json');
-  try { await fs.access(file); return { file, created: false }; } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
+  let handle;
+  try { handle = await fs.open(file, 'wx'); }
+  catch (error) {
+    if (error.code === 'EEXIST') return { file, created: false };
+    throw error;
   }
-  await fs.writeFile(file, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`, 'utf8');
+  try { await handle.writeFile(`${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`, 'utf8'); }
+  finally { await handle.close(); }
   return { file, created: true };
 }
 
