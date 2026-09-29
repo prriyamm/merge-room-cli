@@ -125,7 +125,12 @@ function runCliProcess(command, args, input, { cwd, signal, timeoutMs, label, en
       terminationSent = true;
       killCliProcess(child, 'SIGTERM');
       killTimer = setTimeout(() => {
-        if (child.exitCode === null && child.signalCode === null) killCliProcess(child, 'SIGKILL');
+        // The CLI can exit on SIGTERM while one of its descendants ignores it.
+        // Keep escalating against the POSIX process group even after the leader
+        // has closed so those descendants do not outlive the request.
+        if ((process.platform !== 'win32' && child.pid) || (child.exitCode === null && child.signalCode === null)) {
+          killCliProcess(child, 'SIGKILL');
+        }
       }, 1000);
       killTimer.unref?.();
     };

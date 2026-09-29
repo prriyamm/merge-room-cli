@@ -1514,6 +1514,71 @@ test('Codex CLI profiles use bounded JSONL with read-only permissions and local 
   }
 });
 
+test('POSIX CLI timeout escalates against descendants after the leader exits', async (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX process groups are unavailable on Windows');
+
+  const oldPath = process.env.PATH;
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-cli-process-group-'));
+  const bin = path.join(root, 'bin');
+  const grandchildScript = path.join(root, 'grandchild.js');
+  const grandchildPidFile = path.join(root, 'grandchild.pid');
+  await fs.mkdir(bin);
+  await fs.writeFile(grandchildScript, `
+const fs = require('node:fs');
+process.on('SIGTERM', () => {});
+fs.writeFileSync(process.argv[2], String(process.pid));
+setInterval(() => {}, 1000);
+`, 'utf8');
+  await fs.writeFile(path.join(bin, 'codex'), `#!/usr/bin/env node
+const { spawn } = require('node:child_process');
+const child = spawn(process.execPath, [${JSON.stringify(grandchildScript)}, ${JSON.stringify(grandchildPidFile)}], { stdio: 'ignore' });
+child.unref();
+process.stdin.resume();
+setInterval(() => {}, 1000);
+`);
+  await fs.chmod(path.join(bin, 'codex'), 0o755);
+  process.env.PATH = `${bin}${path.delimiter}${oldPath || ''}`;
+  let grandchildPid;
+  try {
+    const provider = new CodexCliProvider({ ...DEFAULT_CONFIG, cwd: root, requestTimeoutMs: 1000 });
+    const completion = assert.rejects(provider.complete({ system: 'system', prompt: 'prompt' }), /timed out after 1000ms/);
+
+    const pidDeadline = Date.now() + 5000;
+    while (Date.now() < pidDeadline) {
+      try {
+        grandchildPid = Number(await fs.readFile(grandchildPidFile, 'utf8'));
+        if (Number.isInteger(grandchildPid) && grandchildPid > 0) break;
+      } catch {}
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.ok(grandchildPid > 0, 'the SIGTERM-ignoring grandchild should start before the provider timeout');
+    await completion;
+
+    const killDeadline = Date.now() + 5000;
+    let alive = true;
+    while (Date.now() < killDeadline) {
+      try {
+        process.kill(grandchildPid, 0);
+        if (process.platform === 'linux') {
+          const stat = await fs.readFile(`/proc/${grandchildPid}/stat`, 'utf8').catch(() => '');
+          if (stat.split(' ')[2] === 'Z') { alive = false; break; }
+        }
+      } catch (error) {
+        if (error.code === 'ESRCH') { alive = false; break; }
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(alive, false, 'SIGKILL escalation should stop the descendant even after the CLI leader exits');
+  } finally {
+    if (grandchildPid) {
+      try { process.kill(grandchildPid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+    }
+    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('Codex JSONL parser keeps final assistant text and rejects malformed output', () => {
   const output = [
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Final report' } }),
