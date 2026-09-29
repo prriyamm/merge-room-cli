@@ -259,6 +259,44 @@ test('compact Cockpit more help pages reveal each command at widths 46, 40, and 
   }
 });
 
+test('tiny Cockpit more help keeps the command and page navigation visible in five rows', () => {
+  const rows = 5;
+  for (const columns of [8, 13, 17, 46]) {
+    const lines = [];
+    const renderer = createCockpitRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' }, force: true, columns, rows, write: (line) => lines.push(line) });
+    renderer.state.message = cockpitHelpMorePage(columns, 0).message;
+
+    renderer.render();
+
+    const output = lines.join('\n');
+    const compactOutput = output.replace(/\s/g, '');
+    assert.ok(compactOutput.includes('/again'), `first help command should be visible at ${columns} columns`);
+    assert.ok(compactOutput.includes('1/'), `page progress should be visible at ${columns} columns`);
+    assert.ok(compactOutput.includes('/helpmore'), `page navigation should be visible at ${columns} columns`);
+    assert.ok(lines.every((line) => line.length <= columns), `rendered lines should fit ${columns} columns`);
+    assert.ok(lines.length <= rows - 1, `rendered lines should fit the viewport at ${columns} columns`);
+  }
+});
+
+test('tiny Cockpit help avoids clipped navigation in terminals shorter than five rows', () => {
+  for (const rows of [1, 2, 3, 4]) {
+    const lines = [];
+    const renderer = createCockpitRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' }, force: true, columns: 8, rows, write: (line) => lines.push(line) });
+    renderer.state.message = cockpitHelpMorePage(8, 0).message;
+
+    renderer.render();
+
+    assert.ok(lines.length <= rows - 1, `rendered lines should fit the ${rows}-row viewport`);
+    assert.ok(lines.every((line) => line.length <= 8), `rendered lines should fit 8 columns at ${rows} rows`);
+    if (rows <= 2) {
+      assert.equal(lines.length, 0, `there is no room to render help at ${rows} rows`);
+    } else {
+      assert.match(lines.join('').replace(/\s/g, ''), /Needheight/, `short viewport notice at ${rows} rows`);
+      assert.doesNotMatch(lines.join(''), /\/again|\/helpmore/, `avoid presenting clipped navigation at ${rows} rows`);
+    }
+  }
+});
+
 test('compact Cockpit primary help keeps /again discoverable in a narrow terminal', () => {
   for (const columns of [46, 30, 17, 8]) {
     const lines = [];

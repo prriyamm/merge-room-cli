@@ -246,6 +246,7 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
       const compactMoreHelp = state.message
         .replace(/^Help more (\d+\/\d+): /, 'More $1: ')
         .replace(/; (Next|Again): /, '\n$1: ');
+      const tinyMoreHelpMatch = state.message.match(/^Help more (\d+\/\d+): ([^;]+); (?:Next|Again): \/help more$/);
       const shortHelp = terminalWidth >= 60
         ? isMoreHelpMessage ? compactMoreHelp : isPrimaryHelp ? 'Help: /run /again /help more' : 'Help: /agents /team /profile /context /history /show …'
         : terminalWidth >= 40
@@ -254,11 +255,14 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
           ? isMoreHelpMessage ? compactMoreHelp : isPrimaryHelp ? 'Help: /run /again /help more' : 'Help: /team /profile …'
         : terminalWidth >= 17
             ? isMoreHelpMessage ? compactMoreHelp : isPrimaryHelp ? 'Help: /again /help more' : 'Help: /team …'
-            : terminalWidth >= 8 ? isPrimaryHelp ? '/again /help more' : '…' : '…';
+            : terminalWidth >= 8 ? terminalHeight < 4 ? 'Need height' : isMoreHelpMessage && tinyMoreHelpMatch
+              ? `${tinyMoreHelpMatch[1]} ${tinyMoreHelpMatch[2]} /help more`
+              : isPrimaryHelp ? '/again /help more' : '…' : '…';
       const showRoomStatus = !isHelpMessage && terminalHeight >= 4;
       const showHelp = !isHelpMessage && terminalHeight >= 5;
       const showMessage = terminalHeight >= 3 || isHelpMessage && terminalHeight >= 2;
-      const messageCapacity = Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp) - Number(!isHelpMessage));
+      const tinyHelpUsesLastRow = isHelpMessage && terminalWidth < 17;
+      const messageCapacity = Math.max(0, terminalHeight - Number(!tinyHelpUsesLastRow) - Number(showRoomStatus) - Number(showHelp) - Number(!isHelpMessage));
       const fullMessage = isHelpMessage ? state.message || '' : crop(state.message || '', Math.max(0, terminalWidth - 4));
       const fullHelpLines = showMessage ? wrap(fullMessage, Math.max(1, terminalWidth - 2)) : [];
       const useShortHelp = isHelpMessage && (terminalHeight <= 3 || fullHelpLines.length > messageCapacity);
@@ -304,7 +308,7 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
         }
       }
       if (!lines.length && contentHeight > 0) lines.push(' Type a mission to start this room.');
-      safeWrite(fit(header, terminalWidth));
+      if (!tinyHelpUsesLastRow) safeWrite(fit(header, terminalWidth));
       if (showRoomStatus) {
         const compactStatus = (status) => ({ preparing: 'prep', working: 'work', cancelled: 'stop', degraded: 'degr', saving: 'save', queued: 'wait', idle: 'idle', done: 'done', error: 'fail' })[status] || status;
         const tinyStatus = (status) => ({ preparing: '.', working: '>', cancelled: 'x', degraded: '~', saving: 's', queued: 'q', idle: '-', done: '✓', error: '!' })[status] || '?';
