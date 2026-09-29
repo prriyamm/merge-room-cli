@@ -108,8 +108,9 @@ test('cockpit renderer exposes the conversation controls used by the terminal lo
   assert.equal(renderer.state.rooms[0].request, 'Plan the release');
   assert.equal(renderer.state.message, 'Cancellation requested.');
   assert.ok(refreshes >= 4);
-  assert.match(lines.join('\\n'), /Room 1/);
-  assert.match(lines.join('\\n'), /Cancellation requested\\./);
+  const output = lines.join('\n');
+  assert.match(output, /Room 1/);
+  assert.match(output, /Cancellation requested\./);
 });
 
 test('interactive CLI accepts work in both rooms from one process', async () => {

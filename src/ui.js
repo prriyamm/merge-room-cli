@@ -139,8 +139,12 @@ export function createRenderer({ config, provider, context = null }) {
 
 export function createCockpitRenderer({ config, provider, workspace = process.cwd(), onRefresh = () => {}, force = false, columns, rows, write = (line) => console.log(line) }) {
   const state = createCockpitState(config.agents);
+  let lastRenderAt = 0;
   const refresh = () => { render(); onRefresh(); };
-  const event = (roomIndex) => (payload) => { applyCockpitEvent(state, roomIndex, payload); refresh(); };
+  const event = (roomIndex) => (payload) => {
+    applyCockpitEvent(state, roomIndex, payload);
+    if (payload.type !== 'synthesis:delta' || Date.now() - lastRenderAt >= 80) refresh();
+  };
   const start = (options) => printCockpitWelcome({ provider: provider.name, model: config.model, workspace, write, ...options });
   const user = (roomIndex, request) => {
     state.activeRoom = roomIndex;
@@ -151,6 +155,7 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
   const notice = (message) => { state.message = message; refresh(); };
   const render = () => {
     if (!live && !force) return;
+    lastRenderAt = Date.now();
     clear();
     const terminalWidth = Math.max(68, Math.min(columns || process.stdout.columns || 108, 140));
     const terminalHeight = Math.max(22, rows || process.stdout.rows || 32);

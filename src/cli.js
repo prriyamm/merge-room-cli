@@ -318,6 +318,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   const tasks = new Map();
   const controllers = new Map();
   const isTerminal = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const useDashboard = isTerminal && process.env.TERM !== 'dumb';
   const appendLine = (line = '') => {
     if (isTerminal && rl) {
       readline.clearLine(process.stdout, 0);
@@ -325,7 +326,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     }
     console.log(line);
   };
-  const renderer = isTerminal && process.env.TERM !== 'dumb'
+  const renderer = useDashboard
     ? createCockpitRenderer({ config, provider, workspace, onRefresh: () => reprompt() })
     : createConversationRenderer({ config, provider, workspace, onRefresh: () => reprompt(), write: appendLine });
 
@@ -519,9 +520,12 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
   redraw();
   await new Promise((resolve) => {
+    const handleResize = () => { if (useDashboard && !closing) redraw(); };
+    const removeResizeListener = () => process.stdout.removeListener('resize', handleResize);
     const shutdown = () => {
       if (closing) return;
       closing = true;
+      removeResizeListener();
       for (const controller of controllers.values()) controller.abort();
       rl.close();
       resolve();
@@ -531,12 +535,14 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       else redraw();
     });
     rl.once('close', () => {
+      removeResizeListener();
       if (!closing) {
         closing = true;
         for (const controller of controllers.values()) controller.abort();
         resolve();
       }
     });
+    process.stdout.on('resize', handleResize);
     signal?.addEventListener('abort', shutdown, { once: true });
     if (signal?.aborted) shutdown();
   });
