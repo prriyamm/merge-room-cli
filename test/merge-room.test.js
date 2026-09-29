@@ -556,6 +556,7 @@ test('Codex JSONL parser keeps final assistant text and rejects malformed output
   ].join('\n');
   assert.deepEqual(parseCodexOutput(output), { text: 'Final report', inputTokens: 21, outputTokens: 8 });
   assert.throws(() => parseCodexOutput('{broken json}'), /malformed JSONL/);
+  assert.throws(() => parseCodexOutput(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Truncated' } })), /did not include a completed turn/);
   assert.throws(() => parseCodexOutput(JSON.stringify({ type: 'turn.completed' })), /without a final assistant message/);
 });
 

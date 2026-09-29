@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import path from 'node:path';
 import { estimateTokens } from './tokens.js';
 import { validateProviderBaseUrl } from './config.js';
 
@@ -125,13 +126,18 @@ function runCliProcess(command, args, input, { cwd, signal, timeoutMs }) {
 function killCliProcess(child, signal) {
   try {
     if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, signal);
-    else child.kill(signal);
+    else if (process.platform === 'win32' && child.pid) {
+      const systemRoot = process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows';
+      const killer = spawn(path.win32.join(systemRoot, 'System32', 'taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], { shell: false, windowsHide: true, stdio: 'ignore' });
+      killer.once('error', () => child.kill(signal));
+    } else child.kill(signal);
   } catch (error) {
     if (error.code !== 'ESRCH') child.kill(signal);
   }
 }
 
 function cliSpawnError(error) {
+  if (process.platform === 'win32' && ['ENOENT', 'EINVAL'].includes(error?.code)) return new Error('Could not start Codex CLI. Install a native `codex.exe` on PATH; Merge Room does not invoke Windows shell shims.');
   if (error?.code === 'ENOENT') return new Error('Could not start Codex CLI. Install `codex` and sign in with your ChatGPT account first.');
   return new Error(`Could not start Codex CLI: ${error.message}`);
 }
@@ -140,6 +146,7 @@ export function parseCodexOutput(output) {
   let text = '';
   let inputTokens;
   let outputTokens;
+  let completed = false;
   const eventTypes = [];
   for (const [index, line] of String(output).split(/\r?\n/).entries()) {
     if (!line.trim()) continue;
@@ -149,12 +156,15 @@ export function parseCodexOutput(output) {
     eventTypes.push(event.type);
     if (event.type === 'error' || event.type === 'turn.failed') throw new Error('Codex CLI reported a failed turn. Check its local sign-in and CLI status.');
     if (event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') text = event.item.text;
+    if (event.type === 'turn.started') completed = false;
     if (event.type === 'turn.completed') {
+      completed = true;
       inputTokens = event.usage?.input_tokens;
       outputTokens = event.usage?.output_tokens;
     }
   }
-  if (!text.trim()) throw new Error(`Codex CLI completed without a final assistant message (events: ${eventTypes.join(', ') || 'none'}).`);
+  if (!completed) throw new Error(`Codex CLI output did not include a completed turn (events: ${eventTypes.join(', ') || 'none'}).`);
+  if (!text.trim()) throw new Error('Codex CLI completed without a final assistant message.');
   return { text: text.trim(), inputTokens, outputTokens };
 }
 
