@@ -9,7 +9,7 @@ import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from './engine.js';
 import { createProvider } from './providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from './sessions.js';
 import { themeSummaries } from './themes.js';
-import { createCockpitRenderer, createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme } from './ui.js';
+import { createCockpitRenderer, createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme, stripUnsafeTerminalControls } from './ui.js';
 
 const VALUE_OPTIONS = ['--cwd', '-C', '--prompt-file', '--config', '--team', '--provider', '--profile', '--model', '--base-url', '--max-tokens', '--temperature', '--concurrency', '--timeout', '--retries', '--max-calls', '--run-id', '--theme', '--include', '--limit', '--format', '--output'];
 const BOOLEAN_OPTIONS = ['--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict'];
@@ -360,7 +360,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
 
   function setMessage(message) {
     renderer.state.message = message;
-    if (!isTerminal) appendLine(message);
+    if (!isTerminal) appendLine(stripUnsafeTerminalControls(message));
     renderer.notice(message);
     reprompt();
   }
@@ -393,8 +393,8 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         finishCockpitTurn(renderer.state, roomIndex, result);
         renderer.refresh();
         if (!isTerminal) {
-          console.log(`\n[Room ${roomIndex + 1}] ${request}`);
-          printResult(result, { trace });
+          console.log(stripUnsafeTerminalControls(`\n[Room ${roomIndex + 1}] ${request}`));
+          printResult(result, { trace, includeAnswer: true });
         }
       } catch (error) {
         if (error.name === 'AbortError' && renderer.state.rooms[roomIndex].status !== 'cancelled') {
@@ -406,7 +406,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
           if (!isTerminal) console.log(`  Room ${roomIndex + 1} cancelled.`);
         } else {
           if (isTerminal) setMessage(`Room ${roomIndex + 1} stopped: ${error.message}`);
-          else console.log(`  Room ${roomIndex + 1}: ${error.message}`);
+          else console.log(stripUnsafeTerminalControls(`  Room ${roomIndex + 1}: ${error.message}`));
         }
       } finally {
         signal?.removeEventListener('abort', cancel);

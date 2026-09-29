@@ -488,8 +488,9 @@ export async function ask(question = 'What should we move forward today?', signa
   });
 }
 
-export function printResult(result, { trace = false } = {}) {
+export function printResult(result, { trace = false, includeAnswer = false } = {}) {
   console.log('');
+  if (includeAnswer && result.answer) console.log(`${sanitizeMultilineText(result.answer)}\n`);
   if (trace) {
     console.log(`  ${color('bold', 'SPECIALIST TRACE')}`);
     for (const item of result.agents || []) {
