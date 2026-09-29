@@ -220,7 +220,7 @@ function isIgnored(relative, rules, directory = false) {
     if (scopedPath === null) continue;
     const scopedPrefixes = scopedPath.split('/').map((_, index, parts) => parts.slice(0, index + 1).join('/'));
     const matches = ((!rule.directoryOnly || directory) && rule.regex.test(scopedPath))
-      || (rule.directoryOnly && scopedPrefixes.slice(0, -1).some((prefix) => rule.regex.test(prefix)));
+      || scopedPrefixes.slice(0, -1).some((prefix) => rule.regex.test(prefix));
     if (matches) ignored = !rule.negate;
   }
   return ignored;
