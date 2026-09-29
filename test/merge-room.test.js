@@ -3422,11 +3422,19 @@ test('bounded session name selection streams entries and keeps only the newest l
 test('limited session listing returns no sessions for a zero limit', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-zero-limit-'));
   const directory = path.join(root, 'sessions');
+  const originalOpendir = fs.opendir;
+  let directoryOpened = false;
   try {
     await fs.mkdir(directory);
     await fs.writeFile(path.join(directory, '2026-01-01.json'), JSON.stringify({ id: '2026-01-01' }));
+    fs.opendir = async (...args) => {
+      directoryOpened = true;
+      return originalOpendir(...args);
+    };
     assert.deepEqual(await listSessions(root, 'sessions', { limit: 0 }), []);
+    assert.equal(directoryOpened, false, 'a zero limit should not open or traverse the session directory');
   } finally {
+    fs.opendir = originalOpendir;
     await fs.rm(root, { recursive: true, force: true });
   }
 });

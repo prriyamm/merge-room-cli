@@ -64,6 +64,7 @@ async function readSessionSummary(root, name) {
 }
 
 export async function selectNewestSessionNames(entries, limit, include = async () => true) {
+  if (limit <= 0) return [];
   const newest = [];
   for await (const entry of entries) {
     const name = typeof entry === 'string' ? entry : entry.name;
