@@ -2328,6 +2328,34 @@ test('CLI initializes a project and exports its latest mission', async () => {
       (error) => error.code === 1 && /own saved file/.test(error.stderr)
     );
     assert.equal(await fs.readFile(sessionFile, 'utf8'), originalSession);
+
+    const assertAliasRejected = async (alias) => {
+      await assert.rejects(
+        () => execFileAsync(process.execPath, [bin, 'export', saved.sessionId, '--format=md', '--output', path.relative(root, alias)], { cwd: root, windowsHide: true }),
+        (error) => error.code === 1 && /own saved file/.test(error.stderr)
+      );
+      assert.equal(await fs.readFile(sessionFile, 'utf8'), originalSession);
+    };
+
+    const symlinkAlias = path.join(root, 'session-link.md');
+    try {
+      await fs.symlink(path.relative(path.dirname(symlinkAlias), sessionFile), symlinkAlias, 'file');
+      await assertAliasRejected(symlinkAlias);
+    } catch (error) {
+      if (!['EPERM', 'EACCES', 'ENOTSUP', 'ENOSYS'].includes(error.code)) throw error;
+    }
+
+    const hardlinkAlias = path.join(root, 'session-hardlink.md');
+    try {
+      await fs.link(sessionFile, hardlinkAlias);
+      await assertAliasRejected(hardlinkAlias);
+    } catch (error) {
+      if (!['EPERM', 'EACCES', 'ENOTSUP', 'ENOSYS', 'EXDEV'].includes(error.code)) throw error;
+    }
+
+    const ordinaryExport = await execFileAsync(process.execPath, [bin, 'export', saved.sessionId, '--format=md', '--output', 'another-transcript.md'], { cwd: root, windowsHide: true });
+    assert.match(ordinaryExport.stdout, /Exported/);
+    assert.match(await fs.readFile(path.join(root, 'another-transcript.md'), 'utf8'), /exportable mission/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
