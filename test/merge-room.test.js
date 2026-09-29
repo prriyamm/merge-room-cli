@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Readable } from 'node:stream';
@@ -157,6 +158,39 @@ test('completion scripts cover supported shells', () => {
   assert.match(completionScript('bash'), /providers/);
   assert.match(completionScript('zsh'), /providers/);
   assert.match(completionScript('powershell'), /providers/);
+});
+
+test('completion scripts suggest values for theme, format, and shell options', () => {
+  for (const shell of ['bash', 'zsh', 'powershell']) {
+    const script = completionScript(shell);
+    for (const theme of Object.keys(THEMES)) assert.ok(script.includes(`--theme=${theme}`), `${shell} should suggest theme ${theme}`);
+    for (const format of ['md', 'markdown', 'json']) assert.ok(script.includes(`--format=${format}`), `${shell} should suggest format ${format}`);
+    for (const name of ['bash', 'zsh', 'powershell']) assert.ok(script.includes(name), `${shell} should suggest shell ${name}`);
+  }
+  assert.match(completionScript('bash'), /previous.*completions/);
+  assert.match(completionScript('zsh'), /shells=\(bash zsh powershell\)/);
+  assert.match(completionScript('zsh'), /CURRENT == 3[^\n]*completions/);
+  assert.match(completionScript('zsh'), /CURRENT == 2[^\n]*words\[CURRENT\].*-\*/);
+  assert.match(completionScript('powershell'), /CommandElements/);
+});
+
+test('Bash completion executes for shell names and option values when Bash is available', async (t) => {
+  const bash = ['C:\\Program Files\\Git\\bin\\bash.exe', 'C:\\Program Files\\Git\\usr\\bin\\bash.exe'].find((candidate) => existsSync(candidate));
+  if (!bash) return t.skip('Bash is not installed');
+  const scriptPath = path.join(os.tmpdir(), `merge-room-completion-${process.pid}.bash`);
+  await fs.writeFile(scriptPath, completionScript('bash'), 'utf8');
+  try {
+    for (const [words, cursor, expected] of [
+      ['merge-room completions p', 2, 'powershell'],
+      ['merge-room --theme=li', 1, '--theme=liquid-glass'],
+      ['merge-room --format=j', 1, '--format=json']
+    ]) {
+      const command = `. "$1"; COMP_WORDS=(${words}); COMP_CWORD=${cursor}; _merge_room; [[ "${'${COMPREPLY[*]}'}" == *"${expected}"* ]]`;
+      await execFileAsync(bash, ['-c', command, 'merge-room-test', scriptPath], { windowsHide: true });
+    }
+  } finally {
+    await fs.rm(scriptPath, { force: true });
+  }
 });
 
 test('completion scripts include each supported help, version, and workspace option form once', () => {

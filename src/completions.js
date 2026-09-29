@@ -1,5 +1,12 @@
+import { THEMES } from './themes.js';
+
 const COMMANDS = ['run', 'ask', 'review', 'brainstorm', 'plan', 'interactive', 'chat', 'agents', 'providers', 'history', 'usage', 'stats', 'config', 'show', 'export', 'resume', 'context', 'doctor', 'init', 'theme', 'completions', 'completion', 'version', 'help'];
 const OPTIONS = ['-h', '-v', '--help', '--version', '--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict', '--cwd', '--cwd=', '-C', '--prompt-file=', '--team=', '--provider=', '--profile=', '--model=', '--base-url=', '--max-tokens=', '--temperature=', '--concurrency=', '--max-calls=', '--timeout=', '--retries=', '--run-id=', '--theme=', '--include=', '--limit=', '--format=', '--output=', '--config='];
+const SHELLS = ['bash', 'zsh', 'powershell'];
+const VALUE_CANDIDATES = [
+  ...Object.keys(THEMES).map((theme) => `--theme=${theme}`),
+  ...['md', 'markdown', 'json'].map((format) => `--format=${format}`)
+];
 
 export function completionScript(shell = defaultShell()) {
   const normalized = shell.toLowerCase() === 'ps' ? 'powershell' : shell.toLowerCase();
@@ -14,11 +21,17 @@ export function defaultShell() {
 }
 
 function bashCompletion() {
+  const candidates = COMMANDS.concat(OPTIONS, VALUE_CANDIDATES).join(' ');
   return [
     '# Merge Room completion for Bash',
     '_merge_room() {',
     '  local current="${COMP_WORDS[COMP_CWORD]}"',
-    '  COMPREPLY=( $(compgen -W "' + COMMANDS.concat(OPTIONS).join(' ') + '" -- "$current") )',
+    '  local previous="${COMP_WORDS[COMP_CWORD-1]}"',
+    '  if [[ "$previous" == "completions" || "$previous" == "completion" ]]; then',
+    '    COMPREPLY=( $(compgen -W "' + SHELLS.join(' ') + '" -- "$current") )',
+    '  else',
+    '    COMPREPLY=( $(compgen -W "' + candidates + '" -- "$current") )',
+    '  fi',
     '}',
     'complete -F _merge_room merge-room',
     ''
@@ -28,18 +41,34 @@ function bashCompletion() {
 function zshCompletion() {
   return [
     '#compdef merge-room',
-    '_arguments \'1:command:(' + COMMANDS.join(' ') + ')\' \'*:option:(' + OPTIONS.join(' ') + ')\'',
+    '_merge_room() {',
+    '  local -a commands options shells',
+    '  commands=(' + COMMANDS.join(' ') + ')',
+    '  options=(' + OPTIONS.concat(VALUE_CANDIDATES).join(' ') + ')',
+    '  shells=(' + SHELLS.join(' ') + ')',
+    '  if (( CURRENT == 2 )) && [[ ${words[CURRENT]} == -* ]]; then',
+    '    _describe option options',
+    '  elif (( CURRENT == 2 )); then',
+    '    _describe command commands',
+    '  elif (( CURRENT == 3 )) && [[ ${words[2]} == completions || ${words[2]} == completion ]]; then',
+    '    _describe shell shells',
+    '  else',
+    '    _describe option options',
+    '  fi',
+    '}',
     ''
   ].join('\n');
 }
 
 function powershellCompletion() {
-  const values = [...COMMANDS, ...OPTIONS].join("', '");
+  const values = [...COMMANDS, ...OPTIONS, ...VALUE_CANDIDATES].join("', '");
   return [
     '# Merge Room completion for PowerShell',
     'Register-ArgumentCompleter -CommandName merge-room -ScriptBlock {',
     '  param($wordToComplete, $commandAst, $cursorPosition)',
     "  $values = @('" + values + "')",
+    "  $elements = @($commandAst.CommandElements | ForEach-Object { $_.ToString() })",
+    "  if ($elements.Count -gt 1 -and $elements[1] -in @('completions', 'completion')) { $values = @('" + SHELLS.join("', '") + "') }",
     '  $values | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {',
     "    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)",
     '  }',
