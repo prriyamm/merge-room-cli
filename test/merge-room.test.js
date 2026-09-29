@@ -1446,6 +1446,23 @@ test('workspace context does not treat a trailing /** pattern as ignoring its di
   }
 });
 
+test('workspace context keeps ignored directories open for negated wildcard descendants', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-negated-glob-'));
+  try {
+    await fs.mkdir(path.join(root, 'private'), { recursive: true });
+    await fs.writeFile(path.join(root, '.gitignore'), 'private/\n!**/keep.md\n', 'utf8');
+    await fs.writeFile(path.join(root, 'private', 'keep.md'), 'explicitly re-included\n', 'utf8');
+    await fs.writeFile(path.join(root, 'private', 'drop.js'), 'still ignored\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
+    assert.equal(context.entries.some((entry) => entry.includes('private/keep.md')), true);
+    assert.equal(context.excerpts.some((item) => item.path === 'private/keep.md'), true);
+    assert.equal(context.entries.some((entry) => entry.includes('private/drop.js')), false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('workspace context fails closed for oversized gitignore files', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-large-gitignore-'));
   try {

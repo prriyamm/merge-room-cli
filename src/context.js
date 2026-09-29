@@ -224,8 +224,11 @@ function hasNegatedDescendant(relative, rules) {
   const prefix = `${normalized}/`;
   return rules.some((rule) => {
     if (!rule.negate) return false;
-    const effectivePattern = [rule.base, rule.pattern].filter(Boolean).join('/');
-    return effectivePattern.startsWith(prefix);
+    const base = rule.base;
+    if (base && normalized !== base && !normalized.startsWith(`${base}/`) && !base.startsWith(`${normalized}/`)) return false;
+    const effectivePattern = [base, rule.pattern].filter(Boolean).join('/');
+    return effectivePattern.startsWith(prefix)
+      || (rule.pattern.includes('/') && /[*?]/.test(rule.pattern));
   });
 }
 
