@@ -154,7 +154,7 @@ Useful options:
 --config=<path>                 Use an explicit project profile
 --format=md|json                Choose export format
 --output=<path>                 Write an export file
---limit=10                      Bound history or usage queries
+--limit=10                      Limit history and usage to the newest N saved runs
 ```
 
 Examples:
