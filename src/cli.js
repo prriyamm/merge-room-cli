@@ -586,19 +586,38 @@ function validateOptions(args) {
 
 function createPlan(config, provider, request, context, workspace = process.cwd()) {
   const runPlan = buildRunPlan(config);
+  const profileIds = Object.keys(config.providers || {});
+  const defaultProvider = config.defaultProvider || profileIds[0] || null;
+  const leadProvider = config.leadProvider || defaultProvider;
+  const demoMode = provider.name === 'demo';
+  const effectiveLeadProvider = demoMode ? 'demo' : leadProvider || provider.name;
+  const resolveModel = (route, override) => {
+    if (override) return { model: override };
+    const profile = config.providers?.[route];
+    if (!demoMode && ['codex-cli', 'claude-code-cli'].includes(profile?.type) && !profile.model) return { model: null, modelSource: 'cli-default' };
+    return { model: demoMode ? provider.model : provider.profiles?.get(route)?.model || provider.model || config.model };
+  };
+  const plannedAgent = ({ id, name, mark, color, specialty, stage, model, provider: route }) => {
+    const configuredProvider = route || defaultProvider || 'default';
+    const selectedProvider = demoMode ? 'demo' : configuredProvider;
+    const routedModel = resolveModel(selectedProvider, model);
+    return { id, name, mark, color, specialty, stage, provider: selectedProvider, ...(demoMode && config.providers?.[configuredProvider] ? { configuredProvider } : {}), ...routedModel };
+  };
   return {
     schemaVersion: SCHEMA_VERSION,
     kind: 'preflight',
     workspace,
     request,
     provider: provider.name,
-    model: provider.model || config.model,
+    ...resolveModel(effectiveLeadProvider),
     theme: config.theme,
-    defaultProvider: config.defaultProvider || Object.keys(config.providers || {})[0] || null,
-    leadProvider: config.leadProvider || config.defaultProvider || Object.keys(config.providers || {})[0] || null,
+    defaultProvider,
+    leadProvider,
+    effectiveLeadProvider,
+    ...(demoMode && profileIds.length ? { configuredProfilesBypassed: true } : {}),
     strategy: runPlan.strategy,
-    agents: config.agents.map(({ id, name, mark, color, specialty, stage, model, provider }) => ({ id, name, mark, color, specialty, stage, provider: provider || config.defaultProvider || Object.keys(config.providers || {})[0] || 'default', ...(model ? { model } : {}) })),
-    waves: runPlan.groups.map(({ stage, label, agents }) => ({ stage, label, agents: agents.map(({ id, name, mark, color, specialty, model, provider }) => ({ id, name, mark, color, specialty, provider: provider || config.defaultProvider || Object.keys(config.providers || {})[0] || 'default', ...(model ? { model } : {}) })) })),
+    agents: config.agents.map(plannedAgent),
+    waves: runPlan.groups.map(({ stage, label, agents }) => ({ stage, label, agents: agents.map(plannedAgent) })),
     limits: {
       maxCalls: config.maxCalls,
       maxConcurrency: config.maxConcurrency,
