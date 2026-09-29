@@ -420,7 +420,9 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
       let commandsSent = false;
       let cancelSent = false;
       let missionSent = false;
-      let repeatSent = false;
+      let roomOneSelected = false;
+      let repeatRequested = false;
+      let repeatStarted = false;
       let quitSent = false;
       const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for the interactive cancellation flow. Output: ${stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')}\n${stderr}`)); }, 5000);
       child.stdout.setEncoding('utf8');
@@ -447,12 +449,21 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
           missionSent = true;
           child.stdin.write('Second room mission\n');
         }
-        if (missionSent && !repeatSent && visibleOutput.includes('Room 2 finished. Continue there or switch rooms.')) {
-          repeatSent = true;
-          repeatOutputStart = visibleOutput.length;
-          child.stdin.write('/1\n/again\n/wait\n');
+        if (missionSent && !roomOneSelected && visibleOutput.includes('Room 2 finished. Continue there or switch rooms.')) {
+          roomOneSelected = true;
+          child.stdin.write('/1\n');
         }
-        if (repeatSent && !quitSent && visibleOutput.includes('Both rooms are ready.')) {
+        if (roomOneSelected && !repeatRequested && visibleOutput.includes('Switched to Room 1.')) {
+          repeatRequested = true;
+          repeatOutputStart = visibleOutput.length;
+          child.stdin.write('/again\n');
+        }
+        const repeatedOutput = visibleOutput.slice(repeatOutputStart);
+        if (repeatRequested && !repeatStarted && (/Room 1 started turn 2\./i.test(repeatedOutput) || /Room 1\s*›\s*First room mission/i.test(repeatedOutput))) {
+          repeatStarted = true;
+          child.stdin.write('/wait\n');
+        }
+        if (repeatStarted && !quitSent && visibleOutput.includes('Both rooms are ready.')) {
           quitSent = true;
           child.stdin.write('/quit\n');
         }
@@ -469,7 +480,8 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
     assert.match(output, /Cancellation requested for Room 1\./i);
     assert.match(output, /Room 2 complete/i);
     assert.match(output, /Room 2 finished\. Continue there or switch rooms\./i);
-    assert.match(output.slice(repeatOutputStart), /Room 1.{0,12}First room mission/i, 'Room 1 should keep its mission available to /again after cancellation');
+    assert.match(output.slice(repeatOutputStart), /Room 1 started turn 2\.|Room 1\s*›\s*First room mission/i, 'Room 1 should keep its mission available to /again after cancellation');
+    assert.match(output.slice(repeatOutputStart), /Room 1 complete/i, 'Room 1 should complete the repeated mission after cancellation');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
