@@ -243,13 +243,13 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       const isHelpMessage = state.message.startsWith('Help:') || state.message.startsWith('/agents [id] /team');
       const isPrimaryHelp = state.message.startsWith('Help: mission');
       const shortHelp = terminalWidth >= 60
-        ? isPrimaryHelp ? 'Help: /run /1 /2 /new /wait /cancel [1|2] /help more' : 'Help: /agents /team /profile /context /history /show …'
+        ? isPrimaryHelp ? 'Help: /run /again /1 /2 /new /wait /cancel [1|2] /help more' : 'Help: /agents /team /profile /context /history /show …'
         : terminalWidth >= 40
-          ? isPrimaryHelp ? 'Help: /run /1 /2 /new /wait /help more' : 'Help: /agents /team /profile /show …'
+          ? isPrimaryHelp ? 'Help: /run /again /1 /2 /new /wait /help more' : 'Help: /agents /team /profile /show …'
         : terminalWidth >= 30
-          ? isPrimaryHelp ? 'Help: /run /1 /2 …' : 'Help: /team /profile …'
-          : terminalWidth >= 17
-            ? isPrimaryHelp ? 'Help: /run /1 …' : 'Help: /team …'
+          ? isPrimaryHelp ? 'Help: /run /again /1 /2 …' : 'Help: /team /profile …'
+        : terminalWidth >= 17
+            ? isPrimaryHelp ? 'Help: /again /run …' : 'Help: /team …'
             : terminalWidth >= 10 ? 'Help: …' : '…';
       const showRoomStatus = !isHelpMessage && terminalHeight >= 4;
       const showHelp = !isHelpMessage && terminalHeight >= 5;

@@ -210,6 +210,17 @@ test('compact Cockpit help fits all command syntax in a 46-column five-row termi
   assert.doesNotMatch(output, /Room 1:|\/new reset/);
 });
 
+test('compact Cockpit primary help keeps /again discoverable in a narrow terminal', () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
+  const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 46, rows: 5, write: (line) => lines.push(line) });
+  renderer.state.message = 'Help: mission or /run <mission> · rooms /1 /2 /switch · repeat /again · turns /new /clear /wait /cancel [1|2] · /help more · /quit /exit';
+
+  renderer.render();
+
+  assert.match(lines.join('\n'), /\/again/);
+});
+
 test('compact cockpit crops wide characters to terminal cell width', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
