@@ -3164,6 +3164,44 @@ test('opt-in Git context includes staged and unstaged changes from HEAD', async 
   }
 });
 
+test('opt-in Git diff includes safe untracked text files and excludes ignored or secret paths', async () => {
+  try { await execFileAsync('git', ['--version']); } catch { return; }
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-git-untracked-diff-'));
+  const external = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-git-untracked-outside-'));
+  try {
+    await execFileAsync('git', ['init'], { cwd: root });
+    await execFileAsync('git', ['config', 'user.name', 'Merge Room Test'], { cwd: root });
+    await execFileAsync('git', ['config', 'user.email', 'merge-room-test@example.invalid'], { cwd: root });
+    await fs.writeFile(path.join(root, '.gitignore'), 'ignored.js\n', 'utf8');
+    await fs.writeFile(path.join(root, 'base.js'), 'const base = true;\n', 'utf8');
+    await execFileAsync('git', ['add', '.gitignore', 'base.js'], { cwd: root });
+    await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: root });
+
+    await fs.writeFile(path.join(root, 'new-feature.js'), 'const NEW_UNTRACKED_FEATURE = true;\n', 'utf8');
+    await fs.writeFile(path.join(root, 'large.js'), `const LARGE_UNTRACKED = '${'x'.repeat(20000)}';\n`, 'utf8');
+    await fs.writeFile(path.join(root, 'empty.js'), '', 'utf8');
+    await fs.writeFile(path.join(root, 'ignored.js'), 'const IGNORED_UNTRACKED = true;\n', 'utf8');
+    await fs.writeFile(path.join(root, 'credentials.js'), 'const SECRET_UNTRACKED = true;\n', 'utf8');
+    await fs.writeFile(path.join(external, 'outside.js'), 'const OUTSIDE_UNTRACKED_SECRET = true;\n', 'utf8');
+    try {
+      await fs.symlink(external, path.join(root, 'linked.js'), process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      if (!['EPERM', 'EACCES', 'ENOTSUP', 'ENOSYS'].includes(error.code)) throw error;
+    }
+    const context = await collectWorkspaceContext(root, { includeDiff: true });
+    assert.match(context.git.diff, /NEW_UNTRACKED_FEATURE/);
+    assert.match(context.git.diff, /@@ -0,0 \+1,1 @@\n\+const NEW_UNTRACKED_FEATURE/);
+    assert.match(context.git.diff, /\+\+\+ b\/empty\.js\n(?!(?:@@))/);
+    assert.doesNotMatch(context.git.diff, /\+\n/);
+    assert.ok(Buffer.byteLength(context.git.diff, 'utf8') <= 12000);
+    assert.doesNotMatch(context.git.diff, /IGNORED_UNTRACKED|SECRET_UNTRACKED|OUTSIDE_UNTRACKED_SECRET/);
+    assert.match(context.git.diff, /diff excerpt truncated/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(external, { recursive: true, force: true });
+  }
+});
+
 test('opt-in Git diff excludes tracked secrets and ignored paths', async () => {
   try { await execFileAsync('git', ['--version']); } catch { return; }
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-git-filtered-diff-'));
