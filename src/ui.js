@@ -234,7 +234,6 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     const help = ' /1 /2 switch · /new reset · /cancel turn · /help · /quit';
     if (terminalWidth < 84 || terminalRows < 24) {
       const isHelpMessage = state.message.startsWith('Help:') || state.message.startsWith('/agents [id] /team');
-      const useShortHelp = isHelpMessage && terminalHeight <= 3;
       const isPrimaryHelp = state.message.startsWith('Help: mission');
       const shortHelp = terminalWidth >= 60
         ? isPrimaryHelp ? 'Help: /run /1 /2 /new /wait /cancel /help more' : 'Help: /agents /team /profile /context /history /show …'
@@ -248,10 +247,12 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       const showRoomStatus = !isHelpMessage && terminalHeight >= 3;
       const showHelp = !isHelpMessage && terminalHeight >= 5;
       const showMessage = terminalHeight >= 3 || isHelpMessage && terminalHeight >= 2;
-      const message = useShortHelp ? shortHelp : state.message;
-      const wrappedMessage = showMessage ? wrap(message, Math.max(1, terminalWidth - 2)) : [];
-      const messageLines = showMessage && !wrappedMessage.length ? [''] : wrappedMessage;
       const messageCapacity = Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp) - Number(!isHelpMessage));
+      const fullHelpLines = showMessage ? wrap(state.message || '', Math.max(1, terminalWidth - 2)) : [];
+      const useShortHelp = isHelpMessage && (terminalHeight <= 3 || fullHelpLines.length > messageCapacity);
+      const message = useShortHelp ? shortHelp : state.message;
+      const wrappedMessage = useShortHelp ? wrap(message, Math.max(1, terminalWidth - 2)) : fullHelpLines;
+      const messageLines = showMessage && !wrappedMessage.length ? [''] : wrappedMessage;
       const visibleMessageLines = messageLines.slice(0, messageCapacity);
       const contentHeight = isHelpMessage ? 0 : Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp) - visibleMessageLines.length);
       const activeRoom = state.rooms[state.activeRoom];
