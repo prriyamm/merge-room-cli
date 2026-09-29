@@ -3,6 +3,8 @@ import { constants } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
+const MAX_BOUNDED_SESSION_LIMIT = 100;
+
 export async function saveSession(result, cwd = process.cwd(), directory = '.merge-room/sessions') {
   const root = await createSessionDirectory(cwd, directory);
   const savedAt = new Date().toISOString();
@@ -25,21 +27,64 @@ export async function listSessions(cwd = process.cwd(), directory = '.merge-room
   const root = await resolveSessionDirectory(cwd, directory);
   if (!root) return [];
   let names;
-  try { names = await fs.readdir(root); } catch (error) {
-    if (error.code === 'ENOENT') return [];
-    throw error;
+  if (limit !== undefined && limit <= MAX_BOUNDED_SESSION_LIMIT) {
+    let directory;
+    try { directory = await fs.opendir(root); } catch (error) {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    }
+    try {
+      names = await selectNewestSessionNames(directory, limit, async (name) => await readSessionSummary(root, name) !== null);
+    } finally {
+      await directory.close().catch(() => {});
+    }
+  } else {
+    try { names = await fs.readdir(root); } catch (error) {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    }
+    names = names.filter((name) => name.endsWith('.json')).sort().reverse();
   }
   const sessions = [];
-  for (const name of names.filter((name) => name.endsWith('.json')).sort().reverse()) {
-    try {
-      const contents = await readRegularFile(path.join(root, name));
-      if (contents === null) continue;
-      const data = JSON.parse(contents);
-      sessions.push({ id: name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request: data.request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) });
-      if (limit !== undefined && sessions.length >= limit) break;
-    } catch { /* Ignore a partial or hand-edited session file. */ }
+  for (const name of names) {
+    const session = await readSessionSummary(root, name);
+    if (session) sessions.push(session);
+    if (limit !== undefined && sessions.length >= limit) break;
   }
   return sessions;
+}
+
+async function readSessionSummary(root, name) {
+  try {
+    const contents = await readRegularFile(path.join(root, name));
+    if (contents === null) return null;
+    const data = JSON.parse(contents);
+    return { id: name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request: data.request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) };
+  } catch { /* Ignore a partial or hand-edited session file. */ return null; }
+}
+
+export async function selectNewestSessionNames(entries, limit, include = async () => true) {
+  if (limit <= 0) return [];
+  const newest = [];
+  for await (const entry of entries) {
+    const name = typeof entry === 'string' ? entry : entry.name;
+    if (!name.endsWith('.json')) continue;
+    if (!await include(name)) continue;
+
+    // Keep only the lexically newest `limit` filenames. This matches the
+    // ordering used by the unlimited listing while bounding retained names.
+    let low = 0;
+    let high = newest.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (newest[middle] < name) low = middle + 1;
+      else high = middle;
+    }
+    if (newest.length === limit && name <= newest[0]) continue;
+    newest.splice(low, 0, name);
+    if (newest.length > limit) newest.shift();
+  }
+  return newest.reverse();
 }
 
 export async function readSession(id, cwd = process.cwd(), directory = '.merge-room/sessions') {

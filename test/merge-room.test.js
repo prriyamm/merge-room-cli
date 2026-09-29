@@ -12,7 +12,7 @@ import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from '../src/engine.js';
 import { liquidGlassLogoLines } from '../src/logo.js';
 import { AnthropicProvider, ClaudeCodeCliProvider, CodexCliProvider, createProvider, DemoProvider, OpenAICompatibleProvider, parseClaudeCodeOutput, parseCodexOutput } from '../src/providers.js';
-import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from '../src/sessions.js';
+import { formatSessionMarkdown, listSessions, readSession, saveSession, selectNewestSessionNames, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
 import { buildResumeRequest, cockpitHelpMorePage, cockpitHelpMorePages, main } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
@@ -3404,14 +3404,37 @@ test('limited session listing keeps newest valid sessions and skips corrupt file
   }
 });
 
+test('bounded session name selection streams entries and keeps only the newest limit', async () => {
+  let yielded = 0;
+  async function* entries() {
+    for (let index = 0; index < 10000; index += 1) {
+      yielded += 1;
+      yield { name: `2026-${String(index).padStart(5, '0')}.json` };
+      if (index % 100 === 0) yield { name: `notes-${index}.md` };
+    }
+  }
+
+  const newest = await selectNewestSessionNames(entries(), 3);
+  assert.equal(yielded, 10000);
+  assert.deepEqual(newest, ['2026-09999.json', '2026-09998.json', '2026-09997.json']);
+});
+
 test('limited session listing returns no sessions for a zero limit', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-zero-limit-'));
   const directory = path.join(root, 'sessions');
+  const originalOpendir = fs.opendir;
+  let directoryOpened = false;
   try {
     await fs.mkdir(directory);
     await fs.writeFile(path.join(directory, '2026-01-01.json'), JSON.stringify({ id: '2026-01-01' }));
+    fs.opendir = async (...args) => {
+      directoryOpened = true;
+      return originalOpendir(...args);
+    };
     assert.deepEqual(await listSessions(root, 'sessions', { limit: 0 }), []);
+    assert.equal(directoryOpened, false, 'a zero limit should not open or traverse the session directory');
   } finally {
+    fs.opendir = originalOpendir;
     await fs.rm(root, { recursive: true, force: true });
   }
 });
