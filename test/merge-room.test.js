@@ -136,6 +136,19 @@ test('compact cockpit crops wide characters to terminal cell width', () => {
   assert.ok(lines.every((line) => cellWidth(line) <= 14));
 });
 
+test('compact cockpit wraps long unbroken answers by terminal cell width', () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
+  const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 20, rows: 16, write: (line) => lines.push(line) });
+  const answer = '界'.repeat(30);
+  renderer.state.rooms[0].final = answer;
+
+  renderer.render();
+
+  assert.equal(lines.join('').match(/界/g)?.length, answer.length);
+  assert.ok(lines.every((line) => [...line].reduce((width, character) => width + (character === '界' ? 2 : 1), 0) <= 20));
+});
+
 test('cockpit renderer exposes the conversation controls used by the terminal loop', async () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
