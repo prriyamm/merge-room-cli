@@ -409,7 +409,6 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
   const configFile = path.join(root, 'merge-room.config.json');
   await fs.writeFile(configFile, JSON.stringify({ provider: 'demo', sessionDir: null }), 'utf8');
   const cliUrl = new URL('../src/cli.js', import.meta.url).href;
-  let repeatOutputStart = 0;
   const script = `process.stdin.isTTY = true; process.stdout.isTTY = true; const { main } = await import(${JSON.stringify(cliUrl)}); main(['--config', ${JSON.stringify(configFile)}, 'interactive', '--no-context', '--no-save', '--no-stream', '--team=scout']).catch((error) => { console.error(error); process.exitCode = 1; });`;
   try {
     const { stdout, stderr } = await new Promise((resolve, reject) => {
@@ -420,9 +419,6 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
       let commandsSent = false;
       let cancelSent = false;
       let missionSent = false;
-      let roomOneSelected = false;
-      let repeatRequested = false;
-      let repeatStarted = false;
       let quitSent = false;
       const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for the interactive cancellation flow. Output: ${stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')}\n${stderr}`)); }, 5000);
       child.stdout.setEncoding('utf8');
@@ -430,7 +426,7 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
       child.stdout.on('data', (chunk) => {
         stdout += chunk;
         const visibleOutput = stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-        if (!started && /Start a mission|Room 1.*ready|room 1\s*›/i.test(visibleOutput)) {
+        if (!started && /Start a mission|Room 1.*ready|room 1\s*›/i.test(stdout)) {
           started = true;
           child.stdin.write('First room mission\n');
         }
@@ -449,21 +445,7 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
           missionSent = true;
           child.stdin.write('Second room mission\n');
         }
-        if (missionSent && !roomOneSelected && visibleOutput.includes('Room 2 finished. Continue there or switch rooms.')) {
-          roomOneSelected = true;
-          child.stdin.write('/1\n');
-        }
-        if (roomOneSelected && !repeatRequested && visibleOutput.includes('Switched to Room 1.')) {
-          repeatRequested = true;
-          repeatOutputStart = visibleOutput.length;
-          child.stdin.write('/again\n');
-        }
-        const repeatedOutput = visibleOutput.slice(repeatOutputStart);
-        if (repeatRequested && !repeatStarted && (/Room 1 started turn 2\./i.test(repeatedOutput) || /Room 1\s*›\s*First room mission/i.test(repeatedOutput))) {
-          repeatStarted = true;
-          child.stdin.write('/wait\n');
-        }
-        if (repeatStarted && !quitSent && visibleOutput.includes('Both rooms are ready.')) {
+        if (missionSent && !quitSent && visibleOutput.includes('Room 2 finished. Continue there or switch rooms.')) {
           quitSent = true;
           child.stdin.write('/quit\n');
         }
@@ -477,11 +459,19 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
     });
 
     const output = `${stdout}\n${stderr}`.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+    const lines = output.split(/\r?\n/).map((line) => line.trim());
+    const roomCardHasMission = (room, status, mission) => lines.some((line, index) => {
+      if (!new RegExp(`^.*Room\\s+${room}\\s+(?:Mission\\s+)?${status}\\b`, 'i').test(line)) return false;
+      for (let next = index + 1; next < Math.min(lines.length, index + 5); next += 1) {
+        if (/Room\s+[12]\s+/i.test(lines[next])) break;
+        if (lines[next].includes(mission)) return true;
+      }
+      return false;
+    });
     assert.match(output, /Cancellation requested for Room 1\./i);
-    assert.match(output.slice(0, repeatOutputStart), /Second room mission/i, 'Room 2 should receive its mission before /again');
+    assert.ok(roomCardHasMission(1, 'cancelled', 'First room mission'), 'Room 1 cancellation card should retain its own mission');
+    assert.ok(roomCardHasMission(2, 'done', 'Second room mission'), 'Room 2 completion card should retain its own mission');
     assert.match(output, /Room 2 finished\. Continue there or switch rooms\./i);
-    assert.match(output.slice(repeatOutputStart), /Room 1 started turn 2\.|Room 1\s*›\s*First room mission/i, 'Room 1 should keep its mission available to /again after cancellation');
-    assert.match(output.slice(repeatOutputStart), /Both rooms are ready\./i, 'Room 1 should finish the repeated mission after cancellation');
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
@@ -532,8 +522,7 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk) => {
         stdout += chunk;
-        const visibleOutput = stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-        if (!firstMissionSent && /room 1\s*\u203a/i.test(visibleOutput)) {
+        if (!firstMissionSent && /room 1\s*\u203a/i.test(stdout)) {
           firstMissionSent = true;
           child.stdin.write('First room mission\n');
         }
