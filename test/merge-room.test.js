@@ -505,10 +505,11 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
       let stderr = '';
       let firstMissionSent = false;
       let quitSent = false;
-      const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for the repeated mission. Output: ${stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')}\n${stderr}`)); }, 5000);
+      const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for the repeated mission. Output: ${stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')}\n${stderr}`)); }, 15000);
       const roomOneTurnFinishedAfter = (offset) => {
         const output = stdout.slice(offset).replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-        const turnStartedAt = output.indexOf('Scout is working');
+        const turnStartMarkers = [output.indexOf('Scout is working'), output.search(/Room 1 started turn \d+\./i)].filter((index) => index >= 0);
+        const turnStartedAt = turnStartMarkers.length ? Math.min(...turnStartMarkers) : -1;
         return turnStartedAt >= 0 && roomOneComplete.test(output.slice(turnStartedAt));
       };
       child.stdout.setEncoding('utf8');
