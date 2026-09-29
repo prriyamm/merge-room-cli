@@ -146,7 +146,30 @@ function formatBytes(bytes) {
 }
 
 function redactSecrets(text) {
-  return text.replace(/((?:api[_-]?key|access[_-]?token|auth(?:orization)?|password|passwd|secret)["']?\s*[=:]\s*["']?)([^\s"'`,}]+)/gi, '$1[redacted]');
+  const lines = text.split(/(\r\n|\n|\r)/);
+  const unifiedDiff = /^(?:diff --git |@@ )/m.test(text);
+  for (let index = 0; index < lines.length; index += 2) {
+    const line = lines[index];
+    const diffPrefix = unifiedDiff && /^[ +\-]/.test(line) ? line[0] : '';
+    const contentLine = diffPrefix ? line.slice(1) : line;
+    const match = /(\bauthorization\b["']?\s*[:=]\s*)(.*)$/i.exec(contentLine);
+    if (!match) continue;
+    lines[index] = `${diffPrefix}${contentLine.slice(0, match.index)}${match[1]}[redacted]`;
+    if (!/^[|>](?:[1-9][+-]?|[+-][1-9]?)?\s*(?:#.*)?$/.test(match[2].trim())) continue;
+    const baseIndent = (contentLine.match(/^[ \t]*/) || [''])[0].length;
+    for (let continuation = index + 2; continuation < lines.length; continuation += 2) {
+      const valueLine = lines[continuation];
+      const valuePrefix = unifiedDiff && /^[ +\-]/.test(valueLine) ? valueLine[0] : '';
+      const valueContent = valuePrefix ? valueLine.slice(1) : valueLine;
+      if (/^[ \t]*$/.test(valueContent)) continue;
+      const indent = (valueContent.match(/^[ \t]*/) || [''])[0].length;
+      if (indent <= baseIndent) break;
+      lines[continuation] = `${valuePrefix}${valueContent.slice(0, indent)}[redacted]`;
+    }
+  }
+  const withAuthorizationHeadersRedacted = lines.join('');
+  const withAuthSchemeCredentialsRedacted = withAuthorizationHeadersRedacted.replace(/\b((?:Bearer|Basic|Token|Digest|HOBA|Mutual|Negotiate|OAuth|SCRAM(?:-[A-Z0-9-]+)?|VAPID|AWS4-HMAC-SHA256|Signature|DPoP)\s+)[^\r\n]*/gi, '$1[redacted]');
+  return withAuthSchemeCredentialsRedacted.replace(/((?:api[_-]?key|access[_-]?token|auth|password|passwd|secret)["']?\s*[=:]\s*["']?)([^\s"'`,}]+)/gi, '$1[redacted]');
 }
 
 async function readIgnoreRules(cwd, base = '', signal) {
