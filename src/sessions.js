@@ -1,11 +1,12 @@
 import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 export async function saveSession(result, cwd = process.cwd(), directory = '.merge-room/sessions') {
   const root = await createSessionDirectory(cwd, directory);
   const stamp = new Date().toISOString().replaceAll(':', '-').replaceAll('.', '-');
- const id = `${stamp}-${Math.random().toString(36).slice(2, 7)}`;
+ const id = `${stamp}-${randomUUID()}`;
  const file = path.join(root, `${id}.json`);
   const temporary = path.join(root, `.${id}.tmp-${process.pid}`);
   try {

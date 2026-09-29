@@ -1648,6 +1648,28 @@ test('sessions can be saved, listed, and reopened', async () => {
   }
 });
 
+test('session ids remain unique when time and Math.random collide', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-id-collision-'));
+  const OriginalDate = globalThis.Date;
+  const originalRandom = Math.random;
+  globalThis.Date = class extends OriginalDate {
+    constructor(...args) { super(...(args.length ? args : ['2026-01-02T03:04:05.000Z'])); }
+    static now() { return new OriginalDate('2026-01-02T03:04:05.000Z').valueOf(); }
+  };
+  Math.random = () => 0.5;
+  try {
+    const first = await saveSession({ request: 'first', answer: 'first answer' }, root, 'sessions');
+    const second = await saveSession({ request: 'second', answer: 'second answer' }, root, 'sessions');
+    assert.notEqual(first.id, second.id);
+    assert.equal((await readSession(first.id, root, 'sessions')).answer, 'first answer');
+    assert.equal((await readSession(second.id, root, 'sessions')).answer, 'second answer');
+  } finally {
+    globalThis.Date = OriginalDate;
+    Math.random = originalRandom;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('session readers reject symbolic links that point outside the session directory', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-symlink-'));
   const sessions = path.join(root, 'sessions');
