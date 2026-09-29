@@ -520,7 +520,8 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk) => {
         stdout += chunk;
-        if (!firstMissionSent && /room 1\s*\u203a/i.test(stdout)) {
+        const visibleOutput = stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+        if (!firstMissionSent && /room 1\s*\u203a/i.test(visibleOutput)) {
           firstMissionSent = true;
           child.stdin.write('First room mission\n');
         }
