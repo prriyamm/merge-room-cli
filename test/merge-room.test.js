@@ -405,18 +405,18 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
       let started = false;
       let commandsSent = false;
       let quitSent = false;
-      const timeout = setTimeout(() => { child.kill(); reject(new Error('Timed out waiting for the interactive cancellation flow.')); }, 5000);
+      const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for the interactive cancellation flow. Output: ${stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')}\n${stderr}`)); }, 5000);
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk) => {
         stdout += chunk;
-        if (!started && /Start a mission|Room 1.*ready/i.test(stdout)) {
+        if (!started && /Start a mission|Room 1.*ready|room 1\s*›/i.test(stdout)) {
           started = true;
           child.stdin.write('First room mission\n');
-        } else if (started && !commandsSent && stdout.includes('Room 1 started turn 1')) {
+        } else if (started && !commandsSent && stdout.includes('is working')) {
           commandsSent = true;
           child.stdin.write('/2\n/cancel 1\nSecond room mission\n');
-        } else if (commandsSent && !quitSent && /Room 2\s+done/.test(stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, ''))) {
+        } else if (commandsSent && !quitSent && stdout.includes('Room 2 complete')) {
           quitSent = true;
           child.stdin.write('/quit\n');
         }
@@ -430,10 +430,10 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
     });
 
     const output = `${stdout}\n${stderr}`.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-    assert.match(output, /Room 1\s+cancelled/);
-    assert.match(output, /Room 2.*Second room mission|\[Room 2\].*Second room mission/);
-    assert.doesNotMatch(output, /Room 1.*Second room mission|\[Room 1\].*Second room mission/);
-    assert.match(output, /Room 2\s+done/);
+    assert.match(output, /Room 1 Mission cancelled\./i);
+    assert.match(output, /room 2 › Second room mission/i);
+    assert.doesNotMatch(output, /room 1 › Second room mission/i);
+    assert.match(output, /Room 2 complete/i);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
