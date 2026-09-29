@@ -911,7 +911,7 @@ function summarizeUsage(sessions) {
       addModelUsage(summary, session.model || session.provider || 'unknown', usage);
     }
    return summary;
- }, { sessions: 0, input: 0, output: 0, total: 0, estimatedInput: 0, estimatedOutput: 0, calls: 0, degraded: 0, byModel: {} });
+ }, { sessions: 0, input: 0, output: 0, total: 0, estimatedInput: 0, estimatedOutput: 0, calls: 0, degraded: 0, byModel: Object.create(null) });
 }
 
 function addModelUsage(summary, model, values) {
