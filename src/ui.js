@@ -445,6 +445,15 @@ export function printSession(session) {
  console.log(`  ${color('bold', 'MERGE ROOM SAYS')}\n  ${session.answer}\n`);
  if (session.degraded) console.log(`  ${color('yellow', '△')} ${color('gray', 'Best-effort run: one or more specialists were unavailable.')}\n`);
   if (session.synthesisError) console.log(`  ${color('gray', 'reason')} ${session.synthesisError}\n`);
+  if (Array.isArray(session.agents) && session.agents.length) {
+    console.log(`  ${color('bold', 'SPECIALIST ROUTES')}`);
+    for (const item of session.agents) {
+      const name = item.agent?.name || item.agent?.id || 'Specialist';
+      const route = [item.provider, item.model].filter(Boolean).join(' · ');
+      console.log(`  ${name}${item.stage ? ` · stage ${item.stage}` : ''}${route ? ` · ${route}` : ''}`);
+    }
+    console.log('');
+  }
   if (session.usage) {
     const mark = (value, estimated) => `${estimated ? '~' : ''}${formatTokens(value || 0)}`;
     console.log(`  ${color('gray', 'tokens')} ${mark(session.usage.total, session.usage.estimatedInput || session.usage.estimatedOutput)} total · ${mark(session.usage.input, session.usage.estimatedInput)} in · ${mark(session.usage.output, session.usage.estimatedOutput)} out\n`);
