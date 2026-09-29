@@ -550,11 +550,15 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
 
     assert.equal(phase, 4);
     const stripTerminalControls = (value) => value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-    assert.match(stripTerminalControls(stdout.slice(secondTurnOutputStart, thirdTurnOutputStart)), roomOneComplete);
-    assert.match(stripTerminalControls(stdout.slice(thirdTurnOutputStart, fourthTurnOutputStart)), roomOneComplete);
-    assert.match(stripTerminalControls(stdout.slice(fourthTurnOutputStart)), roomOneComplete);
-    assert.match(stripTerminalControls(stdout), /Third room mission/i);
-    assert.match(stripTerminalControls(stdout), /Fourth room mission/i);
+    const assertRoomOneMission = (start, end, mission) => {
+      const output = stripTerminalControls(stdout.slice(start, end));
+      assert.match(output, new RegExp(mission, 'i'));
+      assert.match(output, roomOneComplete);
+    };
+    assertRoomOneMission(0, secondTurnOutputStart, 'First room mission');
+    assertRoomOneMission(secondTurnOutputStart, thirdTurnOutputStart, 'First room mission');
+    assertRoomOneMission(thirdTurnOutputStart, fourthTurnOutputStart, 'Third room mission');
+    assertRoomOneMission(fourthTurnOutputStart, undefined, 'Fourth room mission');
     assert.doesNotMatch(stripTerminalControls(stdout), /Room 2 started turn 1/i);
     assert.doesNotMatch(stderr, /Error|AssertionError/i);
   } finally {
