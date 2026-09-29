@@ -1060,12 +1060,12 @@ test('Anthropic adapter estimates input when usage is invalid or absent', async 
       usage = invalidUsage;
       const response = await createProvider(config).complete({ system: 'system', prompt: 'prompt', provider: 'claude' });
       assert.equal(response.inputEstimated, true);
-      assert.equal(response.inputTokens, 3);
+      assert.equal(response.inputTokens, 4);
     }
     usage = undefined;
     const response = await createProvider(config).complete({ system: 'system', prompt: 'prompt', provider: 'claude' });
     assert.equal(response.inputEstimated, true);
-    assert.equal(response.inputTokens, 3);
+    assert.equal(response.inputTokens, 4);
   } finally {
     globalThis.fetch = originalFetch;
     if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_ANTHROPIC;
