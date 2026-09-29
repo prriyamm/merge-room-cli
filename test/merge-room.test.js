@@ -1886,7 +1886,7 @@ test('workspace excerpts and opt-in Git diffs redact complete Authorization head
     await execFileAsync('git', ['config', 'user.email', 'merge-room-test@example.invalid'], { cwd: root });
     const file = path.join(root, 'headers.yaml');
     await fs.writeFile(file, 'Authorization: "Bearer OLD_AUTH_SECRET"\nauthorization: |\n  Bearer OLD_MULTILINE_AUTH_SECRET\n\n  continued OLD_BLOCK_SECRET\nContent-Type: application/json\n', 'utf8');
-    const tokenFile = path.join(root, 'token-config.json');
+    const tokenFile = path.join(root, 'settings.json');
     await fs.writeFile(tokenFile, '{"token":"OLD_BARE_TOKEN","accessToken":"OLD_CAMEL_TOKEN","refresh-token":"OLD_KEBAB_TOKEN","input_tokens":12}\n', 'utf8');
     const longBlockFile = path.join(root, 'provider-response.txt');
     await fs.writeFile(longBlockFile, 'Provider response\nToken OLD_HUNK_SECRET\ntoken=OLD_DIFF_TOKEN\nrefresh_token: OLD_SNAKE_TOKEN\ninput_tokens: 12\n', 'utf8');
@@ -1901,7 +1901,7 @@ test('workspace excerpts and opt-in Git diffs redact complete Authorization head
     assert.match(context.excerpts.find((item) => item.path === 'headers.yaml').text, /Authorization: \[redacted\]/);
     assert.match(context.git.diff, /Authorization: \[redacted\]/);
     assert.match(context.git.diff, /Token \[redacted\]/);
-    const tokenExcerpt = context.excerpts.find((item) => item.path === 'token-config.json').text;
+    const tokenExcerpt = context.excerpts.find((item) => item.path === 'settings.json').text;
     assert.match(tokenExcerpt, /"token":"\[redacted\]"/);
     assert.match(tokenExcerpt, /"accessToken":"\[redacted\]"/);
     assert.match(tokenExcerpt, /"refresh-token":"\[redacted\]"/);
