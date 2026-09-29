@@ -212,15 +212,21 @@ async function readIgnoreRulesForPath(workspaceRoot, targetPath, signal, cache =
 
 function isIgnored(relative, rules, directory = false) {
   const normalized = relative.replaceAll('\\', '/');
+  const parts = normalized.split('/');
+  for (let end = 1; end < parts.length; end += 1) {
+    if (matchesIgnoreRules(parts.slice(0, end).join('/'), rules, true)) return true;
+  }
+  return matchesIgnoreRules(normalized, rules, directory);
+}
+
+function matchesIgnoreRules(normalized, rules, directory) {
   let ignored = false;
   for (const rule of rules) {
     const scopedPath = rule.base
       ? normalized.startsWith(`${rule.base}/`) ? normalized.slice(rule.base.length + 1) : null
       : normalized;
     if (scopedPath === null) continue;
-    const scopedPrefixes = scopedPath.split('/').map((_, index, parts) => parts.slice(0, index + 1).join('/'));
-    const matches = ((!rule.directoryOnly || directory) && rule.regex.test(scopedPath))
-      || scopedPrefixes.slice(0, -1).some((prefix) => rule.regex.test(prefix));
+    const matches = (!rule.directoryOnly || directory) && rule.regex.test(scopedPath);
     if (matches) ignored = !rule.negate;
   }
   return ignored;
