@@ -34,7 +34,7 @@ export async function listSessions(cwd = process.cwd(), directory = '.merge-room
       throw error;
     }
     try {
-      names = await selectNewestSessionNames(directory, limit, async (name) => readSessionSummary(root, name) !== null);
+      names = await selectNewestSessionNames(directory, limit, async (name) => await readSessionSummary(root, name) !== null);
     } finally {
       await directory.close().catch(() => {});
     }
