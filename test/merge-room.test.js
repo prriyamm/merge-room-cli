@@ -657,7 +657,9 @@ test('Bash completion executes for shell names and option values when Bash is av
       ['merge-room completions p', 2, 'powershell'],
       ['merge-room theme h', 2, 'high-contrast'],
       ['merge-room --theme=li', 1, '--theme=liquid-glass'],
-      ['merge-room --format=j', 1, '--format=json']
+      ['merge-room --format=j', 1, '--format=json'],
+      ['merge-room --theme o', 2, 'ocean'],
+      ['merge-room --format j', 2, 'json']
     ]) {
       const command = `. "$1"; COMP_WORDS=(${words}); COMP_CWORD=${cursor}; _merge_room; [[ "${'${COMPREPLY[*]}'}" == *"${expected}"* ]]`;
       await execFileAsync(bash, ['-c', command, 'merge-room-test', scriptPath], { windowsHide: true });
@@ -675,6 +677,18 @@ test('completion scripts include each supported help, version, and workspace opt
       assert.equal(candidates.filter((item) => item === candidate).length, 1, `${shell} completion should include ${candidate} once`);
     }
   }
+});
+
+test('completion scripts offer values after spaced theme and format options', () => {
+  const bash = completionScript('bash');
+  assert.match(bash, /previous.*--theme/);
+  assert.match(bash, /previous.*--format/);
+  const zsh = completionScript('zsh');
+  assert.match(zsh, /words\[CURRENT-1\].*--theme/);
+  assert.match(zsh, /words\[CURRENT-1\].*--format/);
+  const powershell = completionScript('powershell');
+  assert.match(powershell, /elements\[-2\].*--theme/);
+  assert.match(powershell, /elements\[-2\].*--format/);
 });
 
 test('themes expose named palettes and useful aliases', () => {
