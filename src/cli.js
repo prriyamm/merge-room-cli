@@ -207,35 +207,56 @@ export async function main(args = [], { signal } = {}) {
   if (strict && result.degraded) process.exitCode = 2;
 }
 
-async function readStdin(signal, maxBytes = null) {
-  const read = (async () => {
-    let input = '';
-    if (maxBytes === null) {
-      for await (const chunk of process.stdin) input += chunk;
-    } else {
-      const chunks = [];
-      let bytes = 0;
-      for await (const chunk of process.stdin) {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        bytes += buffer.length;
-        if (bytes > maxBytes) throw new Error(`Stdin mission exceeds the ${maxBytes / 1024} KB limit. Use --prompt-file to provide a larger mission.`);
-        chunks.push(buffer);
-      }
-      input = Buffer.concat(chunks).toString('utf8');
-    }
-    return input.trim();
-  })();
-  if (!signal) return read;
+let bufferedStdinChunks = [];
+
+function readStdin(signal, maxBytes = null) {
   return new Promise((resolve, reject) => {
-    const cleanup = () => signal.removeEventListener('abort', abort);
-    const abort = () => {
-      process.stdin.destroy();
-      cleanup();
-      reject(abortError());
+    const stdin = process.stdin;
+    const chunks = bufferedStdinChunks;
+    let bytes = chunks.reduce((total, chunk) => total + chunk.length, 0);
+    let settled = false;
+    bufferedStdinChunks = [];
+    const cleanup = () => {
+      stdin.removeListener('data', onData);
+      stdin.removeListener('end', onEnd);
+      stdin.removeListener('error', onError);
+      signal?.removeEventListener('abort', onAbort);
     };
-    signal.addEventListener('abort', abort, { once: true });
-    read.then((value) => { cleanup(); resolve(value); }, (error) => { cleanup(); reject(signal.aborted ? abortError() : error); });
-    if (signal.aborted) abort();
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve(Buffer.concat(chunks).toString('utf8').trim());
+    };
+    const onData = (chunk) => {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bytes += buffer.length;
+      if (maxBytes !== null && bytes > maxBytes) {
+        stdin.pause();
+        finish(new Error(`Stdin mission exceeds the ${maxBytes / 1024} KB limit. Use --prompt-file to provide a larger mission.`));
+        return;
+      }
+      chunks.push(buffer);
+    };
+    const onEnd = () => finish();
+    const onError = (error) => finish(signal?.aborted ? abortError() : error);
+    const onAbort = () => {
+      stdin.pause();
+      bufferedStdinChunks = chunks.concat(bufferedStdinChunks);
+      finish(abortError());
+    };
+    if (maxBytes !== null && bytes > maxBytes) {
+      bufferedStdinChunks = chunks.concat(bufferedStdinChunks);
+      finish(new Error(`Stdin mission exceeds the ${maxBytes / 1024} KB limit. Use --prompt-file to provide a larger mission.`));
+      return;
+    }
+    stdin.on('data', onData);
+    stdin.once('end', onEnd);
+    stdin.once('error', onError);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    else stdin.resume();
   });
 }
 

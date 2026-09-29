@@ -2318,6 +2318,39 @@ test('CLI rejects one-shot stdin missions larger than 256 KiB', async () => {
   }
 });
 
+test('aborting an in-process CLI stdin read preserves stdin for a later call', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-stdin-abort-'));
+  const cliUrl = new URL('../src/cli.js', import.meta.url).href;
+  const script = `
+    import assert from 'node:assert/strict';
+    import { PassThrough } from 'node:stream';
+    import { main } from ${JSON.stringify(cliUrl)};
+    const stdin = new PassThrough();
+    Object.defineProperty(process, 'stdin', { configurable: true, value: stdin });
+    const args = ['--cwd', ${JSON.stringify(root)}, '--provider=demo', '--no-context', '--no-save', '--no-stream', '--json', '-'];
+    const controller = new AbortController();
+    const cancelled = main(args, { signal: controller.signal });
+    await new Promise((resolve) => setImmediate(resolve));
+    stdin.write('preserved input');
+    controller.abort();
+    await assert.rejects(cancelled, { name: 'AbortError' });
+    assert.equal(stdin.destroyed, false);
+    const nextCall = main(args);
+    stdin.end(' after cancellation');
+    const output = [];
+    const originalLog = console.log;
+    console.log = (...values) => output.push(values.join(' '));
+    try { await nextCall; }
+    finally { console.log = originalLog; }
+    assert.match(output.join('\\n'), /"request": "preserved input after cancellation"/);
+  `;
+  try {
+    await execFileAsync(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, timeout: 10000 });
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI resolves unique session id prefixes', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-prefix-'));
   try {
