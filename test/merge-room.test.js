@@ -3404,6 +3404,31 @@ test('limited session listing keeps newest valid sessions and skips corrupt file
   }
 });
 
+test('limited session listing reads only the newest candidate on the common path', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-fast-limit-'));
+  const directory = path.join(root, 'sessions');
+  const originalOpen = fs.open;
+  const openedSessionFiles = [];
+  try {
+    await fs.mkdir(directory);
+    for (let day = 1; day <= 8; day += 1) {
+      const name = `2026-01-${String(day).padStart(2, '0')}.json`;
+      await fs.writeFile(path.join(directory, name), JSON.stringify({ request: name }));
+    }
+    fs.open = async (target, ...args) => {
+      if (path.dirname(path.resolve(String(target))) === directory) openedSessionFiles.push(path.basename(String(target)));
+      return originalOpen(target, ...args);
+    };
+
+    const sessions = await listSessions(root, 'sessions', { limit: 1 });
+    assert.deepEqual(sessions.map(({ id }) => id), ['2026-01-08']);
+    assert.deepEqual(openedSessionFiles, ['2026-01-08.json']);
+  } finally {
+    fs.open = originalOpen;
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('bounded session name selection streams entries and keeps only the newest limit', async () => {
   let yielded = 0;
   async function* entries() {

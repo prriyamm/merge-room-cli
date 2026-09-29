@@ -27,6 +27,7 @@ export async function listSessions(cwd = process.cwd(), directory = '.merge-room
   const root = await resolveSessionDirectory(cwd, directory);
   if (!root) return [];
   let names;
+  let boundedCandidates = false;
   if (limit !== undefined && limit <= MAX_BOUNDED_SESSION_LIMIT) {
     let directory;
     try { directory = await fs.opendir(root); } catch (error) {
@@ -34,10 +35,11 @@ export async function listSessions(cwd = process.cwd(), directory = '.merge-room
       throw error;
     }
     try {
-      names = await selectNewestSessionNames(directory, limit, async (name) => await readSessionSummary(root, name) !== null);
+      names = await selectNewestSessionNames(directory, limit);
     } finally {
       await directory.close().catch(() => {});
     }
+    boundedCandidates = true;
   } else {
     try { names = await fs.readdir(root); } catch (error) {
       if (error.code === 'ENOENT') return [];
@@ -46,6 +48,30 @@ export async function listSessions(cwd = process.cwd(), directory = '.merge-room
     names = names.filter((name) => name.endsWith('.json')).sort().reverse();
   }
   const sessions = [];
+  if (boundedCandidates) {
+    const inspected = new Set();
+    for (const name of names) {
+      inspected.add(name);
+      const session = await readSessionSummary(root, name);
+      if (session) sessions.push(session);
+      if (sessions.length >= limit) return sessions;
+    }
+
+    // Only fall back to scanning all names if one or more of the newest
+    // candidates were corrupt or unreadable and left the result short.
+    try { names = (await fs.readdir(root)).filter((name) => name.endsWith('.json')).sort().reverse(); }
+    catch (error) {
+      if (error.code === 'ENOENT') return sessions;
+      throw error;
+    }
+    for (const name of names) {
+      if (inspected.has(name)) continue;
+      const session = await readSessionSummary(root, name);
+      if (session) sessions.push(session);
+      if (sessions.length >= limit) break;
+    }
+    return sessions;
+  }
   for (const name of names) {
     const session = await readSessionSummary(root, name);
     if (session) sessions.push(session);
@@ -63,13 +89,12 @@ async function readSessionSummary(root, name) {
   } catch { /* Ignore a partial or hand-edited session file. */ return null; }
 }
 
-export async function selectNewestSessionNames(entries, limit, include = async () => true) {
+export async function selectNewestSessionNames(entries, limit) {
   if (limit <= 0) return [];
   const newest = [];
   for await (const entry of entries) {
     const name = typeof entry === 'string' ? entry : entry.name;
     if (!name.endsWith('.json')) continue;
-    if (!await include(name)) continue;
 
     // Keep only the lexically newest `limit` filenames. This matches the
     // ordering used by the unlimited listing while bounding retained names.
