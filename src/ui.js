@@ -17,14 +17,15 @@ export const stripUnsafeTerminalControls = (value) => String(value)
   .replace(/\x1B(?!\[)/g, '')
   .replace(/[\x00-\x08\x0B\x0C\x0E-\x1A\x1C-\x1F\x7F-\x9F]/g, '')
   .replace(/[\r\n]+/g, ' ');
-const sanitizeUntrustedText = (value) => String(value)
+const sanitizeMultilineText = (value) => String(value)
   .replace(/\r\n?/g, '\n')
   .replace(/\x1B\](?:[^\x07\x1B]|\x1B(?!\\))*(?:\x07|\x1B\\|$)/g, '')
   .replace(/\x1B[PX^_][\s\S]*?(?:\x1B\\|$)/g, '')
   .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
   .replace(/\x1B./gs, '')
-  .replace(/[\x00-\x09\x0B-\x1F\x7F-\x9F]/g, ' ');
-const sanitizeInlineText = (value) => sanitizeUntrustedText(value).replace(/\n+/g, ' ');
+  .replace(/[\x00-\x08\x0B-\x1F\x7F-\x9F]/g, ' ');
+const sanitizeUntrustedText = (value) => sanitizeMultilineText(value).replace(/\n+/g, ' ');
+const sanitizeInlineText = sanitizeUntrustedText;
 const width = () => Math.max(48, Math.min(process.stdout.columns || 92, 118) - 2);
 const line = (char = '─') => char.repeat(width());
 const crop = (value, max) => {
@@ -200,7 +201,7 @@ export function createRenderer({ config, provider, context = null }) {
     else if (payload.type === 'agent:skipped') console.log(`  ${sanitizeUntrustedText(payload.agent.name)} skipped: ${sanitizeUntrustedText(payload.error)}`);
     else if (payload.type === 'synthesis:error') console.log(`  Lead synthesis unavailable: ${sanitizeUntrustedText(payload.error)}`);
     else if (payload.type === 'run:cancelled') console.log(`  Mission cancelled: ${sanitizeUntrustedText(payload.error || 'Mission cancelled.')}`);
-   else if (payload.type === 'run:done') console.log(`\n${sanitizeUntrustedText(payload.result.answer)}\n`);
+   else if (payload.type === 'run:done') console.log(`\n${sanitizeMultilineText(payload.result.answer)}\n`);
   };
   return { event, render, state };
 }
@@ -488,7 +489,7 @@ export function printResult(result, { trace = false } = {}) {
     console.log(`  ${color('bold', 'SPECIALIST TRACE')}`);
     for (const item of result.agents || []) {
       console.log(`  ${color(item.agent.color, sanitizeUntrustedText(item.agent.mark))} ${color('bold', sanitizeUntrustedText(item.agent.name))} ${color('gray', `· stage ${sanitizeUntrustedText(item.stage)} · ${sanitizeUntrustedText(item.model)} · ${sanitizeUntrustedText(item.status)} · ${((item.durationMs || 0) / 1000).toFixed(1)}s`)}`);
-      console.log(`  ${color('white', sanitizeUntrustedText(item.text))}\n`);
+      console.log(`  ${color('white', sanitizeMultilineText(item.text))}\n`);
     }
   }
   const statusIcon = result.degraded ? color('yellow', '△') : color('green', '✓');
@@ -568,7 +569,7 @@ export function printHelp() {
 export function printAgents(config) {
   printBanner({ provider: 'configured', model: config.model });
   console.log(`  ${color('bold', 'SPECIALIST ROSTER')}\n`);
-  for (const agent of config.agents) console.log(`  ${color(agent.color, sanitizeUntrustedText(agent.mark))} ${color('bold', sanitizeUntrustedText(agent.name).padEnd(13))} ${color('gray', `${sanitizeUntrustedText(agent.specialty)} · stage ${sanitizeUntrustedText(agent.stage)}${agent.provider ? ` · ${sanitizeUntrustedText(agent.provider)}` : ''}`)}${agent.model ? ` ${color('purple', `· ${sanitizeUntrustedText(agent.model)}`)}` : ''}\n     ${color('dim', sanitizeUntrustedText(agent.prompt))}\n`);
+  for (const agent of config.agents) console.log(`  ${color(agent.color, sanitizeUntrustedText(agent.mark))} ${color('bold', sanitizeUntrustedText(agent.name).padEnd(13))} ${color('gray', `${sanitizeUntrustedText(agent.specialty)} · stage ${sanitizeUntrustedText(agent.stage)}${agent.provider ? ` · ${sanitizeUntrustedText(agent.provider)}` : ''}`)}${agent.model ? ` ${color('purple', `· ${sanitizeUntrustedText(agent.model)}`)}` : ''}\n     ${color('dim', sanitizeMultilineText(agent.prompt))}\n`);
 }
 
 export function printConfig(config) {
@@ -619,7 +620,7 @@ export function printUsage(usage) {
 
 export function printSession(session) {
   console.log(`\n  ${color('teal', sanitizeUntrustedText(session.id || 'session'))}  ${color('gray', sanitizeUntrustedText(session.savedAt || ''))}`);
- console.log(`  ${color('bold', 'MISSION')}  ${sanitizeUntrustedText(session.request || '')}\n`);
+ console.log(`  ${color('bold', 'MISSION')}  ${sanitizeMultilineText(session.request || '')}\n`);
   const degraded = Boolean(session.degraded || session.status === 'degraded');
   const durationMs = Number(session.durationMs);
   const duration = session.durationMs != null && Number.isFinite(durationMs) && durationMs >= 0 && durationMs <= Date.now() ? `${(durationMs / 1000).toFixed(1)}s` : '';
@@ -627,7 +628,7 @@ export function printSession(session) {
   const agentCount = Array.isArray(session.agents) ? session.agents.length : Number(session.agents) || 0;
   const runSummary = [degraded ? 'degraded' : session.status || 'complete', session.strategy, duration, agentCount ? `${agentCount} agents` : '', waveSummary, session.runId ? `run ${sanitizeUntrustedText(session.runId)}` : ''].filter(Boolean).map(sanitizeUntrustedText).join(' · ');
   if (runSummary) console.log(`  ${color('gray', runSummary)}\n`);
- console.log(`  ${color('bold', 'MERGE ROOM SAYS')}\n  ${sanitizeUntrustedText(session.answer || '')}\n`);
+ console.log(`  ${color('bold', 'MERGE ROOM SAYS')}\n  ${sanitizeMultilineText(session.answer || '')}\n`);
   if (degraded) console.log(`  ${color('yellow', '△')} ${color('gray', 'Best-effort run: one or more specialists were unavailable.')}\n`);
   if (session.synthesisError) console.log(`  ${color('gray', 'reason')} ${sanitizeUntrustedText(session.synthesisError)}\n`);
   if (Array.isArray(session.agents) && session.agents.length) {

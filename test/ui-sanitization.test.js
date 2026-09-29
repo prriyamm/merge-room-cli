@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { DEFAULT_CONFIG } from '../src/config.js';
-import { createConversationRenderer, stripUnsafeTerminalControls } from '../src/ui.js';
+import { createConversationRenderer, createRenderer, stripUnsafeTerminalControls } from '../src/ui.js';
 
 test('terminal output filtering strips OSC 52, cursor controls, bare ESC, and C1 controls', () => {
   const unsafe = [
@@ -44,6 +44,24 @@ test('conversation history preserves paragraphs and list lines after sanitizing'
   assert.ok(lines.includes('  First paragraph.'));
   assert.ok(lines.includes('  - item one'));
   assert.ok(lines.includes('  - item two'));
+});
+
+test('inline run labels flatten untrusted newlines while answer paragraphs remain multiline', () => {
+  const output = [];
+  const originalLog = console.log;
+  console.log = (...values) => output.push(values.join(' '));
+  try {
+    const renderer = createRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' } });
+    renderer.event({ type: 'run:start', request: 'review changes\nin the UI' });
+    renderer.event({ type: 'agent:done', agent: { id: 'scout', name: 'Scout\ninjected row' }, text: 'A note' });
+    renderer.event({ type: 'run:done', result: { answer: 'First paragraph.\n\n- second line' } });
+  } finally {
+    console.log = originalLog;
+  }
+
+  assert.ok(output.includes('Merge Room · review changes in the UI'));
+  assert.ok(output.some((line) => line.trim() === 'Scout injected row done'));
+  assert.ok(output.includes('\nFirst paragraph.\n\n- second line\n'));
 });
 
 test('forced cockpit renderer filters hostile dispatch labels and keeps theme styling', () => {
