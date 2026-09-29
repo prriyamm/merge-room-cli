@@ -16,7 +16,7 @@ import { createLedger, estimateTokens } from '../src/tokens.js';
 import { buildResumeRequest, main } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
 import { applyCockpitEvent, beginCockpitTurn, createCockpitState, finishCockpitTurn, resetCockpitRoom, selectCockpitRoom } from '../src/cockpit.js';
-import { createCockpitRenderer, createConversationRenderer, printResult, startupPatternLines } from '../src/ui.js';
+import { createCockpitRenderer, createConversationRenderer, printResult, printSession, startupPatternLines } from '../src/ui.js';
 import { resolveTheme, themeSummaries, THEMES } from '../src/themes.js';
 
 const execFileAsync = promisify(execFile);
@@ -236,6 +236,29 @@ test('openai-compatible adapter cancels retry backoff', async () => {
 });
 
 test('session exports preserve the answer and usage ledger', async () => { const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-export-')); try { const session = { id: 'abc123', savedAt: '2026-01-01T00:00:00.000Z', request: 'Export this', answer: 'A useful answer.', provider: 'demo', model: 'local-demo', strategy: 'staged', synthesisError: 'lead offline', usage: { input: 12, output: 8, total: 20, calls: 5 }, agents: [{ agent: { id: 'scout', name: 'Scout' }, stage: 1, text: 'A concise note.' }] }; const markdown = formatSessionMarkdown(session); assert.ok(markdown.includes('Total tokens burned: 20')); assert.ok(markdown.includes('A useful answer.')); assert.ok(markdown.includes('lead offline')); const output = await writeSessionExport(session, root, 'out/report.json', 'json'); assert.equal(JSON.parse(await fs.readFile(output, 'utf8')).answer, 'A useful answer.'); } finally { await fs.rm(root, { recursive: true, force: true }); } });
+
+test('saved specialist reports identify their provider profile and model', async () => {
+  const originalLog = console.log;
+  const lines = [];
+  console.log = (line = '') => lines.push(String(line));
+  const session = { request: 'Audit routes', answer: 'Complete', agents: [
+    { agent: { id: 'scout', name: 'Scout' }, stage: 1, provider: 'work', model: 'gpt-main', text: 'OpenAI note.' },
+    { agent: { id: 'critic', name: 'Critic' }, stage: 3, provider: 'claude', model: 'claude-sonnet', text: 'Claude note.' },
+    { agent: { id: 'legacy', name: 'Legacy' }, stage: 2, text: 'Older note.' }
+  ] };
+  try {
+    const markdown = formatSessionMarkdown(session);
+    assert.match(markdown, /Scout · stage 1 · work · gpt-main/);
+    assert.match(markdown, /Critic · stage 3 · claude · claude-sonnet/);
+    assert.match(markdown, /### Legacy · stage 2/);
+    printSession(session);
+    assert.ok(lines.some((line) => line.includes('Scout · stage 1 · work · gpt-main')));
+    assert.ok(lines.some((line) => line.includes('Critic · stage 3 · claude · claude-sonnet')));
+    assert.ok(!lines.join('\n').includes('OPENAI_API_KEY'));
+  } finally {
+    console.log = originalLog;
+  }
+});
 
 test('session markdown preserves orchestration metadata', () => {
   const markdown = formatSessionMarkdown({ strategy: 'staged', durationMs: 1250, waves: [{ label: 'orientation', agentIds: ['scout'] }], agents: [{ agent: { name: 'Scout' }, stage: 1, status: 'done', durationMs: 300, text: 'note' }] });

@@ -83,7 +83,10 @@ export function formatSessionMarkdown(session) {
  }
   if (session.agents?.length) {
     lines.push('## Specialist notes', '');
-    for (const item of session.agents) lines.push(`### ${item.agent?.name || item.agent?.id || 'Specialist'} · stage ${item.stage || 1}${item.status ? ` · ${item.status}` : ''}${item.durationMs != null ? ` · ${(Number(item.durationMs) / 1000).toFixed(1)}s` : ''}`, '', item.text || '(no note)', '');
+    for (const item of session.agents) {
+      const route = [item.provider, item.model].filter(Boolean).join(' · ');
+      lines.push(`### ${item.agent?.name || item.agent?.id || 'Specialist'} · stage ${item.stage || 1}${item.status ? ` · ${item.status}` : ''}${item.durationMs != null ? ` · ${(Number(item.durationMs) / 1000).toFixed(1)}s` : ''}${route ? ` · ${route}` : ''}`, '', item.text || '(no note)', '');
+    }
   }
   return `${lines.join('\n').trim()}\n`;
 }
