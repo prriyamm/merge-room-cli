@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { existsSync } from 'node:fs';
-import { execFile, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Readable } from 'node:stream';
 import { DEFAULT_CONFIG, loadConfig, safeBaseUrl, validateProviderBaseUrl, VERSION, writeStarterConfig } from '../src/config.js';
@@ -668,7 +668,9 @@ test('Bash completion executes for shell names and option values when Bash is av
       ['merge-room completions p', 2, 'powershell'],
       ['merge-room theme h', 2, 'high-contrast'],
       ['merge-room --theme=li', 1, '--theme=liquid-glass'],
-      ['merge-room --format=j', 1, '--format=json']
+      ['merge-room --format=j', 1, '--format=json'],
+      ['merge-room --theme o', 2, 'ocean'],
+      ['merge-room --format j', 2, 'json']
     ]) {
       const command = `. "$1"; COMP_WORDS=(${words}); COMP_CWORD=${cursor}; _merge_room; [[ "${'${COMPREPLY[*]}'}" == *"${expected}"* ]]`;
       await execFileAsync(bash, ['-c', command, 'merge-room-test', scriptPath], { windowsHide: true });
@@ -685,6 +687,51 @@ test('completion scripts include each supported help, version, and workspace opt
     for (const candidate of ['-h', '-v', '--cwd', '--cwd=', '-C']) {
       assert.equal(candidates.filter((item) => item === candidate).length, 1, `${shell} completion should include ${candidate} once`);
     }
+  }
+});
+
+test('completion scripts offer values after spaced theme and format options', () => {
+  const bash = completionScript('bash');
+  assert.match(bash, /previous.*--theme/);
+  assert.match(bash, /previous.*--format/);
+  const zsh = completionScript('zsh');
+  assert.match(zsh, /words\[CURRENT-1\].*--theme/);
+  assert.match(zsh, /words\[CURRENT-1\].*--format/);
+  const powershell = completionScript('powershell');
+  assert.match(powershell, /elements\[-1\].*--theme.*--format/);
+  assert.match(powershell, /previous.*--theme/);
+  assert.match(powershell, /previous.*--format/);
+});
+
+test('PowerShell completion handles blank and partially typed option values when PowerShell is available', async (t) => {
+  const powershell = ['pwsh', 'pwsh.exe', 'powershell.exe'].find((candidate) => {
+    try { execFileSync(candidate, ['-NoProfile', '-NonInteractive', '-Command', 'exit 0'], { windowsHide: true, stdio: 'ignore' }); return true; } catch { return false; }
+  });
+  if (!powershell) return t.skip('PowerShell is not installed');
+
+  const completion = completionScript('powershell');
+  const script = `
+function Register-ArgumentCompleter { param($CommandName, $ScriptBlock) $global:mergeRoomCompleter = $ScriptBlock }
+${completion}
+function Get-OptionCompletions([string]$line, [string]$wordToComplete) {
+  $tokens = $null; $errors = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseInput($line, [ref]$tokens, [ref]$errors)
+  $command = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))[0]
+  @(& $global:mergeRoomCompleter $wordToComplete $command $line.Length | ForEach-Object { $_.CompletionText })
+}
+if ((Get-OptionCompletions 'merge-room --theme ' '') -notcontains 'ocean') { exit 1 }
+if ((Get-OptionCompletions 'merge-room --theme o' 'o') -notcontains 'ocean') { exit 2 }
+if ((Get-OptionCompletions 'merge-room --theme o' 'o') -contains 'ember') { exit 3 }
+if ((Get-OptionCompletions 'merge-room --format ' '') -notcontains 'json') { exit 4 }
+if ((Get-OptionCompletions 'merge-room --format j' 'j') -notcontains 'json') { exit 5 }
+if ((Get-OptionCompletions 'merge-room --format j' 'j') -contains 'markdown') { exit 6 }
+`;
+  const scriptPath = path.join(os.tmpdir(), `merge-room-completion-${process.pid}.ps1`);
+  await fs.writeFile(scriptPath, script, 'utf8');
+  try {
+    await execFileAsync(powershell, ['-NoProfile', '-NonInteractive', '-File', scriptPath], { windowsHide: true });
+  } finally {
+    await fs.rm(scriptPath, { force: true });
   }
 });
 
