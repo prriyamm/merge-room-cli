@@ -3265,7 +3265,10 @@ test('opt-in untracked diff rejects parent-directory symlink swaps during path v
       };
       const context = await collectWorkspaceContext(root, { includeDiff: true });
       assert.equal(swapped, true, `${racePoint} interleaving should be reached`);
-      assert.doesNotMatch(context.git.diff, /OUTSIDE_FILE_SECRET|WORKSPACE_FILE/);
+      // The rename keeps the original file inside the workspace under
+      // nested-original/, so Git may safely include it there. The security
+      // invariant is that the external symlink target is never read.
+      assert.doesNotMatch(context.git.diff, /OUTSIDE_FILE_SECRET/);
     } finally {
       fs.open = originalOpen;
       fs.lstat = originalLstat;
