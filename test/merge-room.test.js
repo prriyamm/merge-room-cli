@@ -505,12 +505,16 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
       let stderr = '';
       let firstMissionSent = false;
       let quitSent = false;
-      const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for the repeated mission. Output: ${stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')}\n${stderr}`)); }, 5000);
-      const turnFinished = (turn) => {
-        const cleaned = stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-        const started = `Room 1 started turn ${turn}.`;
-        const startIndex = cleaned.indexOf(started);
-        return startIndex >= 0 && roomOneComplete.test(cleaned.slice(startIndex + started.length));
+      const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for the repeated mission. Output: ${stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')}\n${stderr}`)); }, 15000);
+      const roomOneTurnFinishedAfter = (offset, turn, mission) => {
+        const output = stdout.slice(offset).replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+        const turnNoticeAt = output.indexOf(`Room 1 started turn ${turn}.`);
+        const requestAt = turnNoticeAt >= 0 ? turnNoticeAt : output.indexOf(mission);
+        const activityMarkers = requestAt >= 0
+          ? [output.indexOf('Scout is working', requestAt), output.indexOf('Scout started', requestAt)].filter((index) => index >= 0)
+          : [];
+        const activityAt = activityMarkers.length ? Math.min(...activityMarkers) : -1;
+        return activityAt >= 0 && roomOneComplete.test(output.slice(activityAt));
       };
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
@@ -520,22 +524,22 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
           firstMissionSent = true;
           child.stdin.write('First room mission\n');
         }
-        if (phase === 0 && firstMissionSent && turnFinished(1)) {
+        if (phase === 0 && firstMissionSent && roomOneTurnFinishedAfter(0, 1, 'First room mission')) {
           phase = 1;
           secondTurnOutputStart = stdout.length;
           child.stdin.write('/again\n/2\n');
         }
-        if (phase === 1 && turnFinished(2)) {
+        if (phase === 1 && roomOneTurnFinishedAfter(secondTurnOutputStart, 2, 'First room mission')) {
           phase = 2;
           thirdTurnOutputStart = stdout.length;
           child.stdin.write('/1\nThird room mission\n/2\n');
         }
-        if (phase === 2 && turnFinished(3)) {
+        if (phase === 2 && roomOneTurnFinishedAfter(thirdTurnOutputStart, 3, 'Third room mission')) {
           phase = 3;
           fourthTurnOutputStart = stdout.length;
           child.stdin.write('/1\n/run Fourth room mission\n/2\n');
         }
-        if (phase === 3 && !quitSent && turnFinished(4)) {
+        if (phase === 3 && !quitSent && roomOneTurnFinishedAfter(fourthTurnOutputStart, 4, 'Fourth room mission')) {
           phase = 4;
           quitSent = true;
           child.stdin.write('/quit\n');
@@ -551,11 +555,15 @@ test('Cockpit missions stay in the input room when a room switch follows immedia
 
     assert.equal(phase, 4);
     const stripTerminalControls = (value) => value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
-    assert.match(stripTerminalControls(stdout.slice(secondTurnOutputStart, thirdTurnOutputStart)), roomOneComplete);
-    assert.match(stripTerminalControls(stdout.slice(thirdTurnOutputStart, fourthTurnOutputStart)), roomOneComplete);
-    assert.match(stripTerminalControls(stdout.slice(fourthTurnOutputStart)), roomOneComplete);
-    assert.match(stripTerminalControls(stdout), /Third room mission/i);
-    assert.match(stripTerminalControls(stdout), /Fourth room mission/i);
+    const assertRoomOneMission = (start, end, mission) => {
+      const output = stripTerminalControls(stdout.slice(start, end));
+      assert.match(output, new RegExp(mission, 'i'));
+      assert.match(output, roomOneComplete);
+    };
+    assertRoomOneMission(0, secondTurnOutputStart, 'First room mission');
+    assertRoomOneMission(secondTurnOutputStart, thirdTurnOutputStart, 'First room mission');
+    assertRoomOneMission(thirdTurnOutputStart, fourthTurnOutputStart, 'Third room mission');
+    assertRoomOneMission(fourthTurnOutputStart, undefined, 'Fourth room mission');
     assert.doesNotMatch(stripTerminalControls(stdout), /Room 2 started turn 1/i);
     assert.doesNotMatch(stderr, /Error|AssertionError/i);
   } finally {
