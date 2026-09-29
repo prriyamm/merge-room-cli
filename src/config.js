@@ -49,7 +49,12 @@ export async function loadConfig(cwd = process.cwd(), explicitPath) {
 
 function mergeConfig(base, local) {
   if (!local || typeof local !== 'object' || Array.isArray(local)) throw new Error('merge-room.config.json must contain a JSON object at the top level.');
+  const unknownKeys = Object.keys(local).filter((key) => !Object.hasOwn(base, key));
+  if (unknownKeys.length) throw new Error(`merge-room.config.json contains unknown option${unknownKeys.length === 1 ? '' : 's'}: ${unknownKeys.map((key) => `\`${key}\``).join(', ')}.`);
   if (local.context !== undefined && (!local.context || typeof local.context !== 'object' || Array.isArray(local.context))) throw new Error('merge-room.config.json `context` must be a JSON object.');
+  const unknownContextKeys = Object.keys(local.context ?? {}).filter((key) => !Object.hasOwn(base.context, key) && key !== 'include');
+  if (unknownContextKeys.length) throw new Error(`merge-room.config.json contains unknown context option${unknownContextKeys.length === 1 ? '' : 's'}: ${unknownContextKeys.map((key) => `\`${key}\``).join(', ')}.`);
+  if (local.context?.include !== undefined && (!Array.isArray(local.context.include) || local.context.include.some((item) => typeof item !== 'string' || !item.trim()))) throw new Error('merge-room.config.json `context.include` must be an array of non-empty file paths.');
   for (const key of ['streaming', 'streamUsage']) if (local[key] !== undefined && typeof local[key] !== 'boolean') throw new Error(`merge-room.config.json \`${key}\` must be true or false.`);
   if (local.context?.enabled !== undefined && typeof local.context.enabled !== 'boolean') throw new Error('merge-room.config.json `context.enabled` must be true or false.');
   for (const key of ['model', 'baseUrl']) if (local[key] !== undefined && (typeof local[key] !== 'string' || !local[key].trim())) throw new Error(`merge-room.config.json \`${key}\` must be a non-empty string.`);
