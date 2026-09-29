@@ -527,10 +527,22 @@ async function readUntrackedFileSafely(cwd, relative, maxBytes, signal) {
     handle = await fs.open(canonicalPath, flags);
     const opened = await handle.stat({ bigint: true });
     if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) return null;
+    // Re-resolve after opening to catch a parent directory swap between the
+    // initial realpath/lstat and open. The inode comparison above ensures the
+    // handle is still the already-validated in-workspace file.
+    const currentPath = await fs.realpath(requestedPath).catch(() => null);
+    const current = currentPath === canonicalPath
+      ? await fs.lstat(canonicalPath, { bigint: true }).catch(() => null)
+      : null;
+    if (!current?.isFile() || current.isSymbolicLink() || current.dev !== opened.dev || current.ino !== opened.ino) return null;
     ensureActive(signal);
     const buffer = Buffer.alloc(maxBytes + 1);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
     ensureActive(signal);
+    const after = await handle.stat({ bigint: true });
+    if (after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs) return null;
+    // Return an owned copy; callers only format this in-memory snapshot and
+    // never ask Git to reopen the workspace path.
     return buffer.subarray(0, bytesRead);
   } catch (error) {
     if (error?.name === 'AbortError' || signal?.aborted) ensureActive(signal);
