@@ -1890,7 +1890,7 @@ test('workspace excerpts and opt-in Git diffs redact complete Authorization head
     await fs.writeFile(tokenFile, '{"token":"OLD_BARE_TOKEN","accessToken":"OLD_CAMEL_TOKEN","refresh-token":"OLD_KEBAB_TOKEN","input_tokens":12}\n', 'utf8');
     const longBlockFile = path.join(root, 'provider-response.txt');
     await fs.writeFile(longBlockFile, 'Provider response\nToken OLD_HUNK_SECRET\ntoken=OLD_DIFF_TOKEN\nrefresh_token: OLD_SNAKE_TOKEN\ninput_tokens: 12\n', 'utf8');
-    await execFileAsync('git', ['add', 'headers.yaml', 'token-config.json', 'provider-response.txt'], { cwd: root });
+    await execFileAsync('git', ['add', 'headers.yaml', 'settings.json', 'provider-response.txt'], { cwd: root });
     await execFileAsync('git', ['commit', '-m', 'initial'], { cwd: root });
     await fs.writeFile(file, 'Authorization: "Bearer NEW_AUTH_SECRET"\nauthorization: |\n  Bearer NEW_MULTILINE_AUTH_SECRET\n\n  continued NEW_BLOCK_SECRET\nContent-Type: application/json\n', 'utf8');
     await fs.writeFile(tokenFile, '{"token":"NEW_BARE_TOKEN","accessToken":"NEW_CAMEL_TOKEN","refresh-token":"NEW_KEBAB_TOKEN","input_tokens":12}\n', 'utf8');
