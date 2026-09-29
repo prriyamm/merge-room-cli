@@ -1559,6 +1559,31 @@ test('openai-compatible adapter can disable streaming for older servers', async 
   }
 });
 
+test('openai-compatible JSON fallback emits one final streaming delta', async () => {
+  const originalFetch = global.fetch;
+  let requestBody;
+  global.fetch = async (_url, options) => {
+    requestBody = JSON.parse(options.body);
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'compat response' } }], usage: { prompt_tokens: 3, completion_tokens: 2 } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+  try {
+    const deltas = [];
+    const result = await new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, retries: 0 }, 'secret').complete({
+      system: 'system',
+      prompt: 'prompt',
+      onDelta: (delta) => deltas.push(delta)
+    });
+    assert.equal(requestBody.stream, true);
+    assert.equal(result.text, 'compat response');
+    assert.deepEqual(deltas, ['compat response']);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('openai-compatible adapter reports provider timeouts distinctly', async () => {
   const originalFetch = global.fetch;
   global.fetch = async (_url, options) => new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => {
