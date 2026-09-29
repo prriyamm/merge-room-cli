@@ -169,11 +169,20 @@ function redactSecrets(text) {
   }
   const withAuthorizationHeadersRedacted = lines.join('');
   const withAuthSchemeCredentialsRedacted = withAuthorizationHeadersRedacted.replace(/\b((?:Bearer|Basic|Token|Digest|HOBA|Mutual|Negotiate|OAuth|SCRAM(?:-[A-Z0-9-]+)?|VAPID|AWS4-HMAC-SHA256|Signature|DPoP)\s+)(?![=:])[^\r\n]*/gi, '$1[redacted]');
-  return withAuthSchemeCredentialsRedacted.replace(/(^|[^A-Za-z0-9_])((?:api[_-]?key|(?:api|access|refresh|id|auth|session|provider)[_-]?token|token|auth|password|passwd|secret)["']?\s*[=:]\s*)(?:"(?:\\.|[^"\\\r\n])*"|'(?:''|\\.|[^'\\\r\n])*'|[^\s"'`,}]+)/gi, (match, boundary, prefix) => {
-    const firstValueChar = match[boundary.length + prefix.length];
-    const quote = firstValueChar === '"' || firstValueChar === "'" ? firstValueChar : '';
-    return `${boundary}${prefix}${quote}[redacted]${quote}`;
-  });
+  const assignmentPattern = /(^|[^A-Za-z0-9_])((?:api[_-]?key|(?:api|access|refresh|id|auth|session|provider)[_-]?token|token|auth|password|passwd|secret)["']?\s*[=:]\s*)(?:"(?:\\.|[^"\\\r\n])*"|'(?:''|\\.|[^'\\\r\n])*'|[^\s"'`,}]+)/gi;
+  const usageTokenPrefixes = new Set(['input', 'output', 'prompt', 'completion', 'total', 'reasoning', 'cached', 'read', 'write', 'creation']);
+  return withAuthSchemeCredentialsRedacted.split(/(\r\n|\n|\r)/).map((line, index) => {
+    if (index % 2 === 1) return line;
+    const diffPrefix = unifiedDiff && /^[ +\-]/.test(line) ? line[0] : '';
+    const contentLine = diffPrefix ? line.slice(1) : line;
+    return `${diffPrefix}${contentLine.replace(assignmentPattern, (match, boundary, prefix, offset) => {
+      const previousKey = contentLine.slice(0, offset + boundary.length).match(/([A-Za-z][A-Za-z0-9_-]*)-$/)?.[1].toLowerCase();
+      if (boundary === '-' && prefix.toLowerCase().startsWith('token') && usageTokenPrefixes.has(previousKey)) return match;
+      const firstValueChar = match[boundary.length + prefix.length];
+      const quote = firstValueChar === '"' || firstValueChar === "'" ? firstValueChar : '';
+      return `${boundary}${prefix}${quote}[redacted]${quote}`;
+    })}`;
+  }).join('');
 }
 
 async function readIgnoreRules(cwd, base = '', signal) {
