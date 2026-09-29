@@ -306,16 +306,18 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
       if (!lines.length && contentHeight > 0) lines.push(' Type a mission to start this room.');
       safeWrite(fit(header, terminalWidth));
       if (showRoomStatus) {
-        const compactStatus = (status) => ({ preparing: 'prep', working: 'work', cancelled: 'stop', degraded: 'degr', saving: 'save', queued: 'queue' })[status] || status;
-        const tinyStatus = (status) => ({ preparing: 'p', working: 'w', cancelled: 'c', degraded: 'd', saving: 's', queued: 'q', idle: 'i', done: 'o', error: 'e' })[status] || '?';
+        const compactStatus = (status) => ({ preparing: 'prep', working: 'work', cancelled: 'stop', degraded: 'degr', saving: 'save', queued: 'wait', idle: 'idle', done: 'done', error: 'fail' })[status] || status;
+        const tinyStatus = (status) => ({ preparing: '.', working: '>', cancelled: 'x', degraded: '~', saving: 's', queued: 'q', idle: '-', done: '✓', error: '!' })[status] || '?';
         const roomStatusPrefix = terminalWidth >= 60
           ? ` Room ${activeRoom.id}: ${activeRoom.status} · Room ${otherRoom.id}: ${otherRoom.status}`
           : terminalWidth >= 44
             ? ` R${activeRoom.id}: ${compactStatus(activeRoom.status)} · R${otherRoom.id}: ${compactStatus(otherRoom.status)}`
           : terminalWidth >= 20
             ? ` ${activeRoom.id}:${compactStatus(activeRoom.status)} · ${otherRoom.id}:${compactStatus(otherRoom.status)}`
-            : terminalWidth >= 8
-              ? ` ${activeRoom.id}:${tinyStatus(activeRoom.status)} ${otherRoom.id}:${tinyStatus(otherRoom.status)}`
+            : terminalWidth >= 14
+              ? ` ${activeRoom.id}:${compactStatus(activeRoom.status)} ${otherRoom.id}:${compactStatus(otherRoom.status)}`
+              : terminalWidth >= 8
+                ? ` ${activeRoom.id}:${tinyStatus(activeRoom.status)} ${otherRoom.id}:${tinyStatus(otherRoom.status)}`
               : terminalWidth >= 5
                 ? `${activeRoom.id}${tinyStatus(activeRoom.status)} ${otherRoom.id}${tinyStatus(otherRoom.status)}`
                 : `${activeRoom.id}${tinyStatus(activeRoom.status)}${otherRoom.id}${tinyStatus(otherRoom.status)}`;

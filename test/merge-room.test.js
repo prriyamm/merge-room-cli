@@ -272,6 +272,27 @@ test('compact Cockpit primary help keeps /again discoverable in a narrow termina
   }
 });
 
+test('compact room status remains legible at narrow widths', () => {
+  for (const { columns, complete, working } of [
+    { columns: 17, complete: '1:done', working: '2:work' },
+    { columns: 14, complete: '1:done', working: '2:work' },
+    { columns: 13, complete: '1:✓', working: '2:>' },
+    { columns: 8, complete: '1:✓', working: '2:>' }
+  ]) {
+    const lines = [];
+    const renderer = createCockpitRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' }, force: true, columns, rows: 8, write: (line) => lines.push(line) });
+    renderer.state.rooms[0].status = 'done';
+    renderer.state.rooms[1].status = 'working';
+
+    renderer.render();
+
+    const output = lines.join('\n');
+    assert.match(output, new RegExp(complete), `completed room should be identifiable at ${columns} columns`);
+    assert.match(output, new RegExp(working), `active room should be identifiable at ${columns} columns`);
+    assert.ok(lines.every((line) => line.length <= columns), `rendered lines should fit ${columns} columns`);
+  }
+});
+
 test('compact primary Cockpit help always points to expanded help at widths 30, 17, and 8', () => {
   for (const columns of [30, 17, 8]) {
     const lines = [];

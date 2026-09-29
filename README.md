@@ -287,6 +287,8 @@ Run `merge-room` to enter the cockpit, or use `merge-room interactive` as an exp
 
 When the terminal is narrower than 84 columns or shorter than 24 rows, the cockpit switches to a compact focused-room view and keeps both room statuses visible. When space allows, the status row also previews the other room’s current mission.
 
+At 14–19 columns, both room statuses use short words such as `done` and `work`. Below 14 columns, the status row uses symbols: `✓` done, `>` working, `x` cancelled, `~` degraded, `s` saving, `q` queued, `-` idle, `!` error, and `.` preparing.
+
 The cockpit keeps two independent rooms in one terminal. A mission continues when you switch rooms, so Room 1 and Room 2 can work at the same time without hiding the conversation that came before. Each room also carries a bounded history of prior requests, answers, and specialist notes across turns and provider switches; saved sessions preserve that history for `resume`.
 
 Type a mission to start the selected room. Use `/run <mission>` when the mission itself starts with `/`, since other slash-prefixed inputs are cockpit commands. After it finishes, the next message in that room continues from recent requests, answers, and specialist notes. Merge Room retains up to 12 compact turns and sends the original project goal plus the newest turns within a bounded prompt block. Use `/new` when you want a clean session instead.
