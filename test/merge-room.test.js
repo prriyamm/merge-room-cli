@@ -96,10 +96,19 @@ test('interactive CLI accepts work in both rooms from one process', async () => 
 test('bare merge-room command opens the cockpit', async () => {
   const { stdout } = await runCliWithInput(
     ['--provider=demo', '--no-context', '--no-save', '--no-stream', '--team=scout'],
-    'Map the next release\n/quit\n'
+    'Map the next release\n/wait\n/quit\n'
   );
   assert.match(stdout, /\[Room 1\] Map the next release/);
   assert.match(stdout, /Mission complete/);
+});
+
+test('scripted /quit cancels active work', async () => {
+  const { stdout } = await runCliWithInput(
+    ['interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream', '--team=scout'],
+    'Cancel this mission\n/quit\n'
+  );
+  assert.match(stdout, /Room 1 cancelled/);
+  assert.doesNotMatch(stdout, /Mission complete/);
 });
 
 test('conversational cockpit prints its mark once and appends the chat', async () => {
