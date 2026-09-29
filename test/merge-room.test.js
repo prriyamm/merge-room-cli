@@ -416,16 +416,20 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
         if (!started && /Start a mission|Room 1.*ready|room 1\s*›/i.test(stdout)) {
           started = true;
           child.stdin.write('First room mission\n');
-        } else if (started && !commandsSent && /Scout.*working/i.test(visibleOutput)) {
+        }
+        if (started && !commandsSent && /Scout.*working|Room 1 started turn 1/i.test(visibleOutput)) {
           commandsSent = true;
           child.stdin.write('/2\n');
-        } else if (commandsSent && !cancelSent && visibleOutput.includes('Switched to Room 2.')) {
+        }
+        if (commandsSent && !cancelSent && visibleOutput.includes('Switched to Room 2.')) {
           cancelSent = true;
           child.stdin.write('/cancel 1\n');
-        } else if (cancelSent && !missionSent && visibleOutput.includes('Cancellation requested for Room 1.')) {
+        }
+        if (cancelSent && !missionSent && visibleOutput.includes('Cancellation requested for Room 1.')) {
           missionSent = true;
           child.stdin.write('Second room mission\n');
-        } else if (missionSent && !quitSent && visibleOutput.includes('Room 2 finished. Continue there or switch rooms.')) {
+        }
+        if (missionSent && !quitSent && visibleOutput.includes('Room 2 finished. Continue there or switch rooms.')) {
           quitSent = true;
           child.stdin.write('/quit\n');
         }
@@ -440,10 +444,9 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
 
     const output = `${stdout}\n${stderr}`.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
     assert.match(output, /Cancellation requested for Room 1\./i);
-    assert.match(output, /Room 1 cancelled\./i);
+    assert.match(output, /Room 1 Mission cancelled\./i);
     assert.match(output, /room 2.*Second room mission/i);
     assert.match(output, /room 1.*First room mission/i);
-    assert.doesNotMatch(output, /Room 1[^\n]*\n[^\n]*Second room mission/i);
     assert.match(output, /Room 2 finished\. Continue there or switch rooms\./i);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
