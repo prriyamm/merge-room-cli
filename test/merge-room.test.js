@@ -84,6 +84,28 @@ test('cockpit renders a left activity rail and a focused room pane', () => {
   assert.match(output, /LIVE HANDOFFS/);
 });
 
+test('compact cockpit keeps an answer preview inside a short terminal', () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };
+  const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 60, rows: 8, write: (line) => lines.push(line) });
+  const room = renderer.state.rooms[0];
+  room.request = 'Keep the release moving';
+  room.notes[config.agents[0].id] = 'Build and review are aligned';
+  room.events.push({ message: 'Latest event: ready to ship' });
+  room.final = 'Answer remains visible';
+
+  renderer.render();
+
+  const output = lines.join('\n');
+  assert.match(output, /Room 1: idle/);
+  assert.match(output, /Room 2: idle/);
+  assert.match(output, /Mission: Keep the release moving/);
+  assert.match(output, /Handoff: Build and review are aligned/);
+  assert.match(output, /Latest: Latest event: ready to ship/);
+  assert.match(output, /Answer: Answer remains visible/);
+  assert.equal(lines.length, 8);
+});
+
 test('cockpit renderer exposes the conversation controls used by the terminal loop', async () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };

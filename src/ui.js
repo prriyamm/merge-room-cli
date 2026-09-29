@@ -12,7 +12,13 @@ const surface = (text) => colorsEnabled ? `${activeTheme.colors.bg}${String(text
 const clear = () => { if (live) process.stdout.write('\x1b[2J\x1b[H'); };
 const width = () => Math.max(48, Math.min(process.stdout.columns || 92, 118) - 2);
 const line = (char = '─') => char.repeat(width());
-const crop = (value, max) => String(value).replace(/\s+/g, ' ').slice(0, max) + (String(value).length > max ? '…' : '');
+const crop = (value, max) => {
+  const text = String(value).replace(/\s+/g, ' ');
+  const limit = Math.max(0, Math.floor(max));
+  if (text.length <= limit) return text;
+  if (limit <= 0) return '';
+  return `${text.slice(0, limit - 1)}…`;
+};
 const wrap = (value, max) => String(value).split(/\s+/).reduce((lines, word) => {
   const current = lines.at(-1) || '';
   if (!current) lines.push(word);
@@ -158,10 +164,11 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     lastRenderAt = Date.now();
     clear();
     const terminalWidth = Math.max(1, Math.min(columns || process.stdout.columns || 108, 140));
-    const terminalHeight = Math.max(1, rows || process.stdout.rows || 32);
+    const terminalRows = Math.max(1, rows || process.stdout.rows || 32);
+    const terminalHeight = Math.max(1, terminalRows - 1);
     const header = ` ${color('bold', 'MERGE ROOM')} ${color('gray', `· ${provider.name} · two live sessions`)}`;
     const help = ' /1 /2 switch · /new reset · /cancel turn · /help · /quit';
-    if (terminalWidth < 84 || terminalHeight < 24) {
+    if (terminalWidth < 84 || terminalRows < 24) {
       const showRoomStatus = terminalHeight >= 3;
       const showHelp = terminalHeight >= 5;
       const showMessage = terminalHeight >= 3;
@@ -175,7 +182,9 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       const latestEvent = activeRoom.events.at(-1);
       if (latestEvent) lines.push(` Latest: ${crop(latestEvent.message, Math.max(0, terminalWidth - 9))}`);
       const answer = activeRoom.final || activeRoom.answerDraft;
-      if (answer && contentHeight > lines.length) {
+      if (answer && contentHeight === lines.length + 1) {
+        lines.push(` Answer: ${crop(answer, Math.max(0, terminalWidth - 10))}`);
+      } else if (answer && contentHeight > lines.length + 1) {
         lines.push(` ${color('bold', 'MERGE ROOM SAYS')}`);
         const answerRows = Math.max(0, contentHeight - lines.length);
         if (answerRows > 0) lines.push(...wrap(answer, Math.max(1, terminalWidth - 2)).slice(-answerRows).map((item) => ` ${color('white', item)}`));
@@ -301,7 +310,7 @@ function cockpitSidebar(state, config, maxWidth, height) {
     for (const agent of visibleAgents) {
       const agentStatus = room.statuses[agent.id] || 'idle';
       const icon = agentStatus === 'done' ? color('green', '●') : agentStatus === 'working' ? color('yellow', '◌') : agentStatus === 'error' ? color('red', '×') : agentStatus === 'skipped' || agentStatus === 'cancelled' ? color('yellow', '–') : color('gray', '○');
-      const activity = agentStatus === 'working' ? `working · ${agent.specialty}` : agentStatus;
+      const activity = agentStatus === 'working' ? agent.specialty : agentStatus;
       section.push(`   ${icon} ${crop(agent.name, 10).padEnd(10)} ${color('gray', crop(activity, maxWidth - 18))}`);
     }
     if (roomAgents.length > visibleAgents.length) section.push(`     ${color('gray', `+${roomAgents.length - visibleAgents.length} more agents`)}`);
