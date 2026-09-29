@@ -242,7 +242,9 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
           ? isPrimaryHelp ? 'Help: /run /1 /2 /new /wait /help more' : 'Help: /agents /team /profile /show …'
         : terminalWidth >= 30
           ? isPrimaryHelp ? 'Help: /run /1 /2 …' : 'Help: /team /profile …'
-          : isPrimaryHelp ? 'Help: /run /1 …' : 'Help: /team …';
+          : terminalWidth >= 17
+            ? isPrimaryHelp ? 'Help: /run /1 …' : 'Help: /team …'
+            : terminalWidth >= 10 ? 'Help: …' : '…';
       const showRoomStatus = !isHelpMessage && terminalHeight >= 3;
       const showHelp = !isHelpMessage && terminalHeight >= 5;
       const showMessage = terminalHeight >= 3 || isHelpMessage && terminalHeight >= 2;
