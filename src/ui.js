@@ -238,7 +238,8 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       const showMessage = terminalHeight >= 3;
       const wrappedMessage = showMessage ? wrap(state.message || '', Math.max(1, terminalWidth - 2)) : [];
       const messageLines = showMessage && !wrappedMessage.length ? [''] : wrappedMessage;
-      const visibleMessageLines = messageLines.slice(0, Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp)));
+      const messageCapacity = Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp) - 1);
+      const visibleMessageLines = messageLines.slice(0, messageCapacity);
       const contentHeight = Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp) - visibleMessageLines.length);
       const activeRoom = state.rooms[state.activeRoom];
       const otherRoom = state.rooms[state.activeRoom === 0 ? 1 : 0];
@@ -256,15 +257,24 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       }
       if (activeRoom.error && !answer) lines.push(` Stopped: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
       if (answer && contentHeight > 0) {
-        if (activeRoom.error) lines.splice(0, lines.length, ` Stopped: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
-        else lines.splice(Math.max(0, contentHeight - 1));
-        const answerLabel = activeRoom.error || activeRoom.status === 'cancelled' ? 'PARTIAL ANSWER' : 'MERGE ROOM SAYS';
-        if (contentHeight === lines.length + 1) {
-          lines.push(` ${activeRoom.error || activeRoom.status === 'cancelled' ? 'Partial' : 'Answer'}: ${crop(answer, Math.max(0, terminalWidth - 10))}`);
+        if (contentHeight === 1 && (activeRoom.error || activeRoom.status === 'cancelled')) {
+          const status = activeRoom.error ? 'FAILED' : 'CANCELLED';
+          const reasonLimit = Math.max(0, Math.min(18, terminalWidth - visibleLength(` PARTIAL · ${status}: `) - 15));
+          const reasonText = activeRoom.error && terminalWidth >= 44 ? crop(activeRoom.error, reasonLimit) : '';
+          const detail = terminalWidth >= 30 ? ` · ${status}${reasonText ? ` (${reasonText})` : ''}` : '';
+          const prefix = ` PARTIAL${detail}: `;
+          lines.splice(0, lines.length, ` ${color('yellow', 'PARTIAL')}${terminalWidth >= 30 ? ` · ${color('red', status)}${reasonText ? ` (${reasonText})` : ''}` : ''}: ${crop(answer, Math.max(0, terminalWidth - visibleLength(prefix)))}`);
         } else {
-          lines.push(` ${color('bold', answerLabel)}`);
-          const answerRows = Math.max(0, contentHeight - lines.length);
-          if (answerRows > 0) lines.push(...wrap(answer, Math.max(1, terminalWidth - 2)).slice(-answerRows).map((item) => ` ${color('white', item)}`));
+          if (activeRoom.error) lines.splice(0, lines.length, ` Stopped: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
+          else lines.splice(Math.max(0, contentHeight - 1));
+          const answerLabel = activeRoom.error || activeRoom.status === 'cancelled' ? 'PARTIAL ANSWER' : 'MERGE ROOM SAYS';
+          if (contentHeight === lines.length + 1) {
+            lines.push(` ${activeRoom.error || activeRoom.status === 'cancelled' ? 'Partial' : 'Answer'}: ${crop(answer, Math.max(0, terminalWidth - 10))}`);
+          } else {
+            lines.push(` ${color('bold', answerLabel)}`);
+            const answerRows = Math.max(0, contentHeight - lines.length);
+            if (answerRows > 0) lines.push(...wrap(answer, Math.max(1, terminalWidth - 2)).slice(-answerRows).map((item) => ` ${color('white', item)}`));
+          }
         }
       }
       if (!lines.length && contentHeight > 0) lines.push(' Type a mission to start this room.');
