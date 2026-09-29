@@ -330,6 +330,64 @@ test('interactive CLI accepts work in both rooms from one process', async () => 
   assert.equal((stdout.match(/Mission complete/g) || []).length, 2);
 });
 
+test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-cancel-focus-'));
+  const configFile = path.join(root, 'merge-room.config.json');
+  await fs.writeFile(configFile, JSON.stringify({ provider: 'demo', sessionDir: null }), 'utf8');
+  const cliUrl = new URL('../src/cli.js', import.meta.url).href;
+  const script = `process.stdin.isTTY = true; process.stdout.isTTY = true; const { main } = await import(${JSON.stringify(cliUrl)}); main(['--config', ${JSON.stringify(configFile)}, 'interactive', '--no-context', '--no-save', '--no-stream', '--team=scout']).catch((error) => { console.error(error); process.exitCode = 1; });`;
+  try {
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      let started = false;
+      let commandsSent = false;
+      let quitSent = false;
+      const timeout = setTimeout(() => { child.kill(); reject(new Error('Timed out waiting for the interactive cancellation flow.')); }, 5000);
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+        if (!started && /Start a mission|Room 1.*ready/i.test(stdout)) {
+          started = true;
+          child.stdin.write('First room mission\n');
+        } else if (started && !commandsSent && stdout.includes('Room 1 started turn 1')) {
+          commandsSent = true;
+          child.stdin.write('/2\n/cancel 1\nSecond room mission\n');
+        } else if (commandsSent && !quitSent && /Room 2\s+done/.test(stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, ''))) {
+          quitSent = true;
+          child.stdin.write('/quit\n');
+        }
+      });
+      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      child.once('error', (error) => { clearTimeout(timeout); reject(error); });
+      child.once('close', (code) => {
+        clearTimeout(timeout);
+        code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`CLI exited ${code}: ${stderr}`));
+      });
+    });
+
+    const output = `${stdout}\n${stderr}`.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+    assert.match(output, /Room 1\s+cancelled/);
+    assert.match(output, /Room 2.*Second room mission|\[Room 2\].*Second room mission/);
+    assert.doesNotMatch(output, /Room 1.*Second room mission|\[Room 1\].*Second room mission/);
+    assert.match(output, /Room 2\s+done/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('interactive /cancel reports malformed targets and idle rooms', async () => {
+  const { stdout } = await runCliWithInput(
+    ['interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream', '--team=scout'],
+    '/cancel 3\n/cancel x\n/cancel 1 2\n/cancel 2\n/quit\n'
+  );
+
+  assert.equal((stdout.match(/Use \/cancel \[1\|2\]\./g) || []).length, 3);
+  assert.match(stdout, /Room 2 has no active mission\./);
+});
+
 test('cockpit /run accepts slash-prefixed missions and unknown commands show guidance', async () => {
   const { stdout } = await runCliWithInput(
     ['interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream', '--team=scout'],
