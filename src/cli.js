@@ -35,7 +35,6 @@ export function cockpitHelpMorePage(width = 80, currentPage = 0) {
 }
 
 export async function main(args = [], { signal, readSessionFn = readSession } = {}) {
-export async function main(args = [], { signal, readSessionFn = readSession } = {}) {
   const separator = args.indexOf('--');
   const optionArgs = separator < 0 ? args : args.slice(0, separator);
   const literalArgs = separator < 0 ? [] : args.slice(separator + 1);
