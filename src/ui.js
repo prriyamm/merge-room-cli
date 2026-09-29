@@ -48,9 +48,11 @@ const graphemes = (value) => typeof Intl.Segmenter === 'function'
   ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].map(({ segment }) => segment)
   : [...value];
 const graphemeWidth = (value) => {
+  if (value.includes('\ufe0e') && !value.includes('\ufe0f') && !value.includes('\u200d')) {
+    return [...value].reduce((total, character) => total + characterWidth(character), 0);
+  }
   if (value.includes('\u200d') || value.includes('\ufe0f') || value.includes('\u20e3')
     || [...value].length === 2 && [...value].every((character) => /\p{Regional_Indicator}/u.test(character))) return 2;
-  if (value.endsWith('\ufe0e')) return [...value].reduce((total, character) => total + characterWidth(character), 0);
   return /\p{Emoji_Presentation}/u.test(value) ? 2
     : [...value].reduce((total, character) => total + characterWidth(character), 0);
 };

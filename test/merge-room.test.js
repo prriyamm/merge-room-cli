@@ -220,8 +220,14 @@ test('compact cockpit honors text presentation selectors for emoji-presentation 
 
   const textPresentationWatch = '\u231a\ufe0e';
   const emojiPresentationWatch = '\u231a\ufe0f';
+  const textPresentationKeycap = '1\ufe0e\u20e3';
+  const emojiPresentationKeycap = '1\ufe0f\u20e3';
+  const joinedTextPresentation = '\u231a\ufe0e\u200d\u231a';
   assert.equal(renderMission(textPresentationWatch.repeat(3)).trimEnd(), ` Mission: ${textPresentationWatch.repeat(3)}`);
   assert.equal(renderMission(emojiPresentationWatch.repeat(3)).trimEnd(), ` Mission: ${emojiPresentationWatch}…`);
+  assert.equal(renderMission(textPresentationKeycap.repeat(3)).trimEnd(), ` Mission: ${textPresentationKeycap.repeat(3)}`);
+  assert.equal(renderMission(emojiPresentationKeycap.repeat(3)).trimEnd(), ` Mission: ${emojiPresentationKeycap}…`);
+  assert.equal(renderMission(joinedTextPresentation.repeat(3)).trimEnd(), ` Mission: ${joinedTextPresentation}…`);
 });
 
 test('compact cockpit wraps long unbroken answers by terminal cell width', () => {
