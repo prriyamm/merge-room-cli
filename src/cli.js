@@ -110,15 +110,15 @@ export async function main(args = [], { signal } = {}) {
     return;
   }
   if (command === 'history') {
-    const allSessions = config.sessionDir ? await listSessions(workspace, config.sessionDir) : [];
-    const sessions = limitValue !== null ? allSessions.slice(0, numericFlag(limitValue, '--limit', 1, true)) : allSessions;
+    const limit = limitValue !== null ? numericFlag(limitValue, '--limit', 1, true) : undefined;
+    const sessions = config.sessionDir ? await listSessions(workspace, config.sessionDir, { limit }) : [];
     if (json) console.log(JSON.stringify({ sessions }, null, 2));
     else printHistory(sessions);
     return;
   }
   if (command === 'usage' || command === 'stats') {
-    const allSessions = config.sessionDir ? await listSessions(workspace, config.sessionDir) : [];
-    const sessions = limitValue !== null ? allSessions.slice(0, numericFlag(limitValue, '--limit', 1, true)) : allSessions;
+    const limit = limitValue !== null ? numericFlag(limitValue, '--limit', 1, true) : undefined;
+    const sessions = config.sessionDir ? await listSessions(workspace, config.sessionDir, { limit }) : [];
     const usage = summarizeUsage(sessions);
     if (json) console.log(JSON.stringify(usage, null, 2));
     else printUsage(usage);
@@ -454,7 +454,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     }
     if (request === '/history') {
       try {
-        const sessions = activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : [];
+        const sessions = activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir, { limit: 3 }) : [];
         setMessage(sessions.length ? `Recent: ${sessions.slice(0, 3).map((item) => `${item.id} ${cropLabel(item.request, 18)}`).join(' · ')}` : 'No saved missions yet.');
       } catch (error) { setMessage(`History unavailable: ${error.message}`); }
       return true;
@@ -598,15 +598,16 @@ async function persist(result, config, workspace = process.cwd()) {
 }
 
 async function resolveSessionId(value, config, workspace = process.cwd()) {
-  const sessions = await listSessions(workspace, config.sessionDir);
-  if (value.toLowerCase() !== 'last') {
-    const matches = sessions.filter((session) => session.id.startsWith(value));
-    if (matches.length === 1) return matches[0].id;
-    if (matches.length > 1) throw new Error(`Session prefix is ambiguous: ${matches.map((session) => session.id).join(', ')}`);
-    return value;
+  if (value.toLowerCase() === 'last') {
+    const [latest] = await listSessions(workspace, config.sessionDir, { limit: 1 });
+    if (!latest) throw new Error('No saved sessions yet. Run a mission first.');
+    return latest.id;
   }
-  if (!sessions.length) throw new Error('No saved sessions yet. Run a mission first.');
-  if (value.toLowerCase() === 'last') return sessions[0].id;
+  const sessions = await listSessions(workspace, config.sessionDir);
+  const matches = sessions.filter((session) => session.id.startsWith(value));
+  if (matches.length === 1) return matches[0].id;
+  if (matches.length > 1) throw new Error(`Session prefix is ambiguous: ${matches.map((session) => session.id).join(', ')}`);
+  return value;
 }
 
 export function buildResumeRequest(followup, prior) {
