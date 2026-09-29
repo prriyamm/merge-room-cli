@@ -243,7 +243,8 @@ export class OpenAICompatibleProvider {
           return result(streamed.text, streamed.usage?.prompt_tokens, streamed.usage?.completion_tokens, system, prompt, this.name, model);
         }
         const body = await response.json().catch(() => ({}));
-        const text = normalizeContent(body.choices?.[0]?.message?.content).trim();
+        const message = body.choices?.[0]?.message;
+        const text = normalizeContent(message?.content ?? message?.refusal).trim();
         if (!text) throw new Error('Provider returned an empty response');
         if (streaming) emitDelta(text);
         return result(text, body.usage?.prompt_tokens, body.usage?.completion_tokens, system, prompt, this.name, model);
@@ -453,7 +454,8 @@ async function readStream(body, onDelta) {
       providerError.retryable = [status, codeStatus].some((value) => value === 429 || (Number.isInteger(value) && value >= 500)) || /rate_limit|overload|server_error|service_unavailable|temporarily_unavailable/.test(code);
       throw providerError;
     }
-    const piece = normalizeContent(parsed.choices?.[0]?.delta?.content);
+    const delta = parsed.choices?.[0]?.delta;
+    const piece = normalizeContent(delta?.content ?? delta?.refusal);
     if (piece) { text += piece; onDelta(piece); }
     if (parsed.usage) usage = parsed.usage;
   };
