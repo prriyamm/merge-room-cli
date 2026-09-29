@@ -3345,6 +3345,66 @@ test('interactive export explains when session history is disabled', async () =>
   }
 });
 
+test('Cockpit ignores a saved-session load that finishes after quit', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-show-after-quit-'));
+  try {
+    const sessionDir = path.join(root, '.merge-room', 'sessions');
+    await fs.mkdir(sessionDir, { recursive: true });
+    await fs.writeFile(path.join(sessionDir, 'delayed-show.json'), JSON.stringify({ id: 'delayed-show', request: 'saved room request', answer: 'saved room answer', agents: [] }), 'utf8');
+    const cliUrl = new URL('../src/cli.js', import.meta.url).href;
+    const sessionsUrl = new URL('../src/sessions.js', import.meta.url).href;
+    const script = `
+      process.stdin.isTTY = true;
+      process.stdout.isTTY = true;
+      process.env.TERM = 'xterm-256color';
+      const { main } = await import(${JSON.stringify(cliUrl)});
+      const { readSession } = await import(${JSON.stringify(sessionsUrl)});
+      main(['--cwd', ${JSON.stringify(root)}, 'interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream'], {
+        readSessionFn: async (...args) => {
+          process.stderr.write('READ_STARTED\\n');
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          return readSession(...args);
+        }
+      }).catch((error) => { console.error(error); process.exitCode = 1; });
+    `;
+    const { stdout } = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      let showSent = false;
+      let quitSent = false;
+      const timeout = setTimeout(() => { child.kill(); reject(new Error('Timed out waiting for delayed Cockpit show shutdown.')); }, 5000);
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+        if (!showSent && stdout.includes('MERGE ROOM')) {
+          showSent = true;
+          child.stdin.write('/show delayed-show\n');
+        }
+      });
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk;
+        if (!quitSent && stderr.includes('READ_STARTED')) {
+          quitSent = true;
+          child.stdin.write('/quit\n');
+        }
+      });
+      child.once('error', (error) => { clearTimeout(timeout); reject(error); });
+      child.once('close', (code) => {
+        clearTimeout(timeout);
+        code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`CLI exited ${code}: ${stderr}`));
+      });
+    });
+    const cleanOutput = stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+    const exitIndex = cleanOutput.lastIndexOf('Both rooms closed');
+    assert.notEqual(exitIndex, -1);
+    assert.doesNotMatch(cleanOutput.slice(exitIndex + 1), /saved room answer|Loaded delayed-show into Room/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI no-save mode leaves no session artifact', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-no-save-'));
   try {
