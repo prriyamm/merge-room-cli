@@ -1646,6 +1646,36 @@ test('cockpit reports the selected team and updates it after profile and team ch
   }
 });
 
+test('cockpit team commands can restore agents filtered by the startup team option', async () => {
+  const originalLog = console.log;
+  const stdinDescriptor = Object.getOwnPropertyDescriptor(process, 'stdin');
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-cockpit-team-startup-filter-'));
+  let output = '';
+  Object.defineProperty(process, 'stdin', { configurable: true, value: Readable.from([
+    '/team\n/team all\n/team\n/team critic\n/team\n/quit\n'
+  ]) });
+  console.log = (line) => { output += `${line}\n`; };
+  try {
+    await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
+      provider: 'demo',
+      agents: [{ id: 'scout', name: 'Scout' }, { id: 'critic', name: 'Critic', stage: 3 }]
+    }));
+    await main(['--cwd', root, 'interactive', '--no-context', '--no-save', '--no-stream', '--team=scout'], { signal: new AbortController().signal });
+    const teamMessages = output.split('\n').filter((line) => /^(?:Team:|Current team|All \d+)/.test(line));
+    assert.deepEqual(teamMessages, [
+      'Current team (1): Scout',
+      'All 2 agents selected.',
+      'Current team (2): Scout, Critic',
+      'Team: Critic',
+      'Current team (1): Critic'
+    ]);
+  } finally {
+    console.log = originalLog;
+    Object.defineProperty(process, 'stdin', stdinDescriptor);
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('named OpenAI profile uses its endpoint, API key, and model', async () => {
   const originalFetch = globalThis.fetch;
   const oldKey = process.env.MERGE_ROOM_TEST_OPENAI;
