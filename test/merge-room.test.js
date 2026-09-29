@@ -264,14 +264,16 @@ test('themes expose named palettes and useful aliases', () => {
   assert.throws(() => resolveTheme('unknown'), /merge-room theme list/);
 });
 
-test('documentation screenshots show the one-time mark and scrollable conversation', async () => {
+test('documentation screenshots show the one-time mark and split cockpit dashboard', async () => {
   const started = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-started.svg'), 'utf8');
   const mission = await fs.readFile(path.resolve(process.cwd(), 'docs', 'screenshots', 'merge-room-mission-cockpit.svg'), 'utf8');
   assert.match(started, /demo\/merge-room-demo · two rooms ·/);
   assert.match(started, /liquid-glass block Merge Room mark/);
-  assert.match(mission, /Room 1 ›/);
-  assert.match(mission, /Room 2 ›/);
-  assert.match(mission, /scrollable conversation/);
+  assert.match(mission, /two-room cockpit dashboard/);
+  assert.match(mission, /LIVE HANDOFFS/);
+  assert.match(mission, /Room 1/);
+  assert.match(mission, /Room 2/);
+  assert.match(mission, /MERGE ROOM SAYS/);
 });
 
 test('provider mode can force deterministic local runs', () => {

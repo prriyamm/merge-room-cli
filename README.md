@@ -19,11 +19,11 @@ Merge Room is a small, dependency-free CLI for thinking with a team of agents. A
 
 ![Merge Room CLI startup screen](docs/screenshots/merge-room-started.svg)
 
-### Keep two conversations moving
+### Work across two live rooms
 
-![Merge Room CLI scrollable conversation with two active rooms](docs/screenshots/merge-room-mission-cockpit.svg)
+![Merge Room interactive two-room cockpit dashboard](docs/screenshots/merge-room-mission-cockpit.svg)
 
-The screenshots are captured representations of real Merge Room output in local demo mode. Demo mode is deterministic and needs no API key.
+The cockpit keeps both rooms visible while the selected mission, handoffs, and run log update in place. Demo mode is deterministic and needs no API key.
 
 ## Install
 
@@ -54,7 +54,7 @@ Open the conversational cockpit in local demo mode:
 merge-room
 ```
 
-The liquid-glass block mark appears once at startup. From then on, prompts, handoffs, and answers append to normal terminal history, so the conversation scrolls naturally instead of repainting the screen.
+On interactive terminals, the cockpit opens a live two-room dashboard with the active room, specialist handoffs, and synthesis visible together. Non-interactive terminals keep the conversation in ordinary scrollback.
 
 Run a one-off mission without opening the cockpit:
 
@@ -276,7 +276,7 @@ Use `--no-context` when a mission should not inspect local files. Use `--include
 
 ## Interactive cockpit
 
-Run `merge-room` to enter the cockpit, or use `merge-room interactive` as an explicit alias. The startup mark is shown only once. After that, Merge Room behaves like a conversational coding CLI: every prompt, specialist handoff, answer, and status line remains in scrollback instead of being cleared and redrawn.
+Run `merge-room` to enter the cockpit, or use `merge-room interactive` as an explicit alias. The startup mark is shown once. On interactive terminals, the cockpit redraws a two-room dashboard as missions progress, keeping both rooms and the current handoffs visible. On non-interactive terminals, it prints the conversation as ordinary output.
 
 The cockpit keeps two independent rooms in one terminal. A mission continues when you switch rooms, so Room 1 and Room 2 can work at the same time without hiding the conversation that came before. Each room also carries a bounded history of prior requests, answers, and specialist notes across turns and provider switches; saved sessions preserve that history for `resume`.
 
@@ -301,7 +301,7 @@ Type a mission to start the selected room. After it finishes, the next message i
 /quit                  Cancel active work and close both rooms
 ```
 
-The prompt remains available while agents work. Compact status lines identify the room and specialist, and completed answers stay in the terminal’s scrollable history.
+The prompt remains available while agents work. The live dashboard shows each room’s status and specialist activity, with completed answers visible in that room’s mission pane. Non-interactive runs print answers to ordinary terminal output.
 
 ## Development
 
