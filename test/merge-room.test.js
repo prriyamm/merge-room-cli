@@ -567,7 +567,7 @@ test('Codex JSONL parser keeps final assistant text and rejects malformed output
   assert.throws(() => parseCodexOutput(JSON.stringify({ type: 'turn.completed' })), /without a final assistant message/);
 });
 
-test('Claude Code CLI profiles use bounded JSON with tools and session persistence disabled', async () => {
+test('Claude Code CLI profiles use restricted JSON with tools and session persistence disabled', async () => {
   const oldPath = process.env.PATH;
   const oldApiKey = process.env.ANTHROPIC_API_KEY;
   const oldConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -591,7 +591,7 @@ test('Claude Code CLI profiles use bounded JSON with tools and session persisten
     assert.equal(answer.model, 'claude-code-default');
     assert.equal(answer.inputTokens, 9);
     assert.equal(answer.outputTokens, 4);
-    assert.ok(received.args.includes('--bare'));
+    assert.ok(received.args.includes('--restricted'));
     assert.ok(received.args.includes('--no-session-persistence'));
     assert.ok(received.args.includes('--print'));
     assert.ok(received.args.includes('--output-format'));

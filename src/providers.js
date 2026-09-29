@@ -85,9 +85,10 @@ export class ClaudeCodeCliProvider {
 
   async complete({ system, prompt, signal, model: modelOverride }) {
     if (signal?.aborted) throw abortError();
-    const args = ['--bare', '--print', '--output-format', 'json', '--no-session-persistence', '--tools', '', '--disallowedTools', 'mcp__*', '--max-turns', '1', '--system-prompt', system, 'Respond to the Merge Room request provided on standard input.'];
+    const args = ['--restricted', '--print', '--output-format', 'json', '--no-session-persistence', '--tools', '', '--disallowedTools', 'mcp__*', '--max-turns', '1', '--system-prompt', system];
     const model = modelOverride || this.config.model;
     if (model) args.push('--model', model);
+    args.push('Respond to the Merge Room request provided on standard input.');
     const output = await runCliProcess('claude', args, prompt, { cwd: this.cwd, signal, timeoutMs: this.timeoutMs, label: 'Claude Code CLI', envAllowlist: CLAUDE_ENV_ALLOWLIST });
     const parsed = parseClaudeCodeOutput(output);
     return result(parsed.text, parsed.inputTokens, parsed.outputTokens, system, prompt, this.name, model || this.model);
