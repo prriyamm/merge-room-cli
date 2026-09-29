@@ -401,10 +401,11 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     reprompt();
   }
 
-  function setMessage(message, expectedSequence = null) {
+  function setMessage(message, expectedSequence = null, historyEntries = null) {
     if (expectedSequence !== null && noticeSequence !== expectedSequence) return false;
     noticeSequence += 1;
     renderer.state.message = message;
+    renderer.state.historyEntries = historyEntries;
     if (!isTerminal) appendLine(stripUnsafeTerminalControls(message));
     renderer.notice(message);
     reprompt();
@@ -548,7 +549,13 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (request === '/history') {
       try {
         const sessions = activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir, { limit: 3 }) : [];
-        setMessage(sessions.length ? `Recent: ${sessions.slice(0, 3).map((item) => `${item.id} ${cropLabel(item.request, 18)}`).join(' · ')}` : 'No saved missions yet.', inputNoticeSequence);
+        const recent = sessions.slice(0, 3);
+        const historyEntries = recent.map((item) => ({
+          id: item.id,
+          reference: shortSessionReference(item.id, recent),
+          request: item.request || '(empty mission)'
+        }));
+        setMessage(recent.length ? `Recent: ${recent.map((item) => `${item.id} ${cropLabel(item.request, 18)}`).join(' · ')}` : 'No saved missions yet.', inputNoticeSequence, historyEntries);
       } catch (error) { setMessage(`History unavailable: ${error.message}`, inputNoticeSequence); }
       return true;
     }
@@ -750,10 +757,21 @@ async function resolveSessionId(value, config, workspace = process.cwd()) {
     return latest.id;
   }
   const sessions = await listSessions(workspace, config.sessionDir);
-  const matches = sessions.filter((session) => session.id.startsWith(value));
+  const exact = sessions.find((session) => session.id === value);
+  if (exact) return exact.id;
+  const matches = sessions.filter((session) => session.id.startsWith(value) || session.id.endsWith(value));
   if (matches.length === 1) return matches[0].id;
   if (matches.length > 1) throw new Error(`Session prefix is ambiguous: ${matches.map((session) => session.id).join(', ')}`);
   return value;
+}
+
+function shortSessionReference(id, sessions) {
+  for (let length = 4; length <= id.length; length += 1) {
+    const reference = id.slice(-length);
+    const matches = sessions.filter((session) => session.id.startsWith(reference) || session.id.endsWith(reference));
+    if (matches.length === 1 && matches[0].id === id) return reference;
+  }
+  return id;
 }
 
 export function buildResumeRequest(followup, prior) {

@@ -242,6 +242,7 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
     if (terminalWidth < 84 || terminalRows < 24) {
       const isMoreHelpMessage = state.message.startsWith('Help more');
       const isHelpMessage = state.message.startsWith('Help:') || state.message.startsWith('/agents [id] /team') || isMoreHelpMessage;
+      const isHistoryMessage = terminalWidth < 17 && Array.isArray(state.historyEntries) && state.historyEntries.length > 0 && state.message.startsWith('Recent:');
       const isPrimaryHelp = state.message.startsWith('Help: mission');
       const compactMoreHelp = state.message
         .replace(/^Help more (\d+\/\d+): /, 'More $1: ')
@@ -258,16 +259,29 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
             : terminalWidth >= 8 ? terminalHeight < 4 ? 'Need height' : isMoreHelpMessage && tinyMoreHelpMatch
               ? `${tinyMoreHelpMatch[1]} ${tinyMoreHelpMatch[2]} /help more`
               : isPrimaryHelp ? '/again /help more' : '…' : '…';
-      const showRoomStatus = !isHelpMessage && terminalHeight >= 4;
-      const showHelp = !isHelpMessage && terminalHeight >= 5;
-      const showMessage = terminalHeight >= 3 || isHelpMessage && terminalHeight >= 2;
-      const tinyHelpUsesLastRow = isHelpMessage && terminalWidth < 17;
-      const messageCapacity = Math.max(0, terminalHeight - Number(!tinyHelpUsesLastRow) - Number(showRoomStatus) - Number(showHelp) - Number(!isHelpMessage));
-      const fullMessage = isHelpMessage ? state.message || '' : crop(state.message || '', Math.max(0, terminalWidth - 4));
+      const showRoomStatus = !isHelpMessage && !isHistoryMessage && terminalHeight >= 4;
+      const showHelp = !isHelpMessage && !isHistoryMessage && terminalHeight >= 5;
+      const showMessage = terminalHeight >= 3 || (isHelpMessage || isHistoryMessage) && terminalHeight >= 2;
+      const tinyHelpUsesLastRow = (isHelpMessage || isHistoryMessage) && terminalWidth < 17;
+      const messageCapacity = Math.max(0, terminalHeight - Number(!tinyHelpUsesLastRow) - Number(showRoomStatus) - Number(showHelp) - Number(!isHelpMessage && !isHistoryMessage));
+      const historyMessageLines = isHistoryMessage && terminalWidth < 17
+        ? [
+          'Hist',
+          ...state.historyEntries.map((entry) => {
+            const reference = String(entry.reference || entry.id);
+            const labelWidth = Math.max(1, terminalWidth - 2 - reference.length - 1);
+            return `${reference} ${crop(entry.request || '', labelWidth)}`;
+          }),
+          'Use /show <ref>'
+        ]
+        : null;
+      const fullMessage = isHelpMessage ? state.message || '' : historyMessageLines ? historyMessageLines.join('\n') : crop(state.message || '', Math.max(0, terminalWidth - 4));
       const fullHelpLines = showMessage ? wrap(fullMessage, Math.max(1, terminalWidth - 2)) : [];
       const useShortHelp = isHelpMessage && (terminalHeight <= 3 || fullHelpLines.length > messageCapacity);
       const message = useShortHelp ? shortHelp : fullMessage;
-      const wrappedMessage = useShortHelp ? wrap(message, Math.max(1, terminalWidth - 2)) : fullHelpLines;
+      const wrappedMessage = useShortHelp
+        ? wrap(message, Math.max(1, terminalWidth - 2))
+        : historyMessageLines ? historyMessageLines.flatMap((line) => wrap(line, Math.max(1, terminalWidth - 2))) : fullHelpLines;
       const messageLines = showMessage && !wrappedMessage.length ? [''] : wrappedMessage;
       const visibleMessageLines = showMessage ? messageLines.slice(0, messageCapacity) : [];
       const contentHeight = isHelpMessage ? 0 : Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp) - visibleMessageLines.length);
