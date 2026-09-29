@@ -561,10 +561,15 @@ test('completion scripts suggest values for theme, format, and shell options', (
     for (const name of ['bash', 'zsh', 'powershell']) assert.ok(script.includes(name), `${shell} should suggest shell ${name}`);
   }
   assert.match(completionScript('bash'), /previous.*completions/);
+  assert.match(completionScript('bash'), /previous.*theme/);
   assert.match(completionScript('zsh'), /shells=\(bash zsh powershell\)/);
   assert.match(completionScript('zsh'), /CURRENT == 3[^\n]*completions/);
   assert.match(completionScript('zsh'), /CURRENT == 2[^\n]*words\[CURRENT\].*-\*/);
   assert.match(completionScript('powershell'), /CommandElements/);
+  for (const shell of ['bash', 'zsh', 'powershell']) {
+    assert.match(completionScript(shell), /high-contrast/);
+    assert.ok(completionScript(shell).includes('list'), `${shell} should suggest the theme list command`);
+  }
 });
 
 test('Bash completion executes for shell names and option values when Bash is available', async (t) => {
@@ -575,6 +580,7 @@ test('Bash completion executes for shell names and option values when Bash is av
   try {
     for (const [words, cursor, expected] of [
       ['merge-room completions p', 2, 'powershell'],
+      ['merge-room theme h', 2, 'high-contrast'],
       ['merge-room --theme=li', 1, '--theme=liquid-glass'],
       ['merge-room --format=j', 1, '--format=json']
     ]) {

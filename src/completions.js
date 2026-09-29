@@ -3,6 +3,7 @@ import { THEMES } from './themes.js';
 const COMMANDS = ['run', 'ask', 'review', 'brainstorm', 'plan', 'interactive', 'chat', 'agents', 'providers', 'history', 'usage', 'stats', 'config', 'show', 'export', 'resume', 'context', 'doctor', 'init', 'theme', 'completions', 'completion', 'version', 'help'];
 const OPTIONS = ['-h', '-v', '--help', '--version', '--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict', '--cwd', '--cwd=', '-C', '--prompt-file=', '--team=', '--provider=', '--profile=', '--model=', '--base-url=', '--max-tokens=', '--temperature=', '--concurrency=', '--max-calls=', '--timeout=', '--retries=', '--run-id=', '--theme=', '--include=', '--limit=', '--format=', '--output=', '--config='];
 const SHELLS = ['bash', 'zsh', 'powershell'];
+const THEME_NAMES = [...Object.keys(THEMES), 'list'];
 const VALUE_CANDIDATES = [
   ...Object.keys(THEMES).map((theme) => `--theme=${theme}`),
   ...['md', 'markdown', 'json'].map((format) => `--format=${format}`)
@@ -29,6 +30,8 @@ function bashCompletion() {
     '  local previous="${COMP_WORDS[COMP_CWORD-1]}"',
     '  if [[ "$previous" == "completions" || "$previous" == "completion" ]]; then',
     '    COMPREPLY=( $(compgen -W "' + SHELLS.join(' ') + '" -- "$current") )',
+    '  elif [[ "$previous" == "theme" ]]; then',
+    '    COMPREPLY=( $(compgen -W "' + THEME_NAMES.join(' ') + '" -- "$current") )',
     '  else',
     '    COMPREPLY=( $(compgen -W "' + candidates + '" -- "$current") )',
     '  fi',
@@ -42,16 +45,19 @@ function zshCompletion() {
   return [
     '#compdef merge-room',
     '_merge_room() {',
-    '  local -a commands options shells',
+    '  local -a commands options shells themes',
     '  commands=(' + COMMANDS.join(' ') + ')',
     '  options=(' + OPTIONS.concat(VALUE_CANDIDATES).join(' ') + ')',
     '  shells=(' + SHELLS.join(' ') + ')',
+    '  themes=(' + THEME_NAMES.join(' ') + ')',
     '  if (( CURRENT == 2 )) && [[ ${words[CURRENT]} == -* ]]; then',
     '    _describe option options',
     '  elif (( CURRENT == 2 )); then',
     '    _describe command commands',
     '  elif (( CURRENT == 3 )) && [[ ${words[2]} == completions || ${words[2]} == completion ]]; then',
     '    _describe shell shells',
+    '  elif (( CURRENT == 3 )) && [[ ${words[2]} == theme ]]; then',
+    '    _describe theme themes',
     '  else',
     '    _describe option options',
     '  fi',
@@ -69,6 +75,7 @@ function powershellCompletion() {
     "  $values = @('" + values + "')",
     "  $elements = @($commandAst.CommandElements | ForEach-Object { $_.ToString() })",
     "  if ($elements.Count -gt 1 -and $elements[1] -in @('completions', 'completion')) { $values = @('" + SHELLS.join("', '") + "') }",
+    "  elseif ($elements.Count -gt 1 -and $elements[1] -eq 'theme') { $values = @('" + THEME_NAMES.join("', '") + "') }",
     '  $values | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {',
     "    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)",
     '  }',
