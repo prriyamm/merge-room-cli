@@ -511,6 +511,11 @@ export function printResult(result, { trace = false, includeAnswer = false } = {
   console.log('');
 }
 
+export function printCockpitPartialAnswer(answer) {
+  const text = sanitizeMultilineText(answer || '');
+  if (text.trim()) console.log(`\n  ${color('yellow', 'PARTIAL ANSWER')}\n${text}\n`);
+}
+
 export function printThemes(current = getTheme()) {
   console.log(`\n  ${color('bold', 'MERGE ROOM THEMES')}\n`);
   for (const theme of themeSummaries()) {
