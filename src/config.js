@@ -65,8 +65,9 @@ function mergeConfig(base, local) {
   for (const [id, profile] of Object.entries(providers)) {
     if (!/^[a-z0-9][a-z0-9_-]*$/i.test(id)) throw new Error(`Provider profile id \`${id}\` must use letters, numbers, hyphens, or underscores.`);
     if (!profile || typeof profile !== 'object' || Array.isArray(profile)) throw new Error(`Provider profile \`${id}\` must be a JSON object.`);
-    if (!['openai-compatible', 'anthropic'].includes(profile.type)) throw new Error(`Provider profile \`${id}\` type must be \`openai-compatible\` or \`anthropic\`.`);
+    if (!['openai-compatible', 'anthropic', 'codex-cli'].includes(profile.type)) throw new Error(`Provider profile \`${id}\` type must be \`openai-compatible\`, \`anthropic\`, or \`codex-cli\`.`);
     for (const key of ['model', 'baseUrl', 'apiKeyEnv']) if (profile[key] !== undefined && (typeof profile[key] !== 'string' || !profile[key].trim())) throw new Error(`Provider profile \`${id}\` \`${key}\` must be a non-empty string.`);
+    if (profile.type === 'codex-cli' && (profile.baseUrl !== undefined || profile.apiKeyEnv !== undefined)) throw new Error(`Provider profile \`${id}\` of type \`codex-cli\` uses the installed Codex CLI sign-in and does not accept \`baseUrl\` or \`apiKeyEnv\`.`);
     validateProviderBaseUrl(profile.baseUrl ?? (profile.type === 'anthropic' ? 'https://api.anthropic.com' : local.baseUrl ?? base.baseUrl), `provider profile \`${id}\` baseUrl`);
     if (Object.keys(profile).some((key) => !['type', 'model', 'baseUrl', 'apiKeyEnv'].includes(key))) throw new Error(`Provider profile \`${id}\` has an unsupported field. Store credentials outside config and reference them with apiKeyEnv.`);
   }

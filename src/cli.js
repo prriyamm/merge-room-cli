@@ -167,7 +167,7 @@ export async function main(args = [], { signal } = {}) {
     ...(maxCallsValue !== null ? { maxCalls: numericFlag(maxCallsValue, '--max-calls', 0, true) } : {}),
   };
   const runConfig = teamValue !== null ? selectTeam(configuredRun, teamValue) : configuredRun;
-  const provider = createProvider(runConfig);
+  const provider = createProvider(runConfig, workspace);
   if (command === 'plan') {
     const requestParts = cleanArgs.slice(1);
     const request = await readMissionInput(requestParts, promptFileValue, workspace, signal);
@@ -667,7 +667,7 @@ function publicConfig(config) {
     provider: config.provider,
     defaultProvider: config.defaultProvider,
     leadProvider: config.leadProvider,
-    providers: Object.fromEntries(Object.entries(config.providers || {}).map(([id, profile]) => [id, { type: profile.type, model: profile.model || config.model, baseUrl: safeBaseUrl(profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl)), apiKeyEnv: profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'), configured: Boolean(process.env[profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY')]) }])),
+    providers: Object.fromEntries(Object.entries(config.providers || {}).map(([id, profile]) => [id, publicProviderProfile(profile, config)])),
     baseUrl: safeBaseUrl(config.baseUrl),
     theme: config.theme,
     temperature: config.temperature,
@@ -697,13 +697,25 @@ function abortError() {
   return error;
 }
 
+function publicProviderProfile(profile, config) {
+  if (profile.type === 'codex-cli') return { type: profile.type, model: profile.model || config.model || 'codex-default', authentication: 'Codex CLI sign-in', configured: null };
+  const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
+  return { type: profile.type, model: profile.model || config.model, baseUrl: safeBaseUrl(profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl)), apiKeyEnv: envName, configured: Boolean(process.env[envName]) };
+}
+
+function doctorProviderProfile(profile, config) {
+  if (profile.type === 'codex-cli') return { type: profile.type, model: profile.model || config.model || 'codex-default', authentication: 'Codex CLI sign-in', configured: null };
+  const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
+  return { type: profile.type, model: profile.model || config.model, baseUrl: safeBaseUrl(profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl)), credentialEnv: envName, configured: Boolean(process.env[envName]) };
+}
+
 function doctor(config, json = false, workspace = process.cwd()) {
-  const provider = createProvider(config);
+  const provider = createProvider(config, workspace);
   const report = {
     provider: { name: provider.name, model: provider.model, baseUrl: safeBaseUrl(config.baseUrl) },
     workspace,
     providerMode: config.provider,
-    profiles: Object.fromEntries(Object.entries(config.providers || {}).map(([id, profile]) => { const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'); return [id, { type: profile.type, model: profile.model || config.model, baseUrl: safeBaseUrl(profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl)), credentialEnv: envName, configured: Boolean(process.env[envName]) }]; })),
+    profiles: Object.fromEntries(Object.entries(config.providers || {}).map(([id, profile]) => [id, doctorProviderProfile(profile, config)])),
     node: process.versions.node,
     agents: config.agents.map((agent) => agent.id),
     strategy: config.strategy === 'parallel' ? 'parallel' : 'staged',

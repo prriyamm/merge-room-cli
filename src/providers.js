@@ -1,41 +1,172 @@
+import { spawn } from 'node:child_process';
+import path from 'node:path';
 import { estimateTokens } from './tokens.js';
 import { validateProviderBaseUrl } from './config.js';
 
-export function createProvider(config) {
+export function createProvider(config, workspace = process.cwd()) {
   const mode = String(config.provider || 'auto').trim().toLowerCase();
   if (!['auto', 'demo'].includes(mode)) throw new Error('Provider mode must be `auto` or `demo`.');
   if (mode === 'demo') return new DemoProvider(config);
-  if (config.providers && Object.keys(config.providers).length) return new ProviderRouter(config);
+  if (config.providers && Object.keys(config.providers).length) return new ProviderRouter(config, workspace);
   const apiKey = process.env.MERGE_ROOM_API_KEY || process.env.OPENAI_API_KEY;
   if (!apiKey) return new DemoProvider(config);
   return new OpenAICompatibleProvider(config, apiKey);
 }
 
 class ProviderRouter {
-  constructor(config) {
+  constructor(config, workspace) {
     this.config = config;
     this.profiles = new Map();
     for (const [id, profile] of Object.entries(config.providers)) {
       const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
       const apiKey = process.env[envName];
-      const adapterConfig = { ...config, ...profile, providerId: id, baseUrl: profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl), model: profile.model || config.model, streaming: config.streaming };
-      const adapter = profile.type === 'anthropic'
-        ? new AnthropicProvider(adapterConfig, apiKey)
-        : new OpenAICompatibleProvider(adapterConfig, apiKey);
+      const adapterConfig = { ...config, ...profile, providerId: id, cwd: workspace, baseUrl: profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl), model: profile.type === 'codex-cli' ? profile.model : profile.model || config.model, streaming: config.streaming };
+      const adapter = profile.type === 'codex-cli'
+        ? new CodexCliProvider(adapterConfig)
+        : profile.type === 'anthropic'
+          ? new AnthropicProvider(adapterConfig, apiKey)
+          : new OpenAICompatibleProvider(adapterConfig, apiKey);
       this.profiles.set(id, adapter);
     }
     this.defaultProvider = config.defaultProvider || Object.keys(config.providers)[0];
     this.name = 'multi-provider';
-    this.model = config.providers[this.defaultProvider]?.model || config.model;
+    const defaultProfile = config.providers[this.defaultProvider];
+    this.model = defaultProfile?.type === 'codex-cli' ? defaultProfile.model || 'codex-default' : defaultProfile?.model || config.model;
   }
 
   complete(options) {
     const id = options.provider || this.defaultProvider;
     const adapter = this.profiles.get(id);
     if (!adapter) throw new Error(`Unknown provider profile \`${id}\`.`);
-    if (!adapter.apiKey) throw new Error(`Missing ${adapter.keyEnv} for provider profile \`${id}\`. Set that environment variable to use this route.`);
+    if (adapter.requiresApiKey !== false && !adapter.apiKey) throw new Error(`Missing ${adapter.keyEnv} for provider profile \`${id}\`. Set that environment variable to use this route.`);
     return adapter.complete(options);
   }
+}
+
+const CLI_OUTPUT_LIMIT = 2 * 1024 * 1024;
+const CLI_ENV_ALLOWLIST = ['PATH', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TMP', 'TEMP', 'SYSTEMROOT', 'WINDIR', 'XDG_CONFIG_HOME', 'CODEX_HOME', 'LANG', 'LC_ALL'];
+
+export class CodexCliProvider {
+  constructor(config) {
+    this.config = config;
+    this.cwd = config.cwd || process.cwd();
+    this.timeoutMs = config.requestTimeoutMs;
+    this.name = config.providerId || 'codex-cli';
+    this.model = config.model || 'codex-default';
+    this.requiresApiKey = false;
+  }
+
+  async complete({ system, prompt, signal, model: modelOverride }) {
+    if (signal?.aborted) throw abortError();
+    const args = ['exec', '--json', '--ephemeral', '--ignore-user-config', '--sandbox', 'read-only', '--config', 'mcp_servers={}'];
+    const model = modelOverride || this.config.model;
+    if (model) args.push('--model', model);
+    args.push('-');
+    const input = `You are a read-only Merge Room specialist. Do not attempt to modify files or run commands.\n\n${system}\n\n${prompt}`;
+    const output = await runCliProcess('codex', args, input, { cwd: this.cwd, signal, timeoutMs: this.timeoutMs });
+    const parsed = parseCodexOutput(output);
+    return result(parsed.text, parsed.inputTokens, parsed.outputTokens, system, prompt, this.name, model || this.model);
+  }
+}
+
+function runCliProcess(command, args, input, { cwd, signal, timeoutMs }) {
+  const env = Object.fromEntries(CLI_ENV_ALLOWLIST.filter((key) => process.env[key] !== undefined).map((key) => [key, process.env[key]]));
+  return new Promise((resolve, reject) => {
+    let child;
+    try { child = spawn(command, args, { cwd, env, shell: false, detached: process.platform !== 'win32', windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }); }
+    catch (error) { reject(cliSpawnError(error)); return; }
+    let stdout = '';
+    let stdoutBytes = 0;
+    let timedOut = false;
+    let aborted = false;
+    let settled = false;
+    let terminationSent = false;
+    let killTimer;
+    const cleanup = () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error); else resolve(value);
+    };
+    const terminate = () => {
+      if (child.exitCode !== null || child.signalCode !== null || terminationSent) return;
+      terminationSent = true;
+      killCliProcess(child, 'SIGTERM');
+      killTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) killCliProcess(child, 'SIGKILL');
+      }, 1000);
+      killTimer.unref?.();
+    };
+    const onAbort = () => { aborted = true; terminate(); };
+    const timeout = setTimeout(() => { timedOut = true; terminate(); }, timeoutMs);
+    timeout.unref?.();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
+    child.stdout.on('data', (chunk) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > CLI_OUTPUT_LIMIT) { terminate(); finish(new Error('Codex CLI output exceeded the 2 MiB limit.')); return; }
+      stdout += chunk.toString('utf8');
+    });
+    child.stderr.on('data', () => {}); // Drain diagnostics without retaining or echoing paths or secrets.
+    child.once('error', (error) => finish(cliSpawnError(error)));
+    child.once('close', (code) => {
+      if (aborted) { finish(abortError()); return; }
+      if (timedOut) { const error = new Error(`Codex CLI timed out after ${timeoutMs}ms.`); error.name = 'TimeoutError'; finish(error); return; }
+      if (code !== 0) { finish(new Error(`Codex CLI exited with status ${code}. Check that the CLI is installed and signed in.`)); return; }
+      finish(null, stdout);
+    });
+    child.stdin.once('error', () => {});
+    child.stdin.end(input);
+  });
+}
+
+function killCliProcess(child, signal) {
+  try {
+    if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, signal);
+    else if (process.platform === 'win32' && child.pid) {
+      const systemRoot = process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows';
+      const killer = spawn(path.win32.join(systemRoot, 'System32', 'taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], { shell: false, windowsHide: true, stdio: 'ignore' });
+      killer.once('error', () => child.kill(signal));
+    } else child.kill(signal);
+  } catch (error) {
+    if (error.code !== 'ESRCH') child.kill(signal);
+  }
+}
+
+function cliSpawnError(error) {
+  if (process.platform === 'win32' && ['ENOENT', 'EINVAL'].includes(error?.code)) return new Error('Could not start Codex CLI. Install a native `codex.exe` on PATH; Merge Room does not invoke Windows shell shims.');
+  if (error?.code === 'ENOENT') return new Error('Could not start Codex CLI. Install `codex` and sign in with your ChatGPT account first.');
+  return new Error(`Could not start Codex CLI: ${error.message}`);
+}
+
+export function parseCodexOutput(output) {
+  let text = '';
+  let inputTokens;
+  let outputTokens;
+  let completed = false;
+  const eventTypes = [];
+  for (const [index, line] of String(output).split(/\r?\n/).entries()) {
+    if (!line.trim()) continue;
+    let event;
+    try { event = JSON.parse(line); }
+    catch { throw new Error(`Codex CLI emitted malformed JSONL on line ${index + 1}.`); }
+    eventTypes.push(event.type);
+    if (event.type === 'error' || event.type === 'turn.failed') throw new Error('Codex CLI reported a failed turn. Check its local sign-in and CLI status.');
+    if (event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') text = event.item.text;
+    if (event.type === 'turn.started') completed = false;
+    if (event.type === 'turn.completed') {
+      completed = true;
+      inputTokens = event.usage?.input_tokens;
+      outputTokens = event.usage?.output_tokens;
+    }
+  }
+  if (!completed) throw new Error(`Codex CLI output did not include a completed turn (events: ${eventTypes.join(', ') || 'none'}).`);
+  if (!text.trim()) throw new Error('Codex CLI completed without a final assistant message.');
+  return { text: text.trim(), inputTokens, outputTokens };
 }
 
 export class OpenAICompatibleProvider {
