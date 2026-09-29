@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# Superseded commits do not need another full matrix run. PRs are isolated by
+# number, while branch pushes (including main) use their full ref as the key.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
