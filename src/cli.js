@@ -190,9 +190,8 @@ export async function main(args = [], { signal } = {}) {
   const context = noContext || runConfig.context?.enabled === false ? null : await collectWorkspaceContext(workspace, { ...runConfig.context, signal });
   if (json || events) {
     const result = await runMission({ config: runConfig, provider, request, context, displayRequest, noSave, signal, runId: runIdValue, onEvent: events ? (event) => console.log(JSON.stringify(event)) : undefined, workspace, conversationPrior: resumePrior });
-    if (strict && result.degraded) process.exitCode = 2;
     if (json && !events) console.log(JSON.stringify(result, null, 2));
-    return;
+    return strict && result.degraded ? 2 : undefined;
   }
   const renderer = createRenderer({ config: runConfig, provider, context });
   renderer.state.request = request;
@@ -204,7 +203,7 @@ export async function main(args = [], { signal } = {}) {
   if (saved) result.sessionId = saved.id;
   renderer.render();
   printResult(result, { trace });
-  if (strict && result.degraded) process.exitCode = 2;
+  return strict && result.degraded ? 2 : undefined;
 }
 
 let bufferedStdinChunks = [];
