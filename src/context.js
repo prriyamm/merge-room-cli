@@ -424,6 +424,10 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
     const status = await filterGitStatus(cwd, statusResult.stdout, signal);
     let diffStat = '';
     let changedPaths = [];
+    const untrackedPaths = [];
+    for (const record of statusResult.stdout.split('\0')) {
+      if (record.startsWith('?? ')) untrackedPaths.push(record.slice(3));
+    }
     let diffBase = 'HEAD';
     try {
       const pathsResult = await execFileAsync('git', ['diff', 'HEAD', '--name-only', '-z', '--no-renames'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
@@ -451,6 +455,25 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
       pathArgs.push(argument);
       pathArgsBytes += argumentBytes;
     }
+    const untrackedDiffPaths = [];
+    for (const relative of untrackedPaths) {
+      ensureActive(signal);
+      const normalized = relative.replaceAll('\\', '/').replace(/^\.\//, '');
+      if (!isSafeDiffPath(normalized)) continue;
+      const rules = await readIgnoreRulesForPath(cwd, path.resolve(cwd, relative), signal, ignoreRuleCache);
+      if (isIgnored(normalized, rules)) continue;
+      // Do not let a new symlink make the diff reader disclose bytes outside
+      // the repository. Status paths are untrusted filenames.
+      try {
+        const stat = await fs.lstat(path.resolve(cwd, relative));
+        if (!stat.isFile() || stat.isSymbolicLink()) continue;
+      } catch { continue; }
+      const argument = `:(literal)${relative}`;
+      const argumentBytes = Buffer.byteLength(argument, 'utf8') + 1;
+      if (pathArgs.length + untrackedDiffPaths.length >= 32 || pathArgsBytes + argumentBytes > 12000) break;
+      untrackedDiffPaths.push(relative);
+      pathArgsBytes += argumentBytes;
+    }
     if (pathArgs.length) {
       try {
         diffStat = await getDiffStat(cwd, diffBase, pathArgs, signal);
@@ -463,6 +486,33 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
         const diffResult = await execFileAsync('git', diffArgs, { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
         diff = redactSecrets(diffResult.stdout.trim().slice(0, 12000));
       } catch { /* A diff is optional context; status and stats remain useful without it. */ }
+    }
+    if (includeDiff && untrackedDiffPaths.length && Buffer.byteLength(diff, 'utf8') < 12000) {
+      const chunks = diff ? [diff] : [];
+      let diffBytes = Buffer.byteLength(diff, 'utf8');
+      for (const relative of untrackedDiffPaths) {
+        ensureActive(signal);
+        if (diffBytes >= 12000) break;
+        const remaining = 12000 - diffBytes;
+        try {
+          // `--no-index` returns exit code 1 when it finds a difference. Keep
+          // stdout from that expected result and bound each child invocation.
+          const result = await execFileAsync('git', ['diff', '--no-index', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=2', '--', '/dev/null', relative], {
+            cwd, signal, timeout: 1000, windowsHide: true, maxBuffer: Math.min(30000, remaining + 4096)
+          });
+          const chunk = result.stdout;
+          if (chunk) chunks.push(chunk);
+          diffBytes += Buffer.byteLength(chunk, 'utf8');
+        } catch (error) {
+          if (error.name === 'AbortError' || signal?.aborted) ensureActive(signal);
+          const chunk = typeof error.stdout === 'string' ? error.stdout : '';
+          if (chunk) {
+            chunks.push(chunk);
+            diffBytes += Buffer.byteLength(chunk, 'utf8');
+          }
+        }
+      }
+      diff = redactSecrets(chunks.join('\n').trim().slice(0, 12000));
     }
     return { status, diffStat, diff };
   } catch (error) {
