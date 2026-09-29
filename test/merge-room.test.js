@@ -1311,6 +1311,41 @@ test('Anthropic adapter streams text and provider usage metadata', async () => {
   }
 });
 
+test('Anthropic adapter completes and cancels the stream at message_stop', async () => {
+  const originalFetch = globalThis.fetch;
+  const oldKey = process.env.MERGE_ROOM_TEST_ANTHROPIC;
+  process.env.MERGE_ROOM_TEST_ANTHROPIC = 'anthropic-secret';
+  const events = [
+    { type: 'message_start', message: { usage: { input_tokens: 7 } } },
+    { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Complete' } },
+    { type: 'message_delta', usage: { output_tokens: 2 } },
+    { type: 'message_stop' }
+  ].map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
+  let cancelled = false;
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode(events)); },
+    cancel() { cancelled = true; }
+  }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  let timeoutId;
+  try {
+    const config = { ...DEFAULT_CONFIG, requestTimeoutMs: 2000, providers: { claude: { type: 'anthropic', model: 'claude-test', apiKeyEnv: 'MERGE_ROOM_TEST_ANTHROPIC' } } };
+    const completion = createProvider(config).complete({
+      system: 'system', prompt: 'prompt', provider: 'claude', onDelta: () => {}
+    });
+    const timeout = new Promise((_, reject) => { timeoutId = setTimeout(() => reject(new Error('Anthropic stream did not stop at message_stop')), 250); });
+    const response = await Promise.race([completion, timeout]);
+    assert.equal(response.text, 'Complete');
+    assert.equal(response.inputTokens, 7);
+    assert.equal(response.outputTokens, 2);
+    assert.equal(cancelled, true);
+  } finally {
+    clearTimeout(timeoutId);
+    globalThis.fetch = originalFetch;
+    if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_ANTHROPIC;
+    else process.env.MERGE_ROOM_TEST_ANTHROPIC = oldKey;
+  }
+});
+
 test('Anthropic adapter includes cached input tokens in nonstream usage', async () => {
   const originalFetch = globalThis.fetch;
   const oldKey = process.env.MERGE_ROOM_TEST_ANTHROPIC;

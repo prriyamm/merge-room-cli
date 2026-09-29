@@ -401,17 +401,27 @@ async function readAnthropicStream(body, onDelta) {
       throw error;
     }
   };
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
-    const lines = buffer.split(/\r\n|\r|\n/);
-    buffer = lines.pop() || '';
-    lines.forEach(consume);
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      const lines = buffer.split(/\r\n|\r|\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        consume(line);
+        if (completed) {
+          try { await reader.cancel(); } catch {}
+          return { text: text.trim(), inputTokens, outputTokens };
+        }
+      }
+      if (done) break;
+    }
+    if (buffer) consume(buffer);
+    if (!completed) throw new Error('Anthropic stream ended before message_stop.');
+    return { text: text.trim(), inputTokens, outputTokens };
+  } finally {
+    reader.releaseLock();
   }
-  if (buffer) consume(buffer);
-  if (!completed) throw new Error('Anthropic stream ended before message_stop.');
-  return { text: text.trim(), inputTokens, outputTokens };
 }
 
 function anthropicInputTokens(usage) {
