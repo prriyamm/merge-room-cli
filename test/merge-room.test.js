@@ -2265,6 +2265,18 @@ test('CLI reads reusable missions from the selected workspace', async () => {
   }
 });
 
+test('CLI rejects one-shot stdin missions larger than 256 KiB', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-stdin-limit-'));
+  try {
+    await assert.rejects(
+      () => runCliWithInput(['--provider=demo', '--no-context', '--no-save', '--json', '-'], 'x'.repeat(256 * 1024 + 1), root),
+      /Stdin mission exceeds the 256 KB limit\. Use --prompt-file/
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI resolves unique session id prefixes', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-session-prefix-'));
   try {

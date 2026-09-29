@@ -207,10 +207,22 @@ export async function main(args = [], { signal } = {}) {
   if (strict && result.degraded) process.exitCode = 2;
 }
 
-async function readStdin(signal) {
+async function readStdin(signal, maxBytes = null) {
   const read = (async () => {
     let input = '';
-    for await (const chunk of process.stdin) input += chunk;
+    if (maxBytes === null) {
+      for await (const chunk of process.stdin) input += chunk;
+    } else {
+      const chunks = [];
+      let bytes = 0;
+      for await (const chunk of process.stdin) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        bytes += buffer.length;
+        if (bytes > maxBytes) throw new Error(`Stdin mission exceeds the ${maxBytes / 1024} KB limit. Use --prompt-file to provide a larger mission.`);
+        chunks.push(buffer);
+      }
+      input = Buffer.concat(chunks).toString('utf8');
+    }
     return input.trim();
   })();
   if (!signal) return read;
@@ -256,7 +268,7 @@ function optionValue(args, name) {
 
 async function readMissionInput(parts, promptFile, workspace, signal) {
   if (promptFile === null) {
-    return parts.length === 1 && parts[0] === '-' ? readStdin(signal) : parts.join(' ').trim();
+    return parts.length === 1 && parts[0] === '-' ? readStdin(signal, MAX_PROMPT_BYTES) : parts.join(' ').trim();
   }
   if (parts.some((part) => part.trim())) throw new Error('Use either `--prompt-file` or inline mission text, not both.');
   const value = String(promptFile).trim();
