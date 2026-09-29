@@ -157,14 +157,42 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     if (!live && !force) return;
     lastRenderAt = Date.now();
     clear();
-    const terminalWidth = Math.max(68, Math.min(columns || process.stdout.columns || 108, 140));
-    const terminalHeight = Math.max(22, rows || process.stdout.rows || 32);
+    const terminalWidth = Math.max(1, Math.min(columns || process.stdout.columns || 108, 140));
+    const terminalHeight = Math.max(1, rows || process.stdout.rows || 32);
+    const header = ` ${color('bold', 'MERGE ROOM')} ${color('gray', `· ${provider.name} · two live sessions`)}`;
+    const help = ' /1 /2 switch · /new reset · /cancel turn · /help · /quit';
+    if (terminalWidth < 84 || terminalHeight < 24) {
+      const showRoomStatus = terminalHeight >= 3;
+      const showHelp = terminalHeight >= 5;
+      const showMessage = terminalHeight >= 3;
+      const contentHeight = Math.max(0, terminalHeight - 1 - Number(showRoomStatus) - Number(showHelp) - Number(showMessage));
+      const activeRoom = state.rooms[state.activeRoom];
+      const otherRoom = state.rooms[state.activeRoom === 0 ? 1 : 0];
+      const lines = [];
+      if (activeRoom.request) lines.push(` Mission: ${crop(activeRoom.request, Math.max(0, terminalWidth - 10))}`);
+      const latestNote = Object.entries(activeRoom.notes).at(-1);
+      if (latestNote) lines.push(` Handoff: ${crop(latestNote[1], Math.max(0, terminalWidth - 10))}`);
+      const latestEvent = activeRoom.events.at(-1);
+      if (latestEvent) lines.push(` Latest: ${crop(latestEvent.message, Math.max(0, terminalWidth - 9))}`);
+      const answer = activeRoom.final || activeRoom.answerDraft;
+      if (answer && contentHeight > lines.length) {
+        lines.push(` ${color('bold', 'MERGE ROOM SAYS')}`);
+        const answerRows = Math.max(0, contentHeight - lines.length);
+        if (answerRows > 0) lines.push(...wrap(answer, Math.max(1, terminalWidth - 2)).slice(-answerRows).map((item) => ` ${color('white', item)}`));
+      }
+      if (!lines.length && contentHeight > 0) lines.push(' Type a mission to start this room.');
+      write(fit(header, terminalWidth));
+      if (showRoomStatus) write(surface(fit(` Room ${activeRoom.id}: ${activeRoom.status} · Room ${otherRoom.id}: ${otherRoom.status}`, terminalWidth)));
+      for (const item of lines.slice(0, contentHeight)) write(surface(fit(item, terminalWidth)));
+      if (showHelp) write(surface(fit(help, terminalWidth)));
+      if (showMessage) write(surface(fit(` ${state.message}`, terminalWidth)));
+      return;
+    }
     const sidebarWidth = Math.min(34, Math.max(27, Math.floor(terminalWidth * 0.3)));
     const mainWidth = terminalWidth - sidebarWidth - 3;
-    const contentHeight = Math.max(15, terminalHeight - 6);
+    const contentHeight = Math.max(0, terminalHeight - 4);
     const sidebar = cockpitSidebar(state, config, sidebarWidth, contentHeight);
     const main = cockpitMain(state, config, workspace, mainWidth, contentHeight);
-    const header = ` ${color('bold', 'MERGE ROOM')} ${color('gray', `· ${provider.name} · two live sessions`)}`;
     write(`${color('teal', '╭')}${fit(header, terminalWidth - 2)}${color('teal', '╮')}`);
     for (let index = 0; index < contentHeight; index += 1) {
       write(`${color('teal', '│')}${fit(sidebar[index] || '', sidebarWidth)}${color('teal', '│')}${fit(main[index] || '', mainWidth)}${color('teal', '│')}`);
@@ -273,7 +301,7 @@ function cockpitSidebar(state, config, maxWidth, height) {
     for (const agent of visibleAgents) {
       const agentStatus = room.statuses[agent.id] || 'idle';
       const icon = agentStatus === 'done' ? color('green', '●') : agentStatus === 'working' ? color('yellow', '◌') : agentStatus === 'error' ? color('red', '×') : agentStatus === 'skipped' || agentStatus === 'cancelled' ? color('yellow', '–') : color('gray', '○');
-      const activity = agentStatus === 'working' ? agent.specialty : agentStatus;
+      const activity = agentStatus === 'working' ? `working · ${agent.specialty}` : agentStatus;
       section.push(`   ${icon} ${crop(agent.name, 10).padEnd(10)} ${color('gray', crop(activity, maxWidth - 18))}`);
     }
     if (roomAgents.length > visibleAgents.length) section.push(`     ${color('gray', `+${roomAgents.length - visibleAgents.length} more agents`)}`);
