@@ -301,7 +301,11 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
           ? ` Room ${activeRoom.id}: ${activeRoom.status} · Room ${otherRoom.id}: ${otherRoom.status}`
           : terminalWidth >= 20
             ? ` ${activeRoom.id}:${compactStatus(activeRoom.status)} · ${otherRoom.id}:${compactStatus(otherRoom.status)}`
-            : ` ${activeRoom.id}:${tinyStatus(activeRoom.status)} ${otherRoom.id}:${tinyStatus(otherRoom.status)}`;
+            : terminalWidth >= 8
+              ? ` ${activeRoom.id}:${tinyStatus(activeRoom.status)} ${otherRoom.id}:${tinyStatus(otherRoom.status)}`
+              : terminalWidth >= 5
+                ? `${activeRoom.id}${tinyStatus(activeRoom.status)} ${otherRoom.id}${tinyStatus(otherRoom.status)}`
+                : `${activeRoom.id}${tinyStatus(activeRoom.status)}${otherRoom.id}${tinyStatus(otherRoom.status)}`;
         safeWrite(surface(fit(roomStatus, terminalWidth)));
       }
       for (const item of lines.slice(0, contentHeight)) safeWrite(surface(fit(item, terminalWidth)));
