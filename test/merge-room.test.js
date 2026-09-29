@@ -1172,6 +1172,24 @@ test('workspace context respects project ignore patterns', async () => {
   }
 });
 
+test('workspace context matches root files for leading gitignore globstars', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-globstar-'));
+  try {
+    await fs.mkdir(path.join(root, 'nested'), { recursive: true });
+    await fs.writeFile(path.join(root, '.gitignore'), '**/*.generated.js\n', 'utf8');
+    await fs.writeFile(path.join(root, 'root.generated.js'), 'skip root\n', 'utf8');
+    await fs.writeFile(path.join(root, 'nested', 'child.generated.js'), 'skip nested\n', 'utf8');
+    await fs.writeFile(path.join(root, 'keep.js'), 'keep\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
+    assert.equal(context.entries.some((entry) => entry.includes('root.generated.js')), false);
+    assert.equal(context.entries.some((entry) => entry.includes('child.generated.js')), false);
+    assert.equal(context.entries.some((entry) => entry.includes('keep.js')), true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('workspace formatting keeps an opt-in diff clearly bounded', () => {
   const formatted = formatWorkspaceContext({
     fileCount: 1,

@@ -141,8 +141,11 @@ function hasNegatedDescendant(relative, rules) {
 
 function ignorePatternRegex(pattern) {
   const basename = !pattern.startsWith('/') && !pattern.includes('/');
-  const body = pattern.replace(/^\//, '').split(/(\*\*|\*|\?)/).map((part) => part === '*' || part === '**' ? '.*' : part === '?' ? '.' : part.replace(/[.+^${}()|[\]\\]/g, '\\$&')).join('');
-  return new RegExp(basename ? `(^|/)${body}$` : `^${body}$`);
+  const normalized = pattern.replace(/^\//, '');
+  // In gitignore, a leading **/ also matches files in the root directory.
+  const globstarPrefix = normalized.startsWith('**/');
+  const body = normalized.split(/(\*\*|\*|\?)/).map((part) => part === '*' || part === '**' ? '.*' : part === '?' ? '.' : part.replace(/[.+^${}()|[\]\\]/g, '\\$&')).join('');
+  return new RegExp(basename ? `(^|/)${body}$` : `^${globstarPrefix ? '(?:.*/)?' : ''}${globstarPrefix ? body.slice(3) : body}$`);
 }
 
 async function readGitSnapshot(cwd, includeDiff = false) {
