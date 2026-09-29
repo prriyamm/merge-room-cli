@@ -96,13 +96,16 @@ async function createSessionDirectory(cwd, directory) {
 }
 
 async function readRegularFile(file) {
-  const before = await fs.lstat(file);
+  const before = await fs.lstat(file, { bigint: true });
   if (!before.isFile() || before.isSymbolicLink()) return null;
   const noFollow = constants.O_NOFOLLOW || 0;
   const handle = await fs.open(file, constants.O_RDONLY | noFollow);
   try {
-    const opened = await handle.stat();
-    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) return null;
+    const opened = await handle.stat({ bigint: true });
+    const sameFile = process.platform === 'win32'
+      ? before.ino !== 0n && opened.ino === before.ino
+      : opened.dev === before.dev && opened.ino === before.ino;
+    if (!opened.isFile() || !sameFile) return null;
     return await handle.readFile('utf8');
   } finally {
     await handle.close();

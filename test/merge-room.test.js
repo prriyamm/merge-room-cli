@@ -1856,9 +1856,11 @@ test('sessions can be saved, listed, and reopened', async () => {
     assert.equal(files.some((name) => name.includes('.tmp-')), false);
    const listed = await listSessions(root, 'sessions');
     const reopened = await readSession(saved.id, root, 'sessions');
+    assert.equal(listed.length, 1);
     assert.equal(listed[0].id, saved.id);
     assert.equal(listed[0].answer, undefined);
     assert.equal(reopened.answer, 'Test answer');
+    assert.equal(reopened.request, 'Test mission');
     assert.equal(await readSession('missing', root, 'sessions'), null);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
