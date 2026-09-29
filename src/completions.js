@@ -1,4 +1,4 @@
-const COMMANDS = ['run', 'ask', 'review', 'brainstorm', 'plan', 'interactive', 'agents', 'providers', 'history', 'usage', 'stats', 'config', 'show', 'export', 'resume', 'context', 'doctor', 'init', 'theme', 'completions', 'version'];
+const COMMANDS = ['run', 'ask', 'review', 'brainstorm', 'plan', 'interactive', 'chat', 'agents', 'providers', 'history', 'usage', 'stats', 'config', 'show', 'export', 'resume', 'context', 'doctor', 'init', 'theme', 'completions', 'completion', 'version', 'help'];
 const OPTIONS = ['--help', '--version', '--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict', '--cwd=', '-C', '--prompt-file=', '--team=', '--provider=', '--profile=', '--model=', '--base-url=', '--max-tokens=', '--temperature=', '--concurrency=', '--max-calls=', '--timeout=', '--retries=', '--run-id=', '--theme=', '--include=', '--limit=', '--format=', '--output=', '--config='];
 
 export function completionScript(shell = defaultShell()) {

@@ -9,7 +9,7 @@ export async function saveSession(result, cwd = process.cwd(), directory = '.mer
  const file = path.join(root, `${id}.json`);
   const temporary = path.join(root, `.${id}.tmp-${process.pid}`);
   try {
-    await fs.writeFile(temporary, `${JSON.stringify({ id, savedAt: new Date().toISOString(), ...result }, null, 2)}\n`, 'utf8');
+    await fs.writeFile(temporary, `${JSON.stringify({ ...result, id, savedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
     await fs.rename(temporary, file);
   } finally {
     await fs.rm(temporary, { force: true }).catch(() => {});

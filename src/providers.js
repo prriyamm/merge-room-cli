@@ -408,12 +408,11 @@ async function readStream(body, onDelta) {
     if (!line.startsWith('data:')) return;
     const data = line.slice(5).trim();
     if (!data || data === '[DONE]') return;
-    try {
-      const parsed = JSON.parse(data);
-      const piece = normalizeContent(parsed.choices?.[0]?.delta?.content);
-      if (piece) { text += piece; onDelta(piece); }
-      if (parsed.usage) usage = parsed.usage;
-    } catch { /* Ignore an incomplete or provider-specific SSE frame. */ }
+    let parsed;
+    try { parsed = JSON.parse(data); } catch { /* Ignore an incomplete or provider-specific SSE frame. */ return; }
+    const piece = normalizeContent(parsed.choices?.[0]?.delta?.content);
+    if (piece) { text += piece; onDelta(piece); }
+    if (parsed.usage) usage = parsed.usage;
   };
   while (true) {
     const { done, value } = await reader.read();
