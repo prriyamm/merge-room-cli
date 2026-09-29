@@ -481,8 +481,15 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); const waitingSequence = noticeSequence; await waitForCockpitTasks(tasks); setMessage('Both rooms are ready.', waitingSequence); return true; }
-    if (request === '/help more') { setMessage('/cancel [1|2] /agents [id] /team [all|ids] /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage'); return true; }
-    if (request === '/help') { setMessage('Help: mission or /run <mission> · rooms /1 /2 /switch · turns /new /clear /wait /cancel [1|2] · /help more · /quit /exit'); return true; }
+    if (request === '/help more') { setMessage('/again repeats the selected room’s last mission as a new turn, carrying its conversation · /cancel [1|2] /agents [id] /team [all|ids] /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage'); return true; }
+    if (request === '/help') { setMessage('Help: mission or /run <mission> · rooms /1 /2 /switch · turns /again /new /clear /wait /cancel [1|2] · /help more · /quit /exit'); return true; }
+    if (request === '/again') {
+      const room = renderer.state.rooms[renderer.state.activeRoom];
+      if (room.running) setMessage(`Room ${room.id} is working. Wait for it to finish before using /again.`);
+      else if (!room.request) setMessage(`Room ${room.id} has no previous mission to repeat. Run a mission first.`);
+      else { const previousRequest = room.request; await waitForActiveRoom(); await launch(previousRequest); }
+      return true;
+    }
     if (request === '/agents') {
       setMessage(`Team of ${activeConfig.agents.length}. Use /agents <id> for a specialist's details; run merge-room agents for the full roster.`);
       return true;

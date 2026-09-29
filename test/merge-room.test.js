@@ -342,6 +342,16 @@ test('cockpit /run accepts slash-prefixed missions and unknown commands show gui
   assert.equal((stdout.match(/Mission complete/g) || []).length, 2);
 });
 
+test('cockpit /again repeats the selected room request and carries its conversation', async () => {
+  const { stdout } = await runCliWithInput(
+    ['interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream', '--team=scout'],
+    '/again\nMap the release checklist\n/wait\n/again\n/wait\n/quit\n'
+  );
+  assert.match(stdout, /Room 1 has no previous mission to repeat/);
+  assert.equal((stdout.match(/\[Room 1\] Map the release checklist/g) || []).length, 2);
+  assert.equal((stdout.match(/Mission complete/g) || []).length, 2);
+});
+
 test('bare merge-room command opens the cockpit', async () => {
   const { stdout } = await runCliWithInput(
     ['--provider=demo', '--no-context', '--no-save', '--no-stream', '--team=scout'],

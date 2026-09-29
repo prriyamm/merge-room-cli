@@ -290,6 +290,7 @@ Type a mission to start the selected room. Use `/run <mission>` when the mission
 /new or /clear         Reset the selected room
 /wait                  Wait for both rooms to finish
 /run <mission>         Run a mission that starts with a slash
+/again                 Repeat the selected room’s last mission as a new turn, carrying its conversation
 /cancel [1|2]          Cancel selected room or target a room directly without switching
 /agents [id]           Show team size or one specialist's details
 /team                  Show the selected team
