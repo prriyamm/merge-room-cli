@@ -20,7 +20,7 @@ class ProviderRouter {
     for (const [id, profile] of Object.entries(config.providers)) {
       const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
       const apiKey = process.env[envName];
-      const adapterConfig = { ...config, ...profile, providerId: id, cwd: workspace, baseUrl: profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl), model: profile.model || config.model, streaming: config.streaming };
+      const adapterConfig = { ...config, ...profile, providerId: id, cwd: workspace, baseUrl: profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl), model: profile.type === 'codex-cli' ? profile.model : profile.model || config.model, streaming: config.streaming };
       const adapter = profile.type === 'codex-cli'
         ? new CodexCliProvider(adapterConfig)
         : profile.type === 'anthropic'
@@ -30,7 +30,8 @@ class ProviderRouter {
     }
     this.defaultProvider = config.defaultProvider || Object.keys(config.providers)[0];
     this.name = 'multi-provider';
-    this.model = config.providers[this.defaultProvider]?.model || config.model;
+    const defaultProfile = config.providers[this.defaultProvider];
+    this.model = defaultProfile?.type === 'codex-cli' ? defaultProfile.model || 'codex-default' : defaultProfile?.model || config.model;
   }
 
   complete(options) {
