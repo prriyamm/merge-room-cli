@@ -226,8 +226,9 @@ function formatBytes(bytes) {
 
 function redactSecrets(text) {
   text = text.replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g, '[redacted]');
-  const lines = text.split(/(\r\n|\n|\r)/);
   const unifiedDiff = /^(?:diff --git |@@ )/m.test(text);
+  text = redactYamlPrivateKeyBlocks(text, unifiedDiff);
+  const lines = text.split(/(\r\n|\n|\r)/);
   for (let index = 0; index < lines.length; index += 2) {
     const line = lines[index];
     const diffPrefix = unifiedDiff && /^[ +\-]/.test(line) ? line[0] : '';
@@ -264,6 +265,30 @@ function redactSecrets(text) {
       return `${boundary}${prefix}${quote}[redacted]${quote}`;
     })}`;
   }).join('');
+}
+
+function redactYamlPrivateKeyBlocks(text, unifiedDiff) {
+  const lines = text.split(/(\r\n|\n|\r)/);
+  for (let index = 0; index < lines.length; index += 2) {
+    const line = lines[index];
+    const diffPrefix = unifiedDiff && /^[ +\-]/.test(line) ? line[0] : '';
+    const content = diffPrefix ? line.slice(1) : line;
+    const match = /^([ \t]*(?:-[ \t]*)?private[_-]?key["']?[ \t]*:[ \t]*)(?:\|[+-]?\d*[+-]?|>[+-]?\d*[+-]?)[ \t]*(?:#.*)?$/i.exec(content);
+    if (!match) continue;
+
+    const baseIndent = (content.match(/^[ \t]*/) || [''])[0].length;
+    lines[index] = `${diffPrefix}${match[1]}[redacted]`;
+    for (let continuation = index + 2; continuation < lines.length; continuation += 2) {
+      const valueLine = lines[continuation];
+      const valuePrefix = unifiedDiff && /^[ +\-]/.test(valueLine) ? valueLine[0] : '';
+      const valueContent = valuePrefix ? valueLine.slice(1) : valueLine;
+      if (/^[ \t]*$/.test(valueContent)) continue;
+      const indent = (valueContent.match(/^[ \t]*/) || [''])[0].length;
+      if (indent <= baseIndent) break;
+      lines[continuation] = `${valuePrefix}${valueContent.slice(0, indent)}[redacted]`;
+    }
+  }
+  return lines.join('');
 }
 
 async function readIgnoreRules(cwd, base = '', signal) {

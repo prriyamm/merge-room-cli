@@ -2683,6 +2683,7 @@ test('workspace context redacts service account private keys and PEM blocks', as
       private_key: privateKey,
     }), 'utf8');
     await fs.writeFile(path.join(root, 'deployment.txt'), `-----BEGIN RSA PRIVATE KEY-----\nRAW_PEM_KEY_MATERIAL_${'Y'.repeat(3000)}\n-----END RSA PRIVATE KEY-----\n`, 'utf8');
+    await fs.writeFile(path.join(root, 'service-account.yml'), `private_key: |\n  YAML_KEY_MATERIAL_${'Z'.repeat(3000)}\n  second private key line\nother_setting: retained\n`, 'utf8');
 
     const context = await collectWorkspaceContext(root, { maxBytes: 5000, maxFiles: 10, maxExcerptBytes: 2400 });
     const formatted = formatWorkspaceContext(context);
@@ -2693,6 +2694,9 @@ test('workspace context redacts service account private keys and PEM blocks', as
     assert.equal(formatted.includes('SERVICE_ACCOUNT_KEY_MATERIAL'), false);
     assert.equal(formatted.includes('SERVICE_ACCOUNT_KEY_ID'), false);
     assert.equal(formatted.includes('RAW_PEM_KEY_MATERIAL'), false);
+    assert.equal(formatted.includes('YAML_KEY_MATERIAL'), false);
+    assert.equal(formatted.includes('second private key line'), false);
+    assert.match(context.excerpts.find((item) => item.path === 'service-account.yml').text, /private_key: \[redacted\]/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
