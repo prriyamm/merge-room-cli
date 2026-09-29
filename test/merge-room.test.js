@@ -12,7 +12,7 @@ import { collectWorkspaceContext, formatWorkspaceContext } from '../src/context.
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from '../src/engine.js';
 import { liquidGlassLogoLines } from '../src/logo.js';
 import { AnthropicProvider, ClaudeCodeCliProvider, CodexCliProvider, createProvider, DemoProvider, OpenAICompatibleProvider, parseClaudeCodeOutput, parseCodexOutput } from '../src/providers.js';
-import { formatSessionMarkdown, listSessions, readSession, saveSession, selectNewestSessionNames, writeSessionExport } from '../src/sessions.js';
+import { formatSessionMarkdown, listSessions, readSession, saveSession, selectNewestSessionNames, selectNewestSessionSummaries, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
 import { buildResumeRequest, cockpitHelpMorePage, cockpitHelpMorePages, main } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
@@ -3417,6 +3417,30 @@ test('bounded session name selection streams entries and keeps only the newest l
   const newest = await selectNewestSessionNames(entries(), 3);
   assert.equal(yielded, 10000);
   assert.deepEqual(newest, ['2026-09999.json', '2026-09998.json', '2026-09997.json']);
+});
+
+test('limited session summaries read newest candidates once and backfill corrupt recent sessions', async () => {
+  const names = [
+    '2026-01-06.json', '2026-01-05.json', '2026-01-04.json',
+    '2026-01-03.json', '2026-01-02.json', '2026-01-01.json'
+  ];
+  const valid = new Map(names.slice(1, 4).map((name) => [name, { id: name.slice(0, -5), request: name }]));
+  const readNames = [];
+  let directoryScans = 0;
+  const sessions = await selectNewestSessionSummaries(async () => {
+    directoryScans += 1;
+    return (async function* () {
+      for (const name of names) yield { name };
+      yield { name: 'notes.md' };
+    })();
+  }, 3, async (name) => {
+    readNames.push(name);
+    return valid.get(name) || null;
+  });
+
+  assert.deepEqual(sessions.map(({ id }) => id), ['2026-01-05', '2026-01-04', '2026-01-03']);
+  assert.deepEqual(readNames, ['2026-01-06.json', '2026-01-05.json', '2026-01-04.json', '2026-01-03.json']);
+  assert.equal(directoryScans, 2, 'a second name-only pass is used only to backfill the corrupt newest session');
 });
 
 test('limited session listing returns no sessions for a zero limit', async () => {

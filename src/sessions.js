@@ -28,16 +28,12 @@ export async function listSessions(cwd = process.cwd(), directory = '.merge-room
   if (!root) return [];
   let names;
   if (limit !== undefined && limit <= MAX_BOUNDED_SESSION_LIMIT) {
-    let directory;
-    try { directory = await fs.opendir(root); } catch (error) {
-      if (error.code === 'ENOENT') return [];
-      throw error;
-    }
-    try {
-      names = await selectNewestSessionNames(directory, limit, async (name) => await readSessionSummary(root, name) !== null);
-    } finally {
-      await directory.close().catch(() => {});
-    }
+    return selectNewestSessionSummaries(async () => {
+      try { return await fs.opendir(root); } catch (error) {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      }
+    }, limit, (name) => readSessionSummary(root, name));
   } else {
     try { names = await fs.readdir(root); } catch (error) {
       if (error.code === 'ENOENT') return [];
@@ -85,6 +81,33 @@ export async function selectNewestSessionNames(entries, limit, include = async (
     if (newest.length > limit) newest.shift();
   }
   return newest.reverse();
+}
+
+export async function selectNewestSessionSummaries(openEntries, limit, readSummary) {
+  const sessions = [];
+  let beforeName = null;
+  while (sessions.length < limit) {
+    const entries = await openEntries();
+    if (!entries) break;
+    let names;
+    try {
+      names = await selectNewestSessionNames(entries, limit, async (name) => beforeName === null || name < beforeName);
+    } finally {
+      if (typeof entries.close === 'function') await entries.close().catch(() => {});
+    }
+    if (!names.length) break;
+
+    // If a candidate is invalid, scan below this batch on the next pass to
+    // backfill it without parsing every older session during the common case.
+    beforeName = names.at(-1);
+    for (const name of names) {
+      const summary = await readSummary(name);
+      if (summary) sessions.push(summary);
+      if (sessions.length >= limit) break;
+    }
+    if (names.length < limit) break;
+  }
+  return sessions;
 }
 
 export async function readSession(id, cwd = process.cwd(), directory = '.merge-room/sessions') {
