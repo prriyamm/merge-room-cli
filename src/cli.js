@@ -803,6 +803,7 @@ function normalizeProvider(value) {
 }
 
 function validateOptions(args) {
+  const seenValues = new Set();
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === '--') break;
@@ -810,11 +811,17 @@ function validateOptions(args) {
     if (arg === '-h' || arg === '-v' || arg === '--help' || arg === '--version' || BOOLEAN_OPTIONS.includes(arg)) continue;
     const inlineOption = VALUE_OPTIONS.find((name) => arg.startsWith(`${name}=`));
     if (inlineOption) {
-      if (arg.length === inlineOption.length + 1) throw new Error(`${inlineOption} expects a value.`);
+      const key = inlineOption === '-C' ? '--cwd' : inlineOption;
+      if (!arg.slice(inlineOption.length + 1).trim()) throw new Error(`${inlineOption} expects a value.`);
+      if (seenValues.has(key)) throw new Error(`${key} may only be specified once.`);
+      seenValues.add(key);
       continue;
     }
     if (VALUE_OPTIONS.includes(arg)) {
-      if (index === args.length - 1 || args[index + 1].startsWith('-')) throw new Error(`${arg} expects a value.`);
+      const key = arg === '-C' ? '--cwd' : arg;
+      if (seenValues.has(key)) throw new Error(`${key} may only be specified once.`);
+      if (index === args.length - 1 || !args[index + 1]?.trim() || args[index + 1].startsWith('-')) throw new Error(`${arg} expects a value.`);
+      seenValues.add(key);
       index += 1;
       continue;
     }
