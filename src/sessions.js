@@ -34,7 +34,7 @@ export async function listSessions(cwd = process.cwd(), directory = '.merge-room
       throw error;
     }
     try {
-      names = await selectNewestSessionNames(directory, limit);
+      names = await selectNewestSessionNames(directory, limit, async (name) => readSessionSummary(root, name) !== null);
     } finally {
       await directory.close().catch(() => {});
     }
@@ -47,22 +47,28 @@ export async function listSessions(cwd = process.cwd(), directory = '.merge-room
   }
   const sessions = [];
   for (const name of names) {
-    try {
-      const contents = await readRegularFile(path.join(root, name));
-      if (contents === null) continue;
-      const data = JSON.parse(contents);
-      sessions.push({ id: name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request: data.request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) });
-      if (limit !== undefined && sessions.length >= limit) break;
-    } catch { /* Ignore a partial or hand-edited session file. */ }
+    const session = await readSessionSummary(root, name);
+    if (session) sessions.push(session);
+    if (limit !== undefined && sessions.length >= limit) break;
   }
   return sessions;
 }
 
-export async function selectNewestSessionNames(entries, limit) {
+async function readSessionSummary(root, name) {
+  try {
+    const contents = await readRegularFile(path.join(root, name));
+    if (contents === null) return null;
+    const data = JSON.parse(contents);
+    return { id: name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request: data.request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) };
+  } catch { /* Ignore a partial or hand-edited session file. */ return null; }
+}
+
+export async function selectNewestSessionNames(entries, limit, include = async () => true) {
   const newest = [];
   for await (const entry of entries) {
     const name = typeof entry === 'string' ? entry : entry.name;
     if (!name.endsWith('.json')) continue;
+    if (!await include(name)) continue;
 
     // Keep only the lexically newest `limit` filenames. This matches the
     // ordering used by the unlimited listing while bounding retained names.
