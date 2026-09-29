@@ -1392,7 +1392,7 @@ test('workspace context respects project ignore patterns', async () => {
   try {
     await fs.mkdir(path.join(root, 'cache'), { recursive: true });
     await fs.mkdir(path.join(root, 'archive'), { recursive: true });
-    await fs.writeFile(path.join(root, '.gitignore'), '*.log\ncache/\n!/cache/\ncache/*\n!/cache/keep.json\narchive/\n!*.md\n', 'utf8');
+    await fs.writeFile(path.join(root, '.gitignore'), '*.log\ncache/\n!/cache/\n/cache/*\n!/cache/keep.json\narchive/\n!*.md\n', 'utf8');
     await fs.writeFile(path.join(root, 'visible.md'), 'keep me\n', 'utf8');
     await fs.writeFile(path.join(root, 'debug.log'), 'skip me\n', 'utf8');
     await fs.writeFile(path.join(root, 'cache', 'result.json'), 'skip me too\n', 'utf8');
