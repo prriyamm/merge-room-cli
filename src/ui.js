@@ -10,7 +10,7 @@ let activeTheme = resolveTheme(process.env.MERGE_ROOM_THEME || 'merge-room');
 const color = (name, text) => colorsEnabled ? `${activeTheme.colors[name] || activeTheme.colors.gray}${text}${activeTheme.colors.reset}` : String(text);
 const surface = (text) => colorsEnabled ? `${activeTheme.colors.bg}${String(text).replaceAll(activeTheme.colors.reset, `${activeTheme.colors.reset}${activeTheme.colors.bg}`)}${activeTheme.colors.reset}` : String(text);
 const clear = () => { if (live) process.stdout.write('\x1b[2J\x1b[H'); };
-const stripUnsafeTerminalControls = (value) => String(value)
+export const stripUnsafeTerminalControls = (value) => String(value)
   .replace(/\x1B\](?:[^\x07\x1B]|\x1B(?!\\))*(?:\x07|\x1B\\|$)/g, '')
   .replace(/\x1B[PX^_][\s\S]*?(?:\x1B\\|$)/g, '')
   .replace(/\x1B\[(?![0-?]*[ -/]*m)[0-?]*[ -/]*[@-~]/g, '')
@@ -18,11 +18,13 @@ const stripUnsafeTerminalControls = (value) => String(value)
   .replace(/[\x00-\x08\x0B\x0C\x0E-\x1A\x1C-\x1F\x7F-\x9F]/g, '')
   .replace(/[\r\n]+/g, ' ');
 const sanitizeUntrustedText = (value) => String(value)
+  .replace(/\r\n?/g, '\n')
   .replace(/\x1B\](?:[^\x07\x1B]|\x1B(?!\\))*(?:\x07|\x1B\\|$)/g, '')
   .replace(/\x1B[PX^_][\s\S]*?(?:\x1B\\|$)/g, '')
   .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
   .replace(/\x1B./gs, '')
   .replace(/[\x00-\x09\x0B-\x1F\x7F-\x9F]/g, ' ');
+const sanitizeInlineText = (value) => sanitizeUntrustedText(value).replace(/\n+/g, ' ');
 const width = () => Math.max(48, Math.min(process.stdout.columns || 92, 118) - 2);
 const line = (char = '─') => char.repeat(width());
 const crop = (value, max) => {
@@ -180,7 +182,7 @@ export function createRenderer({ config, provider, context = null }) {
     state.usage = payload.telemetry || state.usage;
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     if (payload.type === 'run:start') state.request = payload.request;
-    if (payload.type === 'agents:dispatch') state.events.push({ time: now, message: `${color('teal', 'wave')} ${color('gray', `${payload.stageLabel} · ${payload.agentCount} specialist${payload.agentCount === 1 ? '' : 's'}`)}` });
+    if (payload.type === 'agents:dispatch') state.events.push({ time: now, message: `${color('teal', 'wave')} ${color('gray', `${sanitizeInlineText(payload.stageLabel)} · ${payload.agentCount} specialist${payload.agentCount === 1 ? '' : 's'}`)}` });
     if (payload.type === 'agent:start') { state.statuses.set(payload.agent.id, 'working'); state.events.push({ time: now, message: `${color(payload.agent.color, sanitizeUntrustedText(payload.agent.name))} ${color('gray', 'picked up the thread')}` }); }
     if (payload.type === 'agent:done') { state.statuses.set(payload.agent.id, 'done'); state.notes.set(payload.agent.id, payload.text || 'note received'); state.events.push({ time: now, message: `${color('green', 'done')} ${color('gray', `${sanitizeUntrustedText(payload.agent.name || payload.agent?.name || 'specialist')} returned a note`)}` }); }
     if (payload.type === 'agent:error') { state.statuses.set(payload.agent.id, 'error'); state.events.push({ time: now, message: `${color('red', 'error')} ${color('gray', crop(payload.error, width() - 20))}` }); }
