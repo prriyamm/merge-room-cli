@@ -62,6 +62,12 @@ Run a one-off mission without opening the cockpit:
 merge-room "Design a migration plan from REST to event-driven jobs"
 ```
 
+Use `--` to end option parsing when the mission starts with a dash. Everything after the separator is treated as mission text:
+
+```bash
+merge-room -- -leading mission text
+```
+
 Inspect the exact team shape and limits before spending a provider call:
 
 ```bash

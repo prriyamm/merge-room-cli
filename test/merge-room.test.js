@@ -3241,6 +3241,17 @@ test('CLI can load an explicit project profile', async () => {
   }
 });
 
+test('CLI treats mission arguments after -- as literal text', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-literal-mission-'));
+  try {
+    const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
+    const { stdout } = await execFileAsync(process.execPath, [bin, '--provider=demo', '--no-context', '--no-save', '--json', '--', '-leading', 'mission'], { cwd: root, windowsHide: true });
+    assert.equal(JSON.parse(stdout).request, '-leading mission');
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('CLI can target another workspace with --cwd or -C', async () => {
   const caller = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-caller-'));
   const workspace = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-workspace-'));
