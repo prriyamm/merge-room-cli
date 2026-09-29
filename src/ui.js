@@ -240,16 +240,17 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     const header = ` ${color('bold', 'MERGE ROOM')} ${color('gray', `· ${sanitizeUntrustedText(provider.name)} · two live sessions`)}`;
     const help = ' /1 /2 switch · /new reset · /cancel [1|2] · /help · /quit';
     if (terminalWidth < 84 || terminalRows < 24) {
-      const isHelpMessage = state.message.startsWith('Help:') || state.message.startsWith('/agents [id] /team');
+      const isMoreHelpMessage = state.message.startsWith('Help more:');
+      const isHelpMessage = state.message.startsWith('Help:') || state.message.startsWith('/agents [id] /team') || isMoreHelpMessage;
       const isPrimaryHelp = state.message.startsWith('Help: mission');
       const shortHelp = terminalWidth >= 60
-        ? isPrimaryHelp ? 'Help: /run /again /1 /2 /new /wait /cancel [1|2] /help more' : 'Help: /agents /team /profile /context /history /show …'
+        ? isMoreHelpMessage ? 'More: /cancel [1|2] /agents [id] /team [all|ids] /profile <name> /profiles /context /history /show /export /usage' : isPrimaryHelp ? 'Help: /run /again /1 /2 /new /wait /cancel [1|2] /help more' : 'Help: /agents /team /profile /context /history /show …'
         : terminalWidth >= 40
-          ? isPrimaryHelp ? 'Help: /run /again /1 /2 /new /wait /help more' : 'Help: /agents /team /profile /show …'
+          ? isMoreHelpMessage ? 'More: /cancel /agents /team\n/profile /profiles /context\n/history /show /export /usage' : isPrimaryHelp ? 'Help: /run /again /1 /2 /new /wait /help more' : 'Help: /agents /team /profile /show …'
         : terminalWidth >= 30
-          ? isPrimaryHelp ? 'Help: /run /again /1 /2 …' : 'Help: /team /profile …'
+          ? isMoreHelpMessage ? 'More: /cancel /agents /team\n/profile /context /history\n/show /export /usage' : isPrimaryHelp ? 'Help: /run /again /1 /2 …' : 'Help: /team /profile …'
         : terminalWidth >= 17
-            ? isPrimaryHelp ? 'Help: /again /run …' : 'Help: /team …'
+            ? isMoreHelpMessage ? 'More: /cancel\n/agents /team\n/profile /show' : isPrimaryHelp ? 'Help: /again /run …' : 'Help: /team …'
             : terminalWidth >= 8 ? isPrimaryHelp ? '/again' : '…' : '…';
       const showRoomStatus = !isHelpMessage && terminalHeight >= 4;
       const showHelp = !isHelpMessage && terminalHeight >= 5;

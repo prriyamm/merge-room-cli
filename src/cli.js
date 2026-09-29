@@ -481,7 +481,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); const waitingSequence = noticeSequence; await waitForCockpitTasks(tasks); setMessage('Both rooms are ready.', waitingSequence); return true; }
-    if (request === '/help more') { setMessage('/again repeats the selected room’s last mission as a new turn, carrying its conversation · /cancel [1|2] /agents [id] /team [all|ids] /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage'); return true; }
+    if (request === '/help more') { setMessage('Help more: /again repeats the selected room’s last mission as a new turn, carrying its conversation · /cancel [1|2] /agents [id] /team [all|ids] /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage'); return true; }
     if (request === '/help') { setMessage('Help: mission or /run <mission> · rooms /1 /2 /switch · turns /again /new /clear /wait /cancel [1|2] · /help more · /quit /exit'); return true; }
     if (request === '/again') {
       const room = renderer.state.rooms[renderer.state.activeRoom];
