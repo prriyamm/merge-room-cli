@@ -81,7 +81,7 @@ export OPENAI_API_KEY="your-key"
 merge-room "Review the architecture in this repository"
 ```
 
-Merge Room also reads `MERGE_ROOM_API_KEY`, `MERGE_ROOM_BASE_URL`, and `MERGE_ROOM_MODEL` (with the corresponding `OPENAI_*` variables as fallbacks). Named provider profiles can route different specialists and the lead through separate OpenAI-compatible or Anthropic API accounts. Use `--provider=demo` or `MERGE_ROOM_PROVIDER=demo` to force offline demo mode even when API keys are present. Keys are read from environment variables and are never saved in project config, diagnostics, or transcripts. These profiles use API credentials; ChatGPT Plus or Claude Pro subscriptions do not provide API keys.
+Merge Room also reads `MERGE_ROOM_API_KEY`, `MERGE_ROOM_BASE_URL`, and `MERGE_ROOM_MODEL` (with the corresponding `OPENAI_*` variables as fallbacks). Named provider profiles route different specialists and the lead through OpenAI-compatible or Anthropic API accounts, Codex CLI sign-in, or Claude Code CLI sign-in. Direct API profiles need API keys; CLI profiles use their installed CLIs' saved sign-in. Use `merge-room providers` to see profile routes, API-key presence, and whether the CLI binaries are on `PATH`. It never prints key values or probes CLI sign-in state. Use `--provider=demo` or `MERGE_ROOM_PROVIDER=demo` to force offline demo mode even when API keys are present.
 
 ## Why Merge Room works as an agent harness
 
@@ -109,6 +109,7 @@ merge-room review "change"           Review with bounded Git diff context
 merge-room brainstorm "idea"         Run parallel specialist perspectives
 merge-room interactive                Alias for the conversational cockpit
 merge-room agents                     Show the specialist roster
+merge-room providers                  Inspect provider routes and local CLI availability
 merge-room theme list                 List available terminal themes
 merge-room history                    List saved missions
 merge-room usage                      Aggregate saved token usage

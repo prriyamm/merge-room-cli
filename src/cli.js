@@ -13,7 +13,7 @@ import { createConversationRenderer, createRenderer, printAgents, printBanner, p
 
 const VALUE_OPTIONS = ['--cwd', '-C', '--prompt-file', '--config', '--team', '--provider', '--profile', '--model', '--base-url', '--max-tokens', '--temperature', '--concurrency', '--timeout', '--retries', '--max-calls', '--run-id', '--theme', '--include', '--limit', '--format', '--output'];
 const BOOLEAN_OPTIONS = ['--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict'];
-const NON_MISSION_COMMANDS = new Set(['completions', 'completion', 'agents', 'config', 'context', 'history', 'usage', 'stats', 'show', 'export', 'init', 'doctor', 'theme', 'interactive', 'chat', 'version']);
+const NON_MISSION_COMMANDS = new Set(['completions', 'completion', 'agents', 'config', 'providers', 'context', 'history', 'usage', 'stats', 'show', 'export', 'init', 'doctor', 'theme', 'interactive', 'chat', 'version']);
 const MAX_PROMPT_BYTES = 256 * 1024;
 const MAX_CONVERSATION_TURNS = 12;
 const MAX_RESUME_CONTEXT_CHARS = 12000;
@@ -98,6 +98,7 @@ export async function main(args = [], { signal } = {}) {
     else printConfig(safeConfig);
     return;
   }
+  if (command === 'providers') return printProviderStatus(config, json);
   if (command === 'context') {
     const context = noContext ? { cwd: workspace, entries: [], excerpts: [], fileCount: 0, truncated: false, git: null } : await collectWorkspaceContext(workspace, { ...config.context, ...(include !== null ? { include } : {}), includeDiff: includeDiff || preset.includeDiff === true });
    if (json) console.log(JSON.stringify(context, null, 2));
@@ -698,17 +699,58 @@ function abortError() {
 }
 
 function publicProviderProfile(profile, config) {
-  if (profile.type === 'codex-cli') return { type: profile.type, model: profile.model || config.model || 'codex-default', authentication: 'Codex CLI sign-in', configured: null };
+  if (profile.type === 'codex-cli') return { type: profile.type, model: profile.model || 'codex-default', authentication: 'Codex CLI sign-in', configured: null };
   if (profile.type === 'claude-code-cli') return { type: profile.type, model: profile.model || 'claude-code-default', authentication: 'Claude Code CLI sign-in', configured: null };
   const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
   return { type: profile.type, model: profile.model || config.model, baseUrl: safeBaseUrl(profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl)), apiKeyEnv: envName, configured: Boolean(process.env[envName]) };
 }
 
 function doctorProviderProfile(profile, config) {
-  if (profile.type === 'codex-cli') return { type: profile.type, model: profile.model || config.model || 'codex-default', authentication: 'Codex CLI sign-in', configured: null };
+  if (profile.type === 'codex-cli') return { type: profile.type, model: profile.model || 'codex-default', authentication: 'Codex CLI sign-in', configured: null };
   if (profile.type === 'claude-code-cli') return { type: profile.type, model: profile.model || 'claude-code-default', authentication: 'Claude Code CLI sign-in', configured: null };
   const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
   return { type: profile.type, model: profile.model || config.model, baseUrl: safeBaseUrl(profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl)), credentialEnv: envName, configured: Boolean(process.env[envName]) };
+}
+
+async function printProviderStatus(config, json = false) {
+  const defaultProvider = config.defaultProvider || Object.keys(config.providers || {})[0] || null;
+  const leadProvider = config.leadProvider || defaultProvider;
+  const profiles = await Promise.all(Object.entries(config.providers || {}).map(async ([id, profile]) => {
+    const agents = config.agents.filter((agent) => (agent.provider || defaultProvider) === id).map((agent) => agent.id);
+    if (['codex-cli', 'claude-code-cli'].includes(profile.type)) {
+      const command = profile.type === 'codex-cli' ? 'codex' : 'claude';
+      return { id, type: profile.type, model: profile.model || (profile.type === 'codex-cli' ? 'codex-default' : 'claude-code-default'), default: defaultProvider === id, lead: leadProvider === id, agents, authentication: `${command} CLI sign-in`, binaryAvailable: await findExecutable(command) };
+    }
+    const apiKeyEnv = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
+    return { id, type: profile.type, model: profile.model || config.model, default: defaultProvider === id, lead: leadProvider === id, agents, apiKeyEnv, configured: Boolean(process.env[apiKeyEnv]) };
+  }));
+  const report = { defaultProvider, leadProvider, profiles };
+  if (json) { console.log(JSON.stringify(report, null, 2)); return; }
+  if (!profiles.length) { console.log('No named provider profiles are configured. Add `providers` to merge-room.config.json.'); return; }
+  console.log('Provider profiles');
+  for (const profile of profiles) {
+    const roles = [profile.default ? 'default' : null, profile.lead ? 'lead' : null].filter(Boolean);
+    console.log(`  ${profile.id} · ${profile.type} · ${profile.model}${roles.length ? ` · ${roles.join('/')}` : ''}`);
+    if (profile.apiKeyEnv) console.log(`    ${profile.apiKeyEnv}: ${profile.configured ? 'set' : 'missing'}${profile.agents.length ? ` · agents: ${profile.agents.join(', ')}` : ''}`);
+    else console.log(`    ${profile.authentication}: ${profile.binaryAvailable ? 'CLI found; sign-in not checked' : 'CLI not found'}${profile.agents.length ? ` · agents: ${profile.agents.join(', ')}` : ''}`);
+  }
+  console.log('  Authentication values are never displayed; CLI sign-in state is not probed.');
+}
+
+async function findExecutable(command) {
+  const pathValue = process.env.PATH || '';
+  const names = process.platform === 'win32' ? [`${command}.exe`] : [command];
+  const directories = pathValue.split(path.delimiter).map((directory) => directory || (process.platform === 'win32' ? null : process.cwd())).filter(Boolean);
+  for (const directory of directories) {
+    for (const name of names) {
+      const candidate = path.join(directory, name);
+      try {
+        const stat = await fs.stat(candidate);
+        if (stat.isFile()) { await fs.access(candidate, process.platform === 'win32' ? 0 : 1); return true; }
+      } catch { /* Keep searching PATH. */ }
+    }
+  }
+  return false;
 }
 
 function doctor(config, json = false, workspace = process.cwd()) {
