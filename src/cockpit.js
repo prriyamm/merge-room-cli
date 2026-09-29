@@ -99,7 +99,7 @@ export function applyCockpitEvent(state, roomIndex, payload) {
   }
 }
 
-export function finishCockpitTurn(state, roomIndex, result, error = null, { updateMessage = true } = {}) {
+export function finishCockpitTurn(state, roomIndex, result, error = null, options = {}) {
   const room = state.rooms[roomIndex];
   if (!room) return;
   room.running = false;
@@ -112,7 +112,7 @@ export function finishCockpitTurn(state, roomIndex, result, error = null, { upda
     for (const [agentId, status] of Object.entries(room.statuses)) if (status === 'queued' || status === 'working') room.statuses[agentId] = 'cancelled';
   }
   room.status = error ? (error.name === 'AbortError' ? 'cancelled' : 'error') : result?.degraded ? 'degraded' : 'done';
-  if (updateMessage) state.message = error ? `Room ${roomIndex + 1} stopped: ${room.error}` : `Room ${roomIndex + 1} finished. Continue there or switch rooms.`;
+  if (options?.updateMessage !== false) state.message = error ? `Room ${roomIndex + 1} stopped: ${room.error}` : `Room ${roomIndex + 1} finished. Continue there or switch rooms.`;
 }
 
 function createRoom(index, agents) {
