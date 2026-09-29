@@ -290,7 +290,8 @@ Type a mission to start the selected room. After it finishes, the next message i
 /new                   Reset the selected room
 /wait                  Wait for both rooms to finish
 /cancel                Cancel the selected room and keep the cockpit open
-/agents                Show the active specialist team
+/agents                Show team size and how to inspect a specialist
+/agents scout          Show one specialist's details
 /team scout,critic     Change the team for future turns
 /profile <name>        Switch the provider profile for future turns
 /profiles              List configured provider profiles
@@ -303,7 +304,7 @@ Type a mission to start the selected room. After it finishes, the next message i
 /quit                  Cancel active work and close both rooms
 ```
 
-The prompt remains available while agents work. The live dashboard shows each room’s status and specialist activity, with completed answers visible in that room’s mission pane. Non-interactive runs print answers to ordinary terminal output.
+The prompt remains available while agents work. The live dashboard shows each room's status and specialist activity, with completed answers visible in that room's mission pane. Use `/agents <id>` to inspect one specialist without squeezing a long roster into the dashboard's status line. Non-interactive runs print answers to ordinary terminal output.
 
 ## Development
 

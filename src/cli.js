@@ -425,8 +425,22 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); await Promise.allSettled([...tasks.values()]); setMessage('Both rooms are ready.'); return true; }
-    if (request === '/help') { setMessage('Type a mission · /1 /2 /switch · /new · /cancel · /team <ids> · /profile <name> · /profiles · /context on|off · /show <id> · /wait · /quit'); return true; }
-    if (request === '/agents') { setMessage(`Agents: ${activeConfig.agents.map((agent) => `${agent.name} (${agent.specialty})`).join(', ')}`); return true; }
+    if (request === '/help') { setMessage('Type a mission · /1 /2 · /switch · /new · /cancel · /agents [id] · /team <ids> · /profile <name> · /wait · /quit'); return true; }
+    if (request === '/agents') {
+      setMessage(`Team of ${activeConfig.agents.length}. Use /agents <id> for a specialist's details; run merge-room agents for the full roster.`);
+      return true;
+    }
+    if (request.startsWith('/agents ')) {
+      const query = request.slice('/agents '.length).trim().toLocaleLowerCase();
+      const agent = activeConfig.agents.find((item) => item.id.toLocaleLowerCase() === query || item.name.toLocaleLowerCase() === query);
+      if (!agent) setMessage(`No specialist named ${query}. Use /agents to inspect the selected team.`);
+      else {
+        const route = [agent.provider, agent.model].filter(Boolean).join(' · ');
+        const details = `${agent.name} (${agent.id}) · ${agent.specialty} · stage ${agent.stage}${route ? ` · ${route}` : ''}`;
+        setMessage(cropLabel(details, Math.max(16, (process.stdout.columns || 80) - 4)));
+      }
+      return true;
+    }
     if (request === '/profiles') { const profiles = Object.keys(config.providers || {}); setMessage(profiles.length ? `Profiles: ${profiles.join(', ')}` : 'No provider profiles are configured.'); return true; }
     if (request === '/profile') { setMessage(activeProfile ? `Provider profile ${activeProfile} is selected. Use /profile <name> to switch future turns.` : 'No provider profile is selected. Use /profiles to inspect configured profiles.'); return true; }
     if (request.startsWith('/profile ')) {
