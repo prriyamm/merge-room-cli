@@ -81,6 +81,8 @@ function mergeConfig(base, local) {
   const sourceAgents = Array.isArray(local.agents) && local.agents.length ? local.agents : base.agents;
   const agents = sourceAgents.map((agent, index) => {
     if (!agent || typeof agent !== 'object' || Array.isArray(agent)) throw new Error(`merge-room.config.json agent ${index + 1} must be a JSON object.`);
+    if (agent.stage != null && typeof agent.stage !== 'number') throw new Error(`merge-room.config.json agent ${index + 1} \`stage\` must be a JSON number.`);
+    if (agent.model !== undefined && (typeof agent.model !== 'string' || !agent.model.trim())) throw new Error(`merge-room.config.json agent ${index + 1} \`model\` must be a non-empty string.`);
     const fallback = base.agents[index] || base.agents[0];
     const merged = { ...fallback, ...agent };
     const stage = Number(merged.stage ?? fallback.stage ?? 1);
@@ -91,6 +93,12 @@ function mergeConfig(base, local) {
   if (new Set(ids).size !== ids.length) throw new Error('merge-room.config.json contains duplicate agent ids. Give each specialist a unique `id`.');
   const strategy = local.strategy ?? base.strategy;
   if (!['staged', 'parallel'].includes(strategy)) throw new Error('merge-room.config.json `strategy` must be `staged` or `parallel`.');
+  for (const key of ['maxTokens', 'temperature', 'maxConcurrency', 'maxCalls', 'requestTimeoutMs', 'retries']) {
+    if (local[key] !== undefined && typeof local[key] !== 'number') throw new Error(`merge-room.config.json \`${key}\` must be a JSON number.`);
+  }
+  for (const key of ['maxFiles', 'maxBytes', 'maxExcerptBytes', 'maxDepth']) {
+    if (local.context?.[key] !== undefined && typeof local.context[key] !== 'number') throw new Error(`merge-room.config.json \`context.${key}\` must be a JSON number.`);
+  }
   const maxTokens = Number(local.maxTokens ?? base.maxTokens);
   if (!Number.isInteger(maxTokens) || maxTokens < 1) throw new Error('merge-room.config.json `maxTokens` must be a whole number greater than zero.');
   const temperature = Number(local.temperature ?? base.temperature);
@@ -105,8 +113,7 @@ function mergeConfig(base, local) {
   if (!Number.isInteger(retries) || retries < 0) throw new Error('merge-room.config.json `retries` must be a whole number greater than or equal to zero.');
   const context = { ...base.context, ...(local.context || {}) };
   for (const [key, minimum] of [['maxFiles', 1], ['maxBytes', 256], ['maxExcerptBytes', 80], ['maxDepth', 0]]) {
-    if (!Number.isInteger(Number(context[key])) || Number(context[key]) < minimum) throw new Error(`merge-room.config.json \`context.${key}\` must be a whole number >= ${minimum}.`);
-    context[key] = Number(context[key]);
+    if (!Number.isInteger(context[key]) || context[key] < minimum) throw new Error(`merge-room.config.json \`context.${key}\` must be a whole number >= ${minimum}.`);
   }
  for (const agent of sourceAgents) if (agent?.provider != null && (typeof agent.provider !== 'string' || !providers[agent.provider])) throw new Error(`Agent provider \`${agent.provider}\` must name a configured provider profile.`);
   return {

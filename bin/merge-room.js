@@ -3,10 +3,13 @@ import { main } from '../src/cli.js';
 
 const controller = new AbortController();
 const onInterrupt = () => controller.abort();
-const wantsJson = process.argv.includes('--json');
+const args = process.argv.slice(2);
+const optionEnd = args.indexOf('--');
+const optionArgs = optionEnd < 0 ? args : args.slice(0, optionEnd);
+const wantsJson = optionArgs.includes('--json');
 process.once('SIGINT', onInterrupt);
 
-main(process.argv.slice(2), { signal: controller.signal }).catch((error) => {
+main(args, { signal: controller.signal }).catch((error) => {
   if (error.name === 'AbortError') {
     if (wantsJson) console.error(JSON.stringify({ error: { code: 'ABORTED', message: 'Mission cancelled.' } }));
     else console.error('\n  Mission cancelled.\n');

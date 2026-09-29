@@ -287,6 +287,7 @@ Type a mission to start the selected room. After it finishes, the next message i
 /switch               Move to the other room
 /new                   Reset the selected room
 /wait                  Wait for both rooms to finish
+/cancel                Cancel the selected room and keep the cockpit open
 /agents                Show the active specialist team
 /team scout,critic     Change the team for future turns
 /profile <name>        Switch the provider profile for future turns

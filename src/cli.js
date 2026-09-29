@@ -19,41 +19,45 @@ const MAX_CONVERSATION_TURNS = 12;
 const MAX_RESUME_CONTEXT_CHARS = 12000;
 
 export async function main(args = [], { signal } = {}) {
- const cwdValue = optionValue(args, '--cwd') ?? optionValue(args, '-C');
- const promptFileValue = optionValue(args, '--prompt-file');
- const configValue = optionValue(args, '--config');
- const json = args.includes('--json');
-  const noContext = args.includes('--no-context');
-  const noSave = args.includes('--no-save');
-  const parallel = args.includes('--parallel');
-  const includeDiff = args.includes('--diff');
-  const trace = args.includes('--trace');
- const noStream = args.includes('--no-stream');
-  const streamUsage = args.includes('--stream-usage');
- const events = args.includes('--events');
-  const teamValue = optionValue(args, '--team');
-  const providerValue = optionValue(args, '--provider');
-  const profileValue = optionValue(args, '--profile');
-  const modelValue = optionValue(args, '--model');
-  const baseUrlValue = optionValue(args, '--base-url');
-  const maxTokensValue = optionValue(args, '--max-tokens');
-  const temperatureValue = optionValue(args, '--temperature');
-  const concurrencyValue = optionValue(args, '--concurrency');
-  const timeoutValue = optionValue(args, '--timeout');
-  const retriesValue = optionValue(args, '--retries');
-  const maxCallsValue = optionValue(args, '--max-calls');
-  const runIdValue = optionValue(args, '--run-id');
-  const themeValue = optionValue(args, '--theme');
-  const includeValue = optionValue(args, '--include');
-  const limitValue = optionValue(args, '--limit');
-  const formatValue = optionValue(args, '--format');
-  const outputValue = optionValue(args, '--output');
-  const strict = args.includes('--strict');
-  validateOptions(args);
-  const cleanArgs = stripOptions(args, VALUE_OPTIONS, BOOLEAN_OPTIONS);
+  const separator = args.indexOf('--');
+  const optionArgs = separator < 0 ? args : args.slice(0, separator);
+  const literalArgs = separator < 0 ? [] : args.slice(separator + 1);
+ const cwdValue = optionValue(optionArgs, '--cwd') ?? optionValue(optionArgs, '-C');
+ const promptFileValue = optionValue(optionArgs, '--prompt-file');
+ const configValue = optionValue(optionArgs, '--config');
+ const json = optionArgs.includes('--json');
+  const noContext = optionArgs.includes('--no-context');
+  const noSave = optionArgs.includes('--no-save');
+  const parallel = optionArgs.includes('--parallel');
+  const includeDiff = optionArgs.includes('--diff');
+  const trace = optionArgs.includes('--trace');
+ const noStream = optionArgs.includes('--no-stream');
+  const streamUsage = optionArgs.includes('--stream-usage');
+ const events = optionArgs.includes('--events');
+  const teamValue = optionValue(optionArgs, '--team');
+  const providerValue = optionValue(optionArgs, '--provider');
+  const profileValue = optionValue(optionArgs, '--profile');
+  const modelValue = optionValue(optionArgs, '--model');
+  const baseUrlValue = optionValue(optionArgs, '--base-url');
+  const maxTokensValue = optionValue(optionArgs, '--max-tokens');
+  const temperatureValue = optionValue(optionArgs, '--temperature');
+  const concurrencyValue = optionValue(optionArgs, '--concurrency');
+  const timeoutValue = optionValue(optionArgs, '--timeout');
+  const retriesValue = optionValue(optionArgs, '--retries');
+  const maxCallsValue = optionValue(optionArgs, '--max-calls');
+  const runIdValue = optionValue(optionArgs, '--run-id');
+  const themeValue = optionValue(optionArgs, '--theme');
+  const includeValue = optionValue(optionArgs, '--include');
+  const limitValue = optionValue(optionArgs, '--limit');
+  const formatValue = optionValue(optionArgs, '--format');
+  const outputValue = optionValue(optionArgs, '--output');
+  const strict = optionArgs.includes('--strict');
+  validateOptions(optionArgs);
+  const optionCleanArgs = stripOptions(optionArgs, VALUE_OPTIONS, BOOLEAN_OPTIONS);
+  const cleanArgs = [...optionCleanArgs, ...literalArgs];
   const include = includeValue !== null ? includeValue.split(',').map((item) => item.trim()).filter(Boolean) : null;
-  const command = cleanArgs[0];
-  const cockpitByDefault = !command && promptFileValue === null;
+  const command = optionCleanArgs[0];
+  const cockpitByDefault = !command && literalArgs.length === 0 && promptFileValue === null;
   const preset = command === 'review' ? { includeDiff: true } : command === 'brainstorm' ? { strategy: 'parallel' } : {};
   let displayRequest;
   let resumePrior = null;
@@ -100,7 +104,7 @@ export async function main(args = [], { signal } = {}) {
   }
   if (command === 'providers') return printProviderStatus(config, json);
   if (command === 'context') {
-    const context = noContext ? { cwd: workspace, entries: [], excerpts: [], fileCount: 0, truncated: false, git: null } : await collectWorkspaceContext(workspace, { ...config.context, ...(include !== null ? { include } : {}), includeDiff: includeDiff || preset.includeDiff === true });
+    const context = noContext ? { cwd: workspace, entries: [], excerpts: [], fileCount: 0, truncated: false, git: null } : await collectWorkspaceContext(workspace, { ...config.context, ...(include !== null ? { include } : {}), includeDiff: includeDiff || preset.includeDiff === true, signal });
    if (json) console.log(JSON.stringify(context, null, 2));
     else console.log(formatWorkspaceContext(context));
     return;
@@ -173,7 +177,7 @@ export async function main(args = [], { signal } = {}) {
     const requestParts = cleanArgs.slice(1);
     const request = await readMissionInput(requestParts, promptFileValue, workspace, signal);
     if (!request) throw new Error('Give plan a mission, for example `merge-room plan "map the release risks"`.');
-    const context = noContext || runConfig.context?.enabled === false ? null : await collectWorkspaceContext(workspace, runConfig.context);
+    const context = noContext || runConfig.context?.enabled === false ? null : await collectWorkspaceContext(workspace, { ...runConfig.context, signal });
     const plan = createPlan(runConfig, provider, request, context, workspace);
     if (json) console.log(JSON.stringify(plan, null, 2));
     else printPlan(plan);
@@ -183,7 +187,7 @@ export async function main(args = [], { signal } = {}) {
   const requestParts = command === 'run' || command === 'ask' || command === 'resume' || command === 'review' || command === 'brainstorm' ? cleanArgs.slice(1) : cleanArgs;
   const request = await readMissionInput(requestParts, promptFileValue, workspace, signal);
   if (!request) return printHelp();
-  const context = noContext || runConfig.context?.enabled === false ? null : await collectWorkspaceContext(workspace, runConfig.context);
+  const context = noContext || runConfig.context?.enabled === false ? null : await collectWorkspaceContext(workspace, { ...runConfig.context, signal });
   if (json || events) {
     const result = await runMission({ config: runConfig, provider, request, context, displayRequest, noSave, signal, runId: runIdValue, onEvent: events ? (event) => console.log(JSON.stringify(event)) : undefined, workspace, conversationPrior: resumePrior });
     if (strict && result.degraded) process.exitCode = 2;
@@ -262,7 +266,15 @@ async function readMissionInput(parts, promptFile, workspace, signal) {
   try { stat = await fs.stat(file); } catch { throw new Error(`Could not read prompt file: ${file}`); }
   if (!stat.isFile()) throw new Error(`Prompt path is not a file: ${file}`);
   if (stat.size > MAX_PROMPT_BYTES) throw new Error(`Prompt file exceeds the ${MAX_PROMPT_BYTES / 1024} KB limit: ${file}`);
-  const request = (await fs.readFile(file, 'utf8')).trim();
+  const handle = await fs.open(file, 'r');
+  let buffer;
+  let bytesRead;
+  try {
+    buffer = Buffer.alloc(MAX_PROMPT_BYTES + 1);
+    ({ bytesRead } = await handle.read(buffer, 0, buffer.length, 0));
+  } finally { await handle.close(); }
+  if (bytesRead > MAX_PROMPT_BYTES) throw new Error(`Prompt file exceeds the ${MAX_PROMPT_BYTES / 1024} KB limit: ${file}`);
+  const request = buffer.toString('utf8', 0, bytesRead).trim();
   if (!request) throw new Error(`Prompt file is empty: ${file}`);
   return request;
 }
@@ -285,15 +297,18 @@ async function resolveWorkspace(value) {
 
 function stripOptions(args, valueOptions, booleanOptions) {
   const skip = new Set();
-  args.forEach((arg, index) => {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === '--') { skip.add(index); break; }
     if (booleanOptions.includes(arg) || valueOptions.some((name) => arg.startsWith(`${name}=`))) skip.add(index);
     const option = valueOptions.find((name) => arg === name);
     if (option) { skip.add(index); skip.add(index + 1); }
-  });
+  }
   return args.filter((_, index) => !skip.has(index));
 }
 
 async function interactive(config, provider, noContext = false, noSave = false, signal, trace = false, workspace = process.cwd()) {
+  if (signal?.aborted) throw abortError();
   let activeConfig = config;
   let activeProfile = config.defaultProvider || Object.keys(config.providers || {})[0] || null;
   let profileOverrideActive = false;
@@ -346,12 +361,14 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     controllers.set(roomIndex, controller);
     const task = (async () => {
       try {
-        const context = contextEnabled ? await collectWorkspaceContext(workspace, runConfig.context) : null;
+        const context = contextEnabled ? await collectWorkspaceContext(workspace, { ...runConfig.context, signal: controller.signal }) : null;
         const room = renderer.state.rooms[roomIndex];
         room.context = context;
         room.status = 'working';
         const engineRequest = previous ? buildResumeRequest(request, previous) : request;
         const result = await new MergeRoomEngine({ config: runConfig, provider, onEvent: renderer.event(roomIndex) }).run(engineRequest, { context, label: request, signal: controller.signal });
+        controllers.delete(roomIndex);
+        result.durationMs = Date.now() - room.started;
         if (previous) result.conversation = conversationFromPrior(previous);
         const saved = noSave ? null : await persist(result, runConfig, workspace);
         if (saved) result.sessionId = saved.id;
@@ -361,8 +378,13 @@ async function interactive(config, provider, noContext = false, noSave = false, 
           printResult(result, { trace });
         }
       } catch (error) {
+        if (error.name === 'AbortError' && renderer.state.rooms[roomIndex].status !== 'cancelled') {
+          renderer.event(roomIndex)({ type: 'run:cancelled', error: error.message || 'Mission cancelled.' });
+        }
         finishCockpitTurn(renderer.state, roomIndex, null, error);
-        if (error.name !== 'AbortError') {
+        if (error.name === 'AbortError') {
+          if (!isTerminal) console.log(`  Room ${roomIndex + 1} cancelled.`);
+        } else {
           if (isTerminal) setMessage(`Room ${roomIndex + 1} stopped: ${error.message}`);
           else console.log(`  Room ${roomIndex + 1}: ${error.message}`);
         }
@@ -381,13 +403,24 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (request === '/quit' || request === '/exit') return false;
     if (request === '/1' || request === '/2') { const room = selectCockpitRoom(renderer.state, request.slice(1)); setMessage(`Switched to Room ${room.id}.`); return true; }
     if (request === '/switch') { const room = selectCockpitRoom(renderer.state, renderer.state.activeRoom === 0 ? 2 : 1); setMessage(`Switched to Room ${room.id}.`); return true; }
+    if (request === '/cancel') {
+      const roomIndex = renderer.state.activeRoom;
+      const controller = controllers.get(roomIndex);
+      const message = renderer.state.rooms[roomIndex].status === 'saving'
+        ? `Room ${roomIndex + 1} is saving its result.`
+        : controller ? `Cancellation requested for Room ${roomIndex + 1}.` : `Room ${roomIndex + 1} has no active mission.`;
+      if (controller && renderer.state.rooms[roomIndex].status !== 'saving') controller.abort();
+      if (isTerminal) setMessage(message);
+      else console.log(`  ${message}`);
+      return true;
+    }
     if (request === '/new' || request === '/clear') {
       try { const room = resetCockpitRoom(renderer.state, renderer.state.activeRoom, activeConfig.agents); setMessage(`Room ${room.id} is ready for a new session.`); }
       catch (error) { setMessage(error.message); }
       return true;
     }
     if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); await Promise.allSettled([...tasks.values()]); setMessage('Both rooms are ready.'); return true; }
-    if (request === '/help') { setMessage('Type a mission · /1 /2 /switch · /new · /team <ids> · /profile <name> · /profiles · /context on|off · /show <id> · /wait · /quit'); return true; }
+    if (request === '/help') { setMessage('Type a mission · /1 /2 /switch · /new · /cancel · /team <ids> · /profile <name> · /profiles · /context on|off · /show <id> · /wait · /quit'); return true; }
     if (request === '/agents') { setMessage(`Agents: ${activeConfig.agents.map((agent) => `${agent.name} (${agent.specialty})`).join(', ')}`); return true; }
     if (request === '/profiles') { const profiles = Object.keys(config.providers || {}); setMessage(profiles.length ? `Profiles: ${profiles.join(', ')}` : 'No provider profiles are configured.'); return true; }
     if (request === '/profile') { setMessage(activeProfile ? `Provider profile ${activeProfile} is selected. Use /profile <name> to switch future turns.` : 'No provider profile is selected. Use /profiles to inspect configured profiles.'); return true; }
@@ -429,13 +462,24 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         const room = renderer.state.rooms[renderer.state.activeRoom];
         room.request = session.request || '';
         room.final = session.answer || '';
+        room.answerDraft = '';
         room.result = session;
-        room.status = session.degraded ? 'degraded' : 'done';
+        room.context = session.context || null;
+        room.usage = session.usage || { input: 0, output: 0, total: 0, calls: 0 };
+        room.events = [];
+        room.error = null;
+        room.finishedAt = Date.now();
+        const durationMs = session.durationMs == null ? NaN : Number(session.durationMs);
+        room.started = Number.isFinite(durationMs) && durationMs >= 0 && durationMs <= room.finishedAt ? room.finishedAt - durationMs : null;
+        room.status = session.degraded || session.status === 'degraded' ? 'degraded' : 'done';
         room.turn = Math.max(1, room.turn);
         room.notes = Object.fromEntries((session.agents || []).map((item) => [item.agent?.id, item.text]));
         room.agentIds = (session.agents || []).map((item) => item.agent?.id).filter(Boolean);
-        room.statuses = Object.fromEntries(activeConfig.agents.map((agent) => [agent.id, 'done']));
+        const savedStatuses = new Map((session.agents || []).map((item) => [item.agent?.id, item.status || 'done']));
+        room.statuses = Object.fromEntries(activeConfig.agents.map((agent) => [agent.id, savedStatuses.get(agent.id) || 'idle']));
         setMessage(`Loaded ${session.id} into Room ${room.id}.`);
+        if (isTerminal) renderer.loaded(session);
+        else printSession(session);
       } catch (error) { setMessage(error.message); }
       return true;
     }
@@ -458,12 +502,18 @@ async function interactive(config, provider, noContext = false, noSave = false, 
 
   if (!isTerminal) {
     const scriptedRequests = (await readStdin(signal)).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    for (const request of scriptedRequests) { if (!await handleInput(request)) break; }
+    let requestedQuit = false;
+    for (const request of scriptedRequests) {
+      if (!await handleInput(request)) { requestedQuit = true; break; }
+    }
+    if (requestedQuit) for (const controller of controllers.values()) controller.abort();
     await Promise.allSettled([...tasks.values()]);
+    if (signal?.aborted) throw abortError();
     return;
   }
 
   await renderer.start();
+  if (signal?.aborted) throw abortError();
   rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
   redraw();
   await new Promise((resolve) => {
@@ -474,14 +524,16 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       rl.close();
       resolve();
     };
-    signal?.addEventListener('abort', shutdown, { once: true });
     rl.on('line', async (line) => {
       if (!await handleInput(line)) shutdown();
       else redraw();
     });
     rl.once('close', () => { if (!closing) { closing = true; resolve(); } });
+    signal?.addEventListener('abort', shutdown, { once: true });
+    if (signal?.aborted) shutdown();
   });
   await Promise.allSettled([...tasks.values()]);
+  if (signal?.aborted) throw abortError();
   console.log('\n  Both rooms closed. Until next time.\n');
 }
 
@@ -572,11 +624,16 @@ function normalizeProvider(value) {
 function validateOptions(args) {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === '--' || arg === '-' || !arg.startsWith('-')) continue;
+    if (arg === '--') break;
+    if (arg === '-' || !arg.startsWith('-')) continue;
     if (arg === '-h' || arg === '-v' || arg === '--help' || arg === '--version' || BOOLEAN_OPTIONS.includes(arg)) continue;
-    if (VALUE_OPTIONS.some((name) => arg.startsWith(`${name}=`))) continue;
+    const inlineOption = VALUE_OPTIONS.find((name) => arg.startsWith(`${name}=`));
+    if (inlineOption) {
+      if (arg.length === inlineOption.length + 1) throw new Error(`${inlineOption} expects a value.`);
+      continue;
+    }
     if (VALUE_OPTIONS.includes(arg)) {
-      if (index === args.length - 1) throw new Error(`${arg} expects a value.`);
+      if (index === args.length - 1 || args[index + 1].startsWith('-')) throw new Error(`${arg} expects a value.`);
       index += 1;
       continue;
     }

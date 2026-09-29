@@ -157,7 +157,7 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       write(`${color('teal', '│')}${fit(sidebar[index] || '', sidebarWidth)}${color('teal', '│')}${fit(main[index] || '', mainWidth)}${color('teal', '│')}`);
     }
     write(`${color('teal', '╰')}${'─'.repeat(sidebarWidth)}${color('teal', '┴')}${'─'.repeat(mainWidth)}${color('teal', '╯')}`);
-    write(surface(fit(` ${color('gray', '/1 /2 switch · /new reset · /help commands · /quit leave')}`, terminalWidth)));
+    write(surface(fit(` ${color('gray', '/1 /2 switch · /new reset · /cancel turn · /help commands · /quit leave')}`, terminalWidth)));
     write(surface(fit(` ${color('teal', state.message)}`, terminalWidth)));
   };
   return { state, event, render, refresh };
@@ -169,6 +169,41 @@ export function createConversationRenderer({ config, provider, workspace = proce
   let started = false;
   const emit = (line = '') => { if (enabled) write(line); };
   const refresh = () => onRefresh();
+  const loaded = (session) => {
+    emit('');
+    emit(`  ${color('teal', session.id || 'session')}  ${color('gray', session.savedAt || '')}`);
+    emit(`  ${color('bold', 'MISSION')}  ${session.request || ''}`);
+    const degraded = Boolean(session.degraded || session.status === 'degraded');
+    const status = degraded ? 'degraded' : session.status || 'complete';
+    const durationMs = Number(session.durationMs);
+    const duration = session.durationMs != null && Number.isFinite(durationMs) && durationMs >= 0 && durationMs <= Date.now() ? `${(durationMs / 1000).toFixed(1)}s` : '';
+    const agentCount = Array.isArray(session.agents) ? session.agents.length : Number(session.agents) || 0;
+    const waveSummary = Array.isArray(session.waves) && session.waves.length ? session.waves.map((wave) => `${wave.label}:${wave.agentIds?.length || 0}`).join(' \u2192 ') : '';
+    const summary = [status, session.strategy, duration, agentCount ? `${agentCount} agents` : '', waveSummary, session.runId ? `run ${session.runId}` : ''].filter(Boolean).join(' \u00b7 ');
+    emit(`  ${color(degraded ? 'yellow' : 'gray', summary)}`);
+    emit('');
+    if (degraded) emit(`  ${color('yellow', '\u25b3 Best-effort run: one or more specialists were unavailable.')}`);
+    if (session.synthesisError) emit(`  ${color('gray', `Synthesis: ${session.synthesisError}`)}`);
+    for (const paragraph of String(session.answer || '').split(/\n+/)) {
+      for (const item of wrap(paragraph, Math.max(44, width() - 8))) emit(`  ${color('white', item)}`);
+    }
+    if (Array.isArray(session.agents) && session.agents.length) {
+      emit('');
+      emit(`  ${color('bold', 'SPECIALIST ROUTES')}`);
+      for (const item of session.agents) {
+        const name = item.agent?.name || item.agent?.id || 'Specialist';
+        const route = [item.provider, item.model].filter(Boolean).join(' \u00b7 ');
+        emit(`  ${name}${item.stage ? ` \u00b7 stage ${item.stage}` : ''}${route ? ` \u00b7 ${route}` : ''}`);
+      }
+    }
+    if (session.usage) {
+      const usage = session.usage;
+      const mark = (value, estimated) => `${estimated ? '~' : ''}${formatTokens(value || 0)}`;
+      emit(`  ${color('gray', 'tokens')} ${mark(usage.total, usage.estimatedInput || usage.estimatedOutput)} total \u00b7 ${mark(usage.input, usage.estimatedInput)} in \u00b7 ${mark(usage.output, usage.estimatedOutput)} out`);
+    }
+    emit('');
+    refresh();
+  };
   const start = (options) => {
     if (started) return Promise.resolve();
     started = true;
@@ -198,12 +233,14 @@ export function createConversationRenderer({ config, provider, workspace = proce
         for (const item of wrap(paragraph, Math.max(44, width() - 8))) emit(`  ${color('white', item)}`);
       }
       const usage = payload.result.usage || {};
+      const degraded = Boolean(payload.result.degraded);
+      if (degraded) emit(`  ${color('yellow', '△')} ${color('gray', 'Best-effort run: one or more specialists were unavailable.')}`);
       emit('');
-      emit(`  ${color('green', '✓')} ${color('bold', `Room ${roomIndex + 1} complete`)} ${color('gray', `· ${formatTokens(usage.total || 0)} tokens · ${usage.calls || 0} calls`)}`);
+      emit(`  ${color(degraded ? 'yellow' : 'green', degraded ? '△' : '✓')} ${color('bold', `Room ${roomIndex + 1} ${degraded ? 'best effort' : 'complete'}`)} ${color('gray', `· ${formatTokens(usage.total || 0)} tokens · ${usage.calls || 0} calls`)}`);
     }
     if (visibleUpdate) refresh();
   };
-  return { state, start, user, notice, event, refresh, render: () => {} };
+  return { state, start, user, loaded, notice, event, refresh, render: () => {} };
 }
 
 function cockpitSidebar(state, config, maxWidth, height) {
@@ -213,7 +250,8 @@ function cockpitSidebar(state, config, maxWidth, height) {
     const section = [];
     const selected = roomIndex === state.activeRoom;
     const marker = selected ? color('teal', '›') : ' ';
-    const status = room.status === 'done' ? color('green', 'done') : room.status === 'error' ? color('red', 'error') : room.running ? color('yellow', room.status) : color('gray', room.status);
+    const statusColor = room.status === 'done' ? 'green' : room.status === 'error' ? 'red' : room.running || ['cancelled', 'degraded'].includes(room.status) ? 'yellow' : 'gray';
+    const status = color(statusColor, room.status);
     section.push(` ${marker} ${color('bold', `Room ${room.id}`)}  ${status}`);
     section.push(`   ${color('white', crop(room.request || 'Ready for a mission', maxWidth - 4))}`);
     const roomAgents = config.agents.filter((item) => room.agentIds.includes(item.id));
@@ -221,7 +259,7 @@ function cockpitSidebar(state, config, maxWidth, height) {
     const visibleAgents = roomAgents.length > agentSlots ? roomAgents.slice(0, Math.max(0, agentSlots - 1)) : roomAgents;
     for (const agent of visibleAgents) {
       const agentStatus = room.statuses[agent.id] || 'idle';
-      const icon = agentStatus === 'done' ? color('green', '●') : agentStatus === 'working' ? color('yellow', '◌') : agentStatus === 'error' ? color('red', '×') : agentStatus === 'skipped' ? color('yellow', '–') : color('gray', '○');
+      const icon = agentStatus === 'done' ? color('green', '●') : agentStatus === 'working' ? color('yellow', '◌') : agentStatus === 'error' ? color('red', '×') : agentStatus === 'skipped' || agentStatus === 'cancelled' ? color('yellow', '–') : color('gray', '○');
       const activity = agentStatus === 'working' ? agent.specialty : agentStatus;
       section.push(`   ${icon} ${crop(agent.name, 10).padEnd(10)} ${color('gray', crop(activity, maxWidth - 18))}`);
     }
@@ -258,8 +296,8 @@ function cockpitMain(state, config, workspace, maxWidth, height) {
     lines.push('', ` ${color('bold', 'MERGE ROOM SAYS')}`);
     const remaining = Math.max(2, height - lines.length - 2);
     lines.push(...wrap(answer, maxWidth - 2).slice(-remaining).map((item) => ` ${color('white', item)}`));
-  } else if (room.error) lines.push('', ` ${color('red', crop(room.error, maxWidth - 2))}`);
-  const elapsed = room.started ? `${((Date.now() - room.started) / 1000).toFixed(1)}s` : '0.0s';
+  } else if (room.error) lines.push('', ` ${color(room.status === 'cancelled' ? 'yellow' : 'red', crop(room.error, maxWidth - 2))}`);
+  const elapsed = room.started ? `${(((room.finishedAt || Date.now()) - room.started) / 1000).toFixed(1)}s` : '0.0s';
   const usage = room.usage || {};
   const footer = ` ${elapsed} · ${formatTokens(usage.total || 0)} tokens · ${usage.calls || 0} calls`;
   while (lines.length < height - 1) lines.push('');
@@ -437,13 +475,16 @@ export function printUsage(usage) {
 
 export function printSession(session) {
   console.log(`\n  ${color('teal', session.id || 'session')}  ${color('gray', session.savedAt || '')}`);
- console.log(`  ${color('bold', 'MISSION')}  ${session.request}\n`);
+ console.log(`  ${color('bold', 'MISSION')}  ${session.request || ''}\n`);
+  const degraded = Boolean(session.degraded || session.status === 'degraded');
+  const durationMs = Number(session.durationMs);
+  const duration = session.durationMs != null && Number.isFinite(durationMs) && durationMs >= 0 && durationMs <= Date.now() ? `${(durationMs / 1000).toFixed(1)}s` : '';
   const waveSummary = session.waves?.length ? session.waves.map((wave) => `${wave.label}:${wave.agentIds?.length || 0}`).join(' → ') : '';
   const agentCount = Array.isArray(session.agents) ? session.agents.length : Number(session.agents) || 0;
-  const runSummary = [session.status || (session.degraded ? 'degraded' : 'complete'), session.strategy, session.durationMs != null ? `${(Number(session.durationMs) / 1000).toFixed(1)}s` : '', agentCount ? `${agentCount} agents` : '', waveSummary, session.runId ? `run ${session.runId}` : ''].filter(Boolean).join(' · ');
+  const runSummary = [degraded ? 'degraded' : session.status || 'complete', session.strategy, duration, agentCount ? `${agentCount} agents` : '', waveSummary, session.runId ? `run ${session.runId}` : ''].filter(Boolean).join(' · ');
   if (runSummary) console.log(`  ${color('gray', runSummary)}\n`);
- console.log(`  ${color('bold', 'MERGE ROOM SAYS')}\n  ${session.answer}\n`);
- if (session.degraded) console.log(`  ${color('yellow', '△')} ${color('gray', 'Best-effort run: one or more specialists were unavailable.')}\n`);
+ console.log(`  ${color('bold', 'MERGE ROOM SAYS')}\n  ${session.answer || ''}\n`);
+  if (degraded) console.log(`  ${color('yellow', '△')} ${color('gray', 'Best-effort run: one or more specialists were unavailable.')}\n`);
   if (session.synthesisError) console.log(`  ${color('gray', 'reason')} ${session.synthesisError}\n`);
   if (Array.isArray(session.agents) && session.agents.length) {
     console.log(`  ${color('bold', 'SPECIALIST ROUTES')}`);

@@ -36,7 +36,9 @@ export function beginCockpitTurn(state, roomIndex, request, agents = []) {
   room.final = null;
   room.error = null;
   room.context = null;
+  room.usage = { input: 0, output: 0, total: 0, calls: 0 };
   room.started = Date.now();
+  room.finishedAt = null;
   room.events = [];
   room.notes = {};
   room.statuses = Object.fromEntries(agents.map((agent) => [agent.id, 'queued']));
@@ -60,6 +62,11 @@ export function applyCockpitEvent(state, roomIndex, payload) {
   if (payload.type === 'synthesis:start') room.events.push({ time: now, message: 'Lead is merging the handoffs' });
   if (payload.type === 'synthesis:delta') room.answerDraft += payload.delta;
   if (payload.type === 'synthesis:error') room.events.push({ time: now, message: 'Lead unavailable; preserving specialist notes' });
+  if (payload.type === 'run:cancelled') {
+    room.status = 'cancelled';
+    room.events.push({ time: now, message: payload.error || 'Mission cancelled.' });
+    for (const [agentId, status] of Object.entries(room.statuses)) if (status === 'queued' || status === 'working') room.statuses[agentId] = 'cancelled';
+  }
   if (payload.type === 'run:done') {
     room.result = payload.result;
     room.final = payload.result?.answer || room.answerDraft || null;
@@ -72,11 +79,15 @@ export function finishCockpitTurn(state, roomIndex, result, error = null) {
   const room = state.rooms[roomIndex];
   if (!room) return;
   room.running = false;
+  room.finishedAt = Date.now();
   room.result = result || room.result;
   room.final = result?.answer || room.answerDraft || null;
   room.usage = result?.usage || room.usage;
   room.error = error ? String(error.message || error) : null;
-  room.status = error ? 'error' : result?.degraded ? 'degraded' : 'done';
+  if (error?.name === 'AbortError') {
+    for (const [agentId, status] of Object.entries(room.statuses)) if (status === 'queued' || status === 'working') room.statuses[agentId] = 'cancelled';
+  }
+  room.status = error ? (error.name === 'AbortError' ? 'cancelled' : 'error') : result?.degraded ? 'degraded' : 'done';
   state.message = error ? `Room ${roomIndex + 1} stopped: ${room.error}` : `Room ${roomIndex + 1} finished. Continue there or switch rooms.`;
 }
 
@@ -97,6 +108,7 @@ function createRoom(index, agents) {
     final: null,
     result: null,
     error: null,
-    started: null
+    started: null,
+    finishedAt: null
   };
 }

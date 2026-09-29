@@ -13,6 +13,7 @@ const SECRET_NAMES = /(^|[._-])(env|secret|secrets|token|password|passwd|credent
 const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.json', '.md', '.txt', '.css', '.html', '.yml', '.yaml', '.toml', '.py', '.go', '.rs', '.java', '.rb', '.sql', '.sh', '.ps1']);
 
 export async function collectWorkspaceContext(cwd = process.cwd(), options = {}) {
+  ensureActive(options.signal);
   const workspaceRoot = await fs.realpath(cwd).catch(() => path.resolve(cwd));
   const maxFiles = options.maxFiles ?? 180;
   const maxBytes = options.maxBytes ?? 18000;
@@ -24,6 +25,7 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
   let totalBytes = 0;
 
   async function captureFile(fullPath, relative, depth) {
+    ensureActive(options.signal);
     if (seenFiles.has(fullPath) || entries.length >= maxFiles) return;
     seenFiles.add(fullPath);
     let stat;
@@ -34,20 +36,31 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
     const shouldExcerpt = TEXT_EXTENSIONS.has(extension) && totalBytes < maxBytes && (depth <= 1 || excerpts.length < 8);
     if (!shouldExcerpt) return;
     try {
-      const buffer = await fs.readFile(fullPath);
+      const handle = await fs.open(fullPath, 'r');
+      let buffer;
+      let bytesRead;
+      try {
+        buffer = Buffer.alloc(maxExcerptBytes);
+        ({ bytesRead } = await handle.read(buffer, 0, maxExcerptBytes, 0));
+      } finally { await handle.close(); }
+      buffer = buffer.subarray(0, bytesRead);
       if (buffer.includes(0)) return;
-     const excerpt = redactSecrets(buffer.toString('utf8', 0, Math.min(buffer.length, maxExcerptBytes)).trim());
+     const excerpt = redactSecrets(buffer.toString('utf8').trim());
      const remaining = maxBytes - totalBytes;
      if (excerpt && remaining > 80) {
         const clipped = clipUtf8(excerpt, remaining);
         const clippedBytes = Buffer.byteLength(clipped, 'utf8');
-        excerpts.push({ path: relative.replaceAll('\\', '/'), text: clipped, truncated: buffer.length > clippedBytes || clipped.length < excerpt.length });
+        excerpts.push({ path: relative.replaceAll('\\', '/'), text: clipped, truncated: stat.size > clippedBytes || clipped.length < excerpt.length });
         totalBytes += clippedBytes;
      }
-    } catch { /* A single unreadable file should not block the mission. */ }
+    } catch (error) {
+      if (error.name === 'AbortError') throw error;
+      /* A single unreadable file should not block the mission. */
+    }
   }
 
   for (const requested of Array.isArray(options.include) ? options.include : []) {
+    ensureActive(options.signal);
     const requestedPath = path.resolve(cwd, requested);
     const fullPath = await fs.realpath(requestedPath).catch(() => null);
     if (!fullPath) continue;
@@ -60,11 +73,13 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
   }
 
   async function visit(directory, depth) {
+    ensureActive(options.signal);
     if (depth > (options.maxDepth ?? 3) || entries.length >= maxFiles) return;
     let children;
     try { children = await fs.readdir(directory, { withFileTypes: true }); } catch { return; }
     children.sort((a, b) => a.name.localeCompare(b.name));
     for (const child of children) {
+      ensureActive(options.signal);
       if (entries.length >= maxFiles) break;
       if (child.name.startsWith('.') && child.name !== '.github') continue;
       if (DEFAULT_IGNORES.has(child.name) || SECRET_NAMES.test(child.name)) continue;
@@ -83,8 +98,16 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
   }
 
   await visit(cwd, 0);
-  const git = await readGitSnapshot(cwd, options.includeDiff === true);
+  const git = await readGitSnapshot(cwd, options.includeDiff === true, options.signal);
+  ensureActive(options.signal);
   return { cwd, entries, excerpts, fileCount: entries.filter((entry) => !entry.endsWith('/')).length, truncated: entries.length >= maxFiles, git };
+}
+
+function ensureActive(signal) {
+  if (!signal?.aborted) return;
+  const error = new Error('Mission cancelled.');
+  error.name = 'AbortError';
+  throw error;
 }
 
 export function formatWorkspaceContext(context) {
@@ -118,7 +141,8 @@ async function readIgnoreRules(cwd) {
   return source.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#')).map((pattern) => {
     const negate = pattern.startsWith('!');
     const value = (negate ? pattern.slice(1) : pattern).replaceAll('\\', '/');
-    return { negate, directoryOnly: value.endsWith('/'), pattern: value.replace(/^\//, '').replace(/\/$/, ''), regex: ignorePatternRegex(value.replace(/\/$/, '')) };
+    const pattern = value.replace(/^\//, '').replace(/\/$/, '');
+    return { negate, directoryOnly: value.endsWith('/'), pattern, regex: ignorePatternRegex(pattern), baseRegex: pattern.endsWith('/**') ? ignorePatternRegex(pattern.slice(0, -3)) : null };
   });
 }
 
@@ -127,7 +151,9 @@ function isIgnored(relative, directory, rules) {
   let ignored = false;
   const prefixes = normalized.split('/').map((_, index, parts) => parts.slice(0, index + 1).join('/'));
   for (const rule of rules) {
-    const matches = rule.regex.test(normalized) || (rule.directoryOnly && prefixes.slice(0, -1).some((prefix) => rule.regex.test(prefix)));
+    const matches = rule.regex.test(normalized)
+      || (directory && rule.baseRegex?.test(normalized))
+      || (rule.directoryOnly && prefixes.slice(0, -1).some((prefix) => rule.regex.test(prefix)));
     if (matches) ignored = !rule.negate;
   }
   return ignored;
@@ -141,38 +167,38 @@ function hasNegatedDescendant(relative, rules) {
 
 function ignorePatternRegex(pattern) {
   const basename = !pattern.startsWith('/') && !pattern.includes('/');
-  const normalized = pattern.replace(/^\//, '');
-  // In gitignore, a leading **/ also matches files in the root directory.
-  const globstarPrefix = normalized.startsWith('**/');
-  const body = normalized.split(/(\*\*|\*|\?)/).map((part) => part === '*' || part === '**' ? '.*' : part === '?' ? '.' : part.replace(/[.+^${}()|[\]\\]/g, '\\$&')).join('');
-  return new RegExp(basename ? `(^|/)${body}$` : `^${globstarPrefix ? '(?:.*/)?' : ''}${globstarPrefix ? body.slice(3) : body}$`);
+  const body = pattern.replace(/^\//, '').split(/(\*\*\/|\*\*|\*|\?)/).map((part) => part === '**/' ? '(?:.*/)?' : part === '*' || part === '**' ? '.*' : part === '?' ? '.' : part.replace(/[.+^${}()|[\]\\]/g, '\\$&')).join('');
+  return new RegExp(basename ? `(^|/)${body}$` : `^${body}$`);
 }
 
-async function readGitSnapshot(cwd, includeDiff = false) {
+async function readGitSnapshot(cwd, includeDiff = false, signal) {
   try {
-    const statusResult = await execFileAsync('git', ['status', '--short', '--branch'], { cwd, timeout: 3000, windowsHide: true, maxBuffer: 20000 });
+    const statusResult = await execFileAsync('git', ['status', '--short', '--branch'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 20000 });
     let diffStat = '';
     try {
-      const diffResult = await execFileAsync('git', ['diff', 'HEAD', '--stat'], { cwd, timeout: 3000, windowsHide: true, maxBuffer: 20000 });
+      const diffResult = await execFileAsync('git', ['diff', 'HEAD', '--stat'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 20000 });
       diffStat = diffResult.stdout.trim();
     } catch {
       try {
-        const diffResult = await execFileAsync('git', ['diff', '--stat'], { cwd, timeout: 3000, windowsHide: true, maxBuffer: 20000 });
+        const diffResult = await execFileAsync('git', ['diff', '--stat'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 20000 });
         diffStat = diffResult.stdout.trim();
       } catch { /* A repository can be readable even when its diff is unavailable. */ }
     }
     let diff = '';
     if (includeDiff) {
       try {
-        const diffResult = await execFileAsync('git', ['diff', 'HEAD', '--no-ext-diff', '--unified=2'], { cwd, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
+        const diffResult = await execFileAsync('git', ['diff', 'HEAD', '--no-ext-diff', '--unified=2'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
         diff = redactSecrets(diffResult.stdout.trim().slice(0, 12000));
       } catch {
         try {
-          const diffResult = await execFileAsync('git', ['diff', '--no-ext-diff', '--unified=2'], { cwd, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
+          const diffResult = await execFileAsync('git', ['diff', '--no-ext-diff', '--unified=2'], { cwd, signal, timeout: 3000, windowsHide: true, maxBuffer: 30000 });
           diff = redactSecrets(diffResult.stdout.trim().slice(0, 12000));
         } catch { /* A diff is optional context; status and stats remain useful without it. */ }
       }
     }
     return { status: statusResult.stdout.trim(), diffStat, diff };
-  } catch { return null; }
+  } catch (error) {
+    if (error.name === 'AbortError' || signal?.aborted) ensureActive(signal);
+    return null;
+  }
 }
