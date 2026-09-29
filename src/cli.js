@@ -376,6 +376,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         const saved = noSave ? null : await persist(result, runConfig, workspace);
         if (saved) result.sessionId = saved.id;
         finishCockpitTurn(renderer.state, roomIndex, result);
+        renderer.refresh();
         if (!isTerminal) {
           console.log(`\n[Room ${roomIndex + 1}] ${request}`);
           printResult(result, { trace });
@@ -385,6 +386,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
           renderer.event(roomIndex)({ type: 'run:cancelled', error: error.message || 'Mission cancelled.' });
         }
         finishCockpitTurn(renderer.state, roomIndex, null, error);
+        renderer.refresh();
         if (error.name === 'AbortError') {
           if (!isTerminal) console.log(`  Room ${roomIndex + 1} cancelled.`);
         } else {
@@ -526,6 +528,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       if (closing) return;
       closing = true;
       removeResizeListener();
+      signal?.removeEventListener('abort', shutdown);
       for (const controller of controllers.values()) controller.abort();
       rl.close();
       resolve();
@@ -536,6 +539,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     });
     rl.once('close', () => {
       removeResizeListener();
+      signal?.removeEventListener('abort', shutdown);
       if (!closing) {
         closing = true;
         for (const controller of controllers.values()) controller.abort();
