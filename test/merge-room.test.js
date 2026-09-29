@@ -164,6 +164,22 @@ test('compact cockpit keeps an answer preview inside a short terminal', () => {
   assert.equal(lines.length, 7);
 });
 
+test('compact cockpit previews the other room mission when the status row has room', () => {
+  for (const { columns, expectPreview } of [{ columns: 60, expectPreview: true }, { columns: 43, expectPreview: false }]) {
+    const lines = [];
+    const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };
+    const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns, rows: 8, write: (line) => lines.push(line) });
+    renderer.state.rooms[1].request = 'Review the other release';
+
+    renderer.render();
+
+    const output = lines.join('\n');
+    assert.ok(output.includes('Room 1: idle') || output.includes('1:idle'));
+    assert.ok(output.includes('Room 2: idle') || output.includes('2:idle'));
+    assert.equal(output.includes('Other: Review'), expectPreview);
+  }
+});
+
 test('compact cockpit preserves an answer preview when one row shorter', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };
