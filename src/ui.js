@@ -255,7 +255,7 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
         if (latestNote) lines.push(` Handoff: ${crop(latestNote[1], Math.max(0, terminalWidth - 10))}`);
         if (latestEvent) lines.push(` Latest: ${crop(latestEvent.message, Math.max(0, terminalWidth - 9))}`);
       }
-      if (activeRoom.error && !answer) lines.push(` Stopped: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
+      if (activeRoom.error && !answer) lines.unshift(` Stopped: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
       if (answer && contentHeight > 0) {
         if (contentHeight === 1 && (activeRoom.error || activeRoom.status === 'cancelled')) {
           const status = activeRoom.error ? 'FAILED' : 'CANCELLED';
