@@ -3352,21 +3352,24 @@ test('Cockpit ignores a saved-session load that finishes after quit', async () =
     await fs.mkdir(sessionDir, { recursive: true });
     await fs.writeFile(path.join(sessionDir, 'delayed-show.json'), JSON.stringify({ id: 'delayed-show', request: 'saved room request', answer: 'saved room answer', agents: [] }), 'utf8');
     const cliUrl = new URL('../src/cli.js', import.meta.url).href;
-    const sessionsUrl = new URL('../src/sessions.js', import.meta.url).href;
     const script = `
       process.stdin.isTTY = true;
       process.stdout.isTTY = true;
       process.env.TERM = 'xterm-256color';
       const { main } = await import(${JSON.stringify(cliUrl)});
-      const { readSession } = await import(${JSON.stringify(sessionsUrl)});
+      let rejectRead;
+      const delayedRead = new Promise((resolve, reject) => { rejectRead = reject; });
       main(['--cwd', ${JSON.stringify(root)}, 'interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream'], {
-        readSessionFn: async (...args) => {
+        readSessionFn: async () => {
           process.stderr.write('READ_STARTED\\n');
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          process.stderr.write('READ_RELEASED\\n');
-          return readSession(...args);
+          await delayedRead;
         }
-      }).then(() => process.stderr.write('MAIN_RETURNED\\n')).catch((error) => { console.error(error); process.exitCode = 1; });
+      }).then(async () => {
+        process.stderr.write('MAIN_RETURNED\\n');
+        rejectRead(new Error('deferred show rejection after quit'));
+        await new Promise((resolve) => setImmediate(resolve));
+        process.stderr.write('READ_REJECTED\\n');
+      }).catch((error) => { console.error(error); process.exitCode = 1; });
     `;
     const { stdout, stderr } = await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -3401,9 +3404,10 @@ test('Cockpit ignores a saved-session load that finishes after quit', async () =
     const exitIndex = cleanOutput.lastIndexOf('Both rooms closed');
     assert.notEqual(exitIndex, -1);
     const mainReturnedIndex = stderr.indexOf('MAIN_RETURNED');
-    const readReleasedIndex = stderr.indexOf('READ_RELEASED');
-    assert.ok(mainReturnedIndex >= 0 && mainReturnedIndex < readReleasedIndex, 'quit should return before the saved-session read completes');
+    const readRejectedIndex = stderr.indexOf('READ_REJECTED');
+    assert.ok(mainReturnedIndex >= 0 && mainReturnedIndex < readRejectedIndex, 'quit should return before the deferred saved-session read rejects');
     assert.doesNotMatch(cleanOutput.slice(exitIndex + 1), /saved room answer|Loaded delayed-show into Room|MERGE ROOM/);
+    assert.doesNotMatch(cleanOutput, /deferred show rejection after quit/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
