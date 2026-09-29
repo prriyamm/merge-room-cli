@@ -1409,6 +1409,43 @@ test('workspace context respects project ignore patterns', async () => {
   }
 });
 
+test('workspace context applies nested gitignore rules within their directory', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-nested-gitignore-'));
+  try {
+    await fs.mkdir(path.join(root, 'packages', 'private'), { recursive: true });
+    await fs.mkdir(path.join(root, 'private'), { recursive: true });
+    await fs.writeFile(path.join(root, 'packages', '.gitignore'), 'private/\n!private/keep.md\n', 'utf8');
+    await fs.writeFile(path.join(root, 'packages', 'public.js'), 'visible\n', 'utf8');
+    await fs.writeFile(path.join(root, 'private', 'root-public.js'), 'not covered by the nested ignore file\n', 'utf8');
+    await fs.writeFile(path.join(root, 'packages', 'private', 'credentials.js'), 'must stay ignored\n', 'utf8');
+    await fs.writeFile(path.join(root, 'packages', 'private', 'keep.md'), 'explicitly re-included\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
+    assert.equal(context.entries.some((entry) => entry.includes('packages/public.js')), true);
+    assert.equal(context.entries.some((entry) => entry.includes('private/root-public.js')), true);
+    assert.equal(context.entries.some((entry) => entry.includes('credentials.js')), false);
+    assert.equal(context.excerpts.some((item) => item.path.endsWith('credentials.js')), false);
+    assert.equal(context.entries.some((entry) => entry.includes('packages/private/keep.md')), true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('workspace context does not treat a trailing /** pattern as ignoring its directory', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-double-star-'));
+  try {
+    await fs.mkdir(path.join(root, 'cache'), { recursive: true });
+    await fs.writeFile(path.join(root, '.gitignore'), 'cache/**\n', 'utf8');
+    await fs.writeFile(path.join(root, 'cache', 'generated.js'), 'ignored by the pattern\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
+    assert.equal(context.entries.includes('cache/'), true);
+    assert.equal(context.entries.some((entry) => entry.includes('cache/generated.js')), false);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('workspace context matches root files for leading gitignore globstars', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-globstar-'));
   try {

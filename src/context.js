@@ -73,17 +73,21 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
     let stat;
     try { stat = await fs.stat(fullPath); } catch { continue; }
     if (stat.isDirectory()) {
-      const ignored = isIgnored(relative, true, ignoreRules);
-      if (!ignored || hasNegatedDescendant(relative, ignoreRules)) await visit(fullPath, 0);
+      const requestedRules = await readIgnoreRulesForPath(workspaceRoot, fullPath, true);
+      const ignored = isIgnored(relative, requestedRules);
+      if (!ignored || hasNegatedDescendant(relative, requestedRules)) await visit(fullPath, 0, requestedRules);
     }
     else if (stat.isFile()) await captureFile(fullPath, relative, relative.split(path.sep).length - 1);
   }
 
-  async function visit(directory, depth) {
+  async function visit(directory, depth, inheritedIgnoreRules = ignoreRules) {
     ensureActive(options.signal);
     if (seenDirectories.has(directory)) return;
     seenDirectories.add(directory);
     if (depth > (options.maxDepth ?? 3) || entries.length >= maxFiles) return;
+    const directoryRules = directory === workspaceRoot
+      ? inheritedIgnoreRules
+      : inheritedIgnoreRules.concat(await readIgnoreRules(directory, path.relative(workspaceRoot, directory)));
     let children;
     try { children = await fs.readdir(directory, { withFileTypes: true }); } catch { return; }
     children.sort((a, b) => a.name.localeCompare(b.name));
@@ -94,11 +98,11 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
       if (DEFAULT_IGNORES.has(child.name) || SECRET_NAMES.test(child.name)) continue;
       const fullPath = path.join(directory, child.name);
       const relative = path.relative(workspaceRoot, fullPath) || child.name;
-      const ignored = isIgnored(relative, child.isDirectory(), ignoreRules);
-      if (ignored && !(child.isDirectory() && hasNegatedDescendant(relative, ignoreRules))) continue;
+      const ignored = isIgnored(relative, directoryRules);
+      if (ignored && !(child.isDirectory() && hasNegatedDescendant(relative, directoryRules))) continue;
       if (child.isDirectory()) {
         if (!ignored) entries.push(`${relative.replaceAll('\\', '/')}/`);
-        await visit(fullPath, depth + 1);
+        await visit(fullPath, depth + 1, directoryRules);
         continue;
       }
       if (!child.isFile()) continue;
@@ -106,7 +110,7 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
     }
   }
 
-  await visit(workspaceRoot, 0);
+  await visit(workspaceRoot, 0, ignoreRules);
   const git = await readGitSnapshot(cwd, options.includeDiff === true, options.signal);
   ensureActive(options.signal);
   return { cwd, entries, excerpts, fileCount: entries.filter((entry) => !entry.endsWith('/')).length, truncated: entries.length >= maxFiles, git };
@@ -144,25 +148,28 @@ function redactSecrets(text) {
   return text.replace(/((?:api[_-]?key|access[_-]?token|auth(?:orization)?|password|passwd|secret)["']?\s*[=:]\s*["']?)([^\s"'`,}]+)/gi, '$1[redacted]');
 }
 
-async function readIgnoreRules(cwd) {
+async function readIgnoreRules(cwd, base = '') {
   let source;
   try { source = await fs.readFile(path.join(cwd, '.gitignore'), 'utf8'); } catch { return []; }
   return source.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith('#')).map((rawPattern) => {
     const negate = rawPattern.startsWith('!');
     const value = (negate ? rawPattern.slice(1) : rawPattern).replaceAll('\\', '/');
     const pattern = value.replace(/^\//, '').replace(/\/$/, '');
-    return { negate, directoryOnly: value.endsWith('/'), pattern, regex: ignorePatternRegex(pattern), baseRegex: pattern.endsWith('/**') ? ignorePatternRegex(pattern.slice(0, -3)) : null };
+    return { negate, base: base.replaceAll('\\', '/').replace(/^\.\/$/, ''), directoryOnly: value.endsWith('/'), pattern, regex: ignorePatternRegex(pattern) };
   });
 }
 
-function isIgnored(relative, directory, rules) {
+function isIgnored(relative, rules) {
   const normalized = relative.replaceAll('\\', '/');
   let ignored = false;
-  const prefixes = normalized.split('/').map((_, index, parts) => parts.slice(0, index + 1).join('/'));
   for (const rule of rules) {
-    const matches = rule.regex.test(normalized)
-      || (directory && rule.baseRegex?.test(normalized))
-      || prefixes.slice(0, -1).some((prefix) => rule.regex.test(prefix));
+    const scopedPath = rule.base
+      ? normalized.startsWith(`${rule.base}/`) ? normalized.slice(rule.base.length + 1) : null
+      : normalized;
+    if (scopedPath === null) continue;
+    const scopedPrefixes = scopedPath.split('/').map((_, index, parts) => parts.slice(0, index + 1).join('/'));
+    const matches = rule.regex.test(scopedPath)
+      || (rule.directoryOnly && scopedPrefixes.slice(0, -1).some((prefix) => rule.regex.test(prefix)));
     if (matches) ignored = !rule.negate;
   }
   return ignored;
@@ -171,11 +178,11 @@ function isIgnored(relative, directory, rules) {
 function hasNegatedDescendant(relative, rules) {
   const normalized = relative.replaceAll('\\', '/').replace(/\/$/, '');
   const prefix = `${normalized}/`;
-  return rules.some((rule) => rule.negate && (
-    rule.pattern.startsWith(prefix)
-    || rule.pattern.startsWith('**/')
-    || (rule.pattern.includes('/') && /[*?]/.test(rule.pattern))
-  ));
+  return rules.some((rule) => {
+    if (!rule.negate) return false;
+    const effectivePattern = [rule.base, rule.pattern].filter(Boolean).join('/');
+    return effectivePattern.startsWith(prefix);
+  });
 }
 
 function ignorePatternRegex(pattern) {
