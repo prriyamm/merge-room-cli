@@ -155,6 +155,30 @@ test('cockpit renders a left activity rail and a focused room pane', () => {
   assert.match(output, /LIVE HANDOFFS/);
 });
 
+test('Cockpit dashboard shows agents added after startup team filtering', () => {
+  const lines = [];
+  const allAgents = [
+    { id: 'scout', name: 'Scout', specialty: 'Research', color: 'cyan' },
+    { id: 'critic', name: 'Critic', specialty: 'Review', color: 'magenta' }
+  ];
+  const startupConfig = { ...DEFAULT_CONFIG, agents: allAgents.slice(0, 1) };
+  let activeConfig = startupConfig;
+  const renderer = createCockpitRenderer({
+    config: startupConfig,
+    getConfig: () => activeConfig,
+    provider: { name: 'demo' },
+    force: true,
+    columns: 100,
+    rows: 28,
+    write: (line) => lines.push(line)
+  });
+  activeConfig = { ...startupConfig, agents: allAgents };
+  beginCockpitTurn(renderer.state, 0, 'Review the proposal', activeConfig.agents);
+  renderer.render();
+
+  assert.match(lines.join('\n'), /Critic\s+queued/);
+});
+
 test('compact cockpit keeps an answer preview inside a short terminal', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };

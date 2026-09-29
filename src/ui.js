@@ -213,7 +213,7 @@ export function createRenderer({ config, provider, context = null }) {
   return { event, render, state };
 }
 
-export function createCockpitRenderer({ config, provider, workspace = process.cwd(), onRefresh = () => {}, force = false, columns, rows, write = (line) => console.log(line) }) {
+export function createCockpitRenderer({ config, getConfig = () => config, provider, workspace = process.cwd(), onRefresh = () => {}, force = false, columns, rows, write = (line) => console.log(line) }) {
   const state = createCockpitState(config.agents);
   const safeWrite = (line = '') => write(stripUnsafeTerminalControls(line));
   let lastRenderAt = 0;
@@ -232,6 +232,7 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
   const render = () => {
     if (!live && !force) return;
     lastRenderAt = Date.now();
+    const currentConfig = getConfig();
     clear();
     const terminalWidth = Math.max(1, Math.min(columns || process.stdout.columns || 108, 140));
     const terminalRows = Math.max(1, rows || process.stdout.rows || 32);
@@ -335,8 +336,8 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     const wrappedMessage = wrap(state.message || '', Math.max(1, terminalWidth - 2));
     const messageLines = (wrappedMessage.length ? wrappedMessage : ['']).slice(0, Math.max(0, terminalHeight - 3));
     const contentHeight = Math.max(0, terminalHeight - 3 - messageLines.length);
-    const sidebar = cockpitSidebar(state, config, sidebarWidth, contentHeight);
-    const main = cockpitMain(state, config, workspace, mainWidth, contentHeight);
+    const sidebar = cockpitSidebar(state, currentConfig, sidebarWidth, contentHeight);
+    const main = cockpitMain(state, currentConfig, workspace, mainWidth, contentHeight);
     safeWrite(`${color('teal', '╭')}${fit(header, terminalWidth - 2)}${color('teal', '╮')}`);
     for (let index = 0; index < contentHeight; index += 1) {
       safeWrite(`${color('teal', '│')}${fit(sidebar[index] || '', sidebarWidth)}${color('teal', '│')}${fit(main[index] || '', mainWidth)}${color('teal', '│')}`);
