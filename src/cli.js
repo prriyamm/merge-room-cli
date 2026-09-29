@@ -876,6 +876,7 @@ function createPlan(config, provider, request, context, workspace = process.cwd(
 
 async function exportMission({ cleanArgs, config, formatValue, outputValue, json, workspace = process.cwd() }) {
   if (!cleanArgs[1]) throw new Error('Give export a session id. Try `merge-room history` first.');
+  if (cleanArgs.length > 2) throw new Error(`Unexpected export argument: ${cleanArgs[2]}`);
   if (!config.sessionDir) throw new Error('Session history is disabled in merge-room.config.json.');
   const sessionId = await resolveSessionId(cleanArgs[1], config, workspace);
   const session = await readSession(sessionId, workspace, config.sessionDir);
