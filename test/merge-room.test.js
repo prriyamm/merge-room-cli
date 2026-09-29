@@ -1171,6 +1171,9 @@ test('engine ignores a provider response that arrives after mission cancellation
   let callsStarted = 0;
   let resolveStarted;
   const bothStarted = new Promise((resolve) => { resolveStarted = resolve; });
+  let resolveLateProviderSettled;
+  const lateProviderSettled = new Promise((resolve) => { resolveLateProviderSettled = resolve; });
+  let resolveLateProvider;
   const provider = {
     name: 'recording',
     complete: ({ signal, system }) => {
@@ -1183,7 +1186,10 @@ test('engine ignores a provider response that arrives after mission cancellation
       }
       return new Promise((resolve) => {
         signal.addEventListener('abort', () => {
-          setTimeout(() => resolve({ text: 'late note', inputTokens: 5, outputTokens: 3 }), 10);
+          resolveLateProvider = () => {
+            resolve({ text: 'late note', inputTokens: 5, outputTokens: 3 });
+            resolveLateProviderSettled();
+          };
         }, { once: true });
       });
     }
@@ -1195,7 +1201,10 @@ test('engine ignores a provider response that arrives after mission cancellation
   await assert.rejects(run, { name: 'AbortError' });
   const cancelledEvent = events.at(-1);
   assert.equal(cancelledEvent.type, 'run:cancelled');
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(typeof resolveLateProvider, 'function');
+  resolveLateProvider();
+  // Resolving the provider first queues the engine continuation before this barrier resumes.
+  await lateProviderSettled;
   assert.equal(events.some((event) => event.type === 'agent:done'), false);
   assert.equal(events.at(-1).type, 'run:cancelled');
   assert.equal(engine.ledger.snapshot().calls, cancelledEvent.telemetry.calls);
@@ -1216,6 +1225,9 @@ test('engine ignores a provider rejection that arrives after mission cancellatio
   let callsStarted = 0;
   let resolveStarted;
   const bothStarted = new Promise((resolve) => { resolveStarted = resolve; });
+  let resolveLateProviderSettled;
+  const lateProviderSettled = new Promise((resolve) => { resolveLateProviderSettled = resolve; });
+  let rejectLateProvider;
   const provider = {
     name: 'recording',
     complete: ({ signal, system }) => {
@@ -1228,7 +1240,10 @@ test('engine ignores a provider rejection that arrives after mission cancellatio
       }
       return new Promise((_, reject) => {
         signal.addEventListener('abort', () => {
-          setTimeout(() => reject(new Error('late provider failure')), 10);
+          rejectLateProvider = () => {
+            reject(new Error('late provider failure'));
+            resolveLateProviderSettled();
+          };
         }, { once: true });
       });
     }
@@ -1240,7 +1255,10 @@ test('engine ignores a provider rejection that arrives after mission cancellatio
   await assert.rejects(run, { name: 'AbortError' });
   const cancelledEvent = events.at(-1);
   assert.equal(cancelledEvent.type, 'run:cancelled');
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(typeof rejectLateProvider, 'function');
+  rejectLateProvider();
+  // Rejecting the provider first queues the engine continuation before this barrier resumes.
+  await lateProviderSettled;
   assert.equal(events.some((event) => event.type === 'agent:error'), false);
   assert.equal(events.at(-1).type, 'run:cancelled');
   assert.equal(engine.ledger.snapshot().calls, cancelledEvent.telemetry.calls);
