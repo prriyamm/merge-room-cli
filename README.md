@@ -278,7 +278,7 @@ Use `--no-context` when a mission should not inspect local files. Use `--include
 
 Run `merge-room` to enter the cockpit, or use `merge-room interactive` as an explicit alias. The startup mark is shown once. On interactive terminals, the cockpit redraws a two-room dashboard as missions progress, keeping both rooms and the current handoffs visible. On non-interactive terminals, it prints the conversation as ordinary output.
 
-When the terminal is narrower than 84 columns or shorter than 24 rows, the cockpit switches to a compact focused-room view and keeps both room statuses visible.
+When the terminal is narrower than 84 columns or shorter than 24 rows, the cockpit switches to a compact focused-room view and keeps both room statuses visible. When space allows, the status row also previews the other room’s current mission.
 
 The cockpit keeps two independent rooms in one terminal. A mission continues when you switch rooms, so Room 1 and Room 2 can work at the same time without hiding the conversation that came before. Each room also carries a bounded history of prior requests, answers, and specialist notes across turns and provider switches; saved sessions preserve that history for `resume`.
 

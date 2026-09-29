@@ -304,8 +304,10 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
       if (showRoomStatus) {
         const compactStatus = (status) => ({ preparing: 'prep', working: 'work', cancelled: 'stop', degraded: 'degr', saving: 'save', queued: 'queue' })[status] || status;
         const tinyStatus = (status) => ({ preparing: 'p', working: 'w', cancelled: 'c', degraded: 'd', saving: 's', queued: 'q', idle: 'i', done: 'o', error: 'e' })[status] || '?';
-        const roomStatus = terminalWidth >= 44
+        const roomStatusPrefix = terminalWidth >= 60
           ? ` Room ${activeRoom.id}: ${activeRoom.status} · Room ${otherRoom.id}: ${otherRoom.status}`
+          : terminalWidth >= 44
+            ? ` R${activeRoom.id}: ${compactStatus(activeRoom.status)} · R${otherRoom.id}: ${compactStatus(otherRoom.status)}`
           : terminalWidth >= 20
             ? ` ${activeRoom.id}:${compactStatus(activeRoom.status)} · ${otherRoom.id}:${compactStatus(otherRoom.status)}`
             : terminalWidth >= 8
@@ -313,6 +315,11 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
               : terminalWidth >= 5
                 ? `${activeRoom.id}${tinyStatus(activeRoom.status)} ${otherRoom.id}${tinyStatus(otherRoom.status)}`
                 : `${activeRoom.id}${tinyStatus(activeRoom.status)}${otherRoom.id}${tinyStatus(otherRoom.status)}`;
+        const missionPrefix = terminalWidth >= 44 && otherRoom.request ? ' · Other: ' : '';
+        const missionWidth = terminalWidth - visibleLength(roomStatusPrefix) - visibleLength(missionPrefix);
+        const roomStatus = missionPrefix && missionWidth >= 8
+          ? `${roomStatusPrefix}${missionPrefix}${crop(otherRoom.request, missionWidth)}`
+          : roomStatusPrefix;
         safeWrite(surface(fit(roomStatus, terminalWidth)));
       }
       for (const item of lines.slice(0, contentHeight)) safeWrite(surface(fit(item, terminalWidth)));
