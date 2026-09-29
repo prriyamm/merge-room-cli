@@ -248,12 +248,15 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
         if (latestNote) lines.push(` Handoff: ${crop(latestNote[1], Math.max(0, terminalWidth - 10))}`);
         if (latestEvent) lines.push(` Latest: ${crop(latestEvent.message, Math.max(0, terminalWidth - 9))}`);
       }
+      if (activeRoom.error && !answer) lines.push(` Stopped: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
       if (answer && contentHeight > 0) {
-        lines.splice(Math.max(0, contentHeight - 1));
+        if (activeRoom.error) lines.splice(0, lines.length, ` Stopped: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
+        else lines.splice(Math.max(0, contentHeight - 1));
+        const answerLabel = activeRoom.error || activeRoom.status === 'cancelled' ? 'PARTIAL ANSWER' : 'MERGE ROOM SAYS';
         if (contentHeight === lines.length + 1) {
-          lines.push(` Answer: ${crop(answer, Math.max(0, terminalWidth - 10))}`);
+          lines.push(` ${activeRoom.error || activeRoom.status === 'cancelled' ? 'Partial' : 'Answer'}: ${crop(answer, Math.max(0, terminalWidth - 10))}`);
         } else {
-          lines.push(` ${color('bold', 'MERGE ROOM SAYS')}`);
+          lines.push(` ${color('bold', answerLabel)}`);
           const answerRows = Math.max(0, contentHeight - lines.length);
           if (answerRows > 0) lines.push(...wrap(answer, Math.max(1, terminalWidth - 2)).slice(-answerRows).map((item) => ` ${color('white', item)}`));
         }
@@ -410,12 +413,15 @@ function cockpitMain(state, config, workspace, maxWidth, height) {
   lines.push('', ` ${color('bold', 'RUN LOG')}`);
   if (!room.events.length) lines.push(` ${color('gray', 'Waiting for work.')}`);
   for (const item of room.events.slice(-3)) lines.push(` ${color('gray', item.time)} ${crop(item.message, maxWidth - 13)}`);
+  if (room.error) lines.push('', ` ${color(room.status === 'cancelled' ? 'yellow' : 'red', crop(room.error, maxWidth - 2))}`);
   const answer = room.final || room.answerDraft;
   if (answer) {
-    lines.push('', ` ${color('bold', 'MERGE ROOM SAYS')}`);
-    const remaining = Math.max(2, height - lines.length - 2);
-    lines.push(...wrap(answer, maxWidth - 2).slice(-remaining).map((item) => ` ${color('white', item)}`));
-  } else if (room.error) lines.push('', ` ${color(room.status === 'cancelled' ? 'yellow' : 'red', crop(room.error, maxWidth - 2))}`);
+    const heading = room.error || room.status === 'cancelled' ? 'PARTIAL ANSWER' : 'MERGE ROOM SAYS';
+    lines.push('', ` ${color('bold', heading)}`);
+    const remaining = Math.max(0, height - lines.length - 1);
+    const answerLines = wrap(answer, maxWidth - 2);
+    lines.push(...(remaining ? answerLines.slice(-remaining) : []).map((item) => ` ${color('white', item)}`));
+  }
   const elapsed = room.started ? `${(((room.finishedAt || Date.now()) - room.started) / 1000).toFixed(1)}s` : '0.0s';
   const usage = room.usage || {};
   const footer = ` ${elapsed} · ${formatTokens(usage.total || 0)} tokens · ${usage.calls || 0} calls`;
