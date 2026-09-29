@@ -19,6 +19,9 @@ export const DEFAULT_CONFIG = {
   requestTimeoutMs: 90000,
   retries: 1,
   sessionDir: '.merge-room/sessions',
+  providers: {},
+  defaultProvider: null,
+  leadProvider: null,
   context: { enabled: true, maxFiles: 180, maxBytes: 18000, maxExcerptBytes: 2400, maxDepth: 3 },
   agents: [
     { id: 'scout', name: 'Scout', mark: '◇', color: 'cyan', specialty: 'scope & risks', stage: 1, prompt: 'Map the request into a concise brief. Surface assumptions, risks, and the smallest useful first step.' },
@@ -56,6 +59,16 @@ function mergeConfig(base, local) {
   if (!['auto', 'demo'].includes(provider)) throw new Error('merge-room.config.json `provider` must be `auto` or `demo`.');
   if (local.sessionDir !== undefined && local.sessionDir !== null && (typeof local.sessionDir !== 'string' || !local.sessionDir.trim())) throw new Error('merge-room.config.json `sessionDir` must be a non-empty string or null.');
   if (local.agents !== undefined && !Array.isArray(local.agents)) throw new Error('merge-room.config.json `agents` must be a JSON array.');
+  const providers = local.providers ?? base.providers ?? {};
+  if (!providers || typeof providers !== 'object' || Array.isArray(providers)) throw new Error('merge-room.config.json `providers` must be a JSON object.');
+  for (const [id, profile] of Object.entries(providers)) {
+    if (!/^[a-z0-9][a-z0-9_-]*$/i.test(id)) throw new Error(`Provider profile id \`${id}\` must use letters, numbers, hyphens, or underscores.`);
+    if (!profile || typeof profile !== 'object' || Array.isArray(profile)) throw new Error(`Provider profile \`${id}\` must be a JSON object.`);
+    if (!['openai-compatible', 'anthropic'].includes(profile.type)) throw new Error(`Provider profile \`${id}\` type must be \`openai-compatible\` or \`anthropic\`.`);
+    for (const key of ['model', 'baseUrl', 'apiKeyEnv']) if (profile[key] !== undefined && (typeof profile[key] !== 'string' || !profile[key].trim())) throw new Error(`Provider profile \`${id}\` \`${key}\` must be a non-empty string.`);
+    if (Object.keys(profile).some((key) => !['type', 'model', 'baseUrl', 'apiKeyEnv'].includes(key))) throw new Error(`Provider profile \`${id}\` has an unsupported field. Store credentials outside config and reference them with apiKeyEnv.`);
+  }
+  for (const key of ['defaultProvider', 'leadProvider']) if (local[key] != null && (typeof local[key] !== 'string' || !providers[local[key]])) throw new Error(`merge-room.config.json \`${key}\` must name a configured provider profile.`);
   const sourceAgents = Array.isArray(local.agents) && local.agents.length ? local.agents : base.agents;
   const agents = sourceAgents.map((agent, index) => {
     if (!agent || typeof agent !== 'object' || Array.isArray(agent)) throw new Error(`merge-room.config.json agent ${index + 1} must be a JSON object.`);
@@ -63,7 +76,7 @@ function mergeConfig(base, local) {
     const merged = { ...fallback, ...agent };
     const stage = Number(merged.stage ?? fallback.stage ?? 1);
     if (!Number.isInteger(stage) || stage < 1 || stage > 3) throw new Error(`merge-room.config.json agent ${index + 1} \`stage\` must be 1, 2, or 3.`);
-    return { ...merged, id: slugify(agent.id || agent.name || fallback.id), name: String(merged.name || fallback.name), specialty: String(merged.specialty || fallback.specialty), prompt: String(merged.prompt || fallback.prompt), stage };
+    return { ...merged, id: slugify(agent.id || agent.name || fallback.id), ...(agent.provider ? { provider: agent.provider } : {}), name: String(merged.name || fallback.name), specialty: String(merged.specialty || fallback.specialty), prompt: String(merged.prompt || fallback.prompt), stage };
   });
   const ids = agents.map((agent) => agent.id);
   if (new Set(ids).size !== ids.length) throw new Error('merge-room.config.json contains duplicate agent ids. Give each specialist a unique `id`.');
@@ -86,9 +99,13 @@ function mergeConfig(base, local) {
     if (!Number.isInteger(Number(context[key])) || Number(context[key]) < minimum) throw new Error(`merge-room.config.json \`context.${key}\` must be a whole number >= ${minimum}.`);
     context[key] = Number(context[key]);
   }
- return {
+ for (const agent of sourceAgents) if (agent?.provider != null && (typeof agent.provider !== 'string' || !providers[agent.provider])) throw new Error(`Agent provider \`${agent.provider}\` must name a configured provider profile.`);
+  return {
     ...base,
     ...local,
+    providers,
+    defaultProvider: local.defaultProvider ?? base.defaultProvider ?? null,
+    leadProvider: local.leadProvider ?? base.leadProvider ?? null,
     provider,
     theme,
     strategy,

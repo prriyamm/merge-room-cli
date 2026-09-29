@@ -11,7 +11,7 @@ import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSes
 import { themeSummaries } from './themes.js';
 import { createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme } from './ui.js';
 
-const VALUE_OPTIONS = ['--cwd', '-C', '--prompt-file', '--config', '--team', '--provider', '--model', '--base-url', '--max-tokens', '--temperature', '--concurrency', '--timeout', '--retries', '--max-calls', '--run-id', '--theme', '--include', '--limit', '--format', '--output'];
+const VALUE_OPTIONS = ['--cwd', '-C', '--prompt-file', '--config', '--team', '--provider', '--profile', '--model', '--base-url', '--max-tokens', '--temperature', '--concurrency', '--timeout', '--retries', '--max-calls', '--run-id', '--theme', '--include', '--limit', '--format', '--output'];
 const BOOLEAN_OPTIONS = ['--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict'];
 const NON_MISSION_COMMANDS = new Set(['completions', 'completion', 'agents', 'config', 'context', 'history', 'usage', 'stats', 'show', 'export', 'init', 'doctor', 'theme', 'interactive', 'chat', 'version']);
 const MAX_PROMPT_BYTES = 256 * 1024;
@@ -31,6 +31,7 @@ export async function main(args = [], { signal } = {}) {
  const events = args.includes('--events');
   const teamValue = optionValue(args, '--team');
   const providerValue = optionValue(args, '--provider');
+  const profileValue = optionValue(args, '--profile');
   const modelValue = optionValue(args, '--model');
   const baseUrlValue = optionValue(args, '--base-url');
   const maxTokensValue = optionValue(args, '--max-tokens');
@@ -70,6 +71,10 @@ export async function main(args = [], { signal } = {}) {
   if (promptFileValue !== null && command && NON_MISSION_COMMANDS.has(command)) throw new Error(`\`--prompt-file\` cannot be used with \`${command}\`.`);
   let config = await loadConfig(workspace, configValue !== null ? configValue : undefined);
   if (providerValue !== null) config = { ...config, provider: normalizeProvider(providerValue) };
+  if (profileValue !== null) {
+    if (!config.providers?.[profileValue]) throw new Error(`Unknown provider profile \`${profileValue}\`. Try \`merge-room config\` to inspect configured profiles.`);
+    config = { ...config, defaultProvider: profileValue, leadProvider: profileValue };
+  }
   if (themeValue !== null) config = { ...config, theme: setTheme(themeValue).id };
   else setTheme(config.theme);
   if (command === 'theme') {
@@ -527,9 +532,11 @@ function createPlan(config, provider, request, context, workspace = process.cwd(
     provider: provider.name,
     model: provider.model || config.model,
     theme: config.theme,
+    defaultProvider: config.defaultProvider || Object.keys(config.providers || {})[0] || null,
+    leadProvider: config.leadProvider || config.defaultProvider || Object.keys(config.providers || {})[0] || null,
     strategy: runPlan.strategy,
-    agents: config.agents.map(({ id, name, mark, color, specialty, stage, model }) => ({ id, name, mark, color, specialty, stage, ...(model ? { model } : {}) })),
-    waves: runPlan.groups.map(({ stage, label, agents }) => ({ stage, label, agents: agents.map(({ id, name, mark, color, specialty, model }) => ({ id, name, mark, color, specialty, ...(model ? { model } : {}) })) })),
+    agents: config.agents.map(({ id, name, mark, color, specialty, stage, model, provider }) => ({ id, name, mark, color, specialty, stage, provider: provider || config.defaultProvider || Object.keys(config.providers || {})[0] || 'default', ...(model ? { model } : {}) })),
+    waves: runPlan.groups.map(({ stage, label, agents }) => ({ stage, label, agents: agents.map(({ id, name, mark, color, specialty, model, provider }) => ({ id, name, mark, color, specialty, provider: provider || config.defaultProvider || Object.keys(config.providers || {})[0] || 'default', ...(model ? { model } : {}) })) })),
     limits: {
       maxCalls: config.maxCalls,
       maxConcurrency: config.maxConcurrency,
@@ -597,6 +604,9 @@ function publicConfig(config) {
   return {
     model: config.model,
     provider: config.provider,
+    defaultProvider: config.defaultProvider,
+    leadProvider: config.leadProvider,
+    providers: Object.fromEntries(Object.entries(config.providers || {}).map(([id, profile]) => [id, { type: profile.type, model: profile.model || config.model, baseUrl: safeBaseUrl(profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl)), apiKeyEnv: profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'), configured: Boolean(process.env[profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY')]) }])),
     baseUrl: safeBaseUrl(config.baseUrl),
     theme: config.theme,
     temperature: config.temperature,
@@ -616,7 +626,7 @@ function publicConfig(config) {
       maxExcerptBytes: config.context?.maxExcerptBytes,
       maxDepth: config.context?.maxDepth,
     },
-    agents: config.agents.map(({ id, name, mark, color, specialty, stage, prompt, model }) => ({ id, name, mark, color, specialty, stage, prompt, ...(model ? { model } : {}) })),
+    agents: config.agents.map(({ id, name, mark, color, specialty, stage, prompt, model, provider }) => ({ id, name, mark, color, specialty, stage, prompt, ...(provider ? { provider } : {}), ...(model ? { model } : {}) })),
   };
 }
 
@@ -632,6 +642,7 @@ function doctor(config, json = false, workspace = process.cwd()) {
     provider: { name: provider.name, model: provider.model, baseUrl: safeBaseUrl(config.baseUrl) },
     workspace,
     providerMode: config.provider,
+    profiles: Object.fromEntries(Object.entries(config.providers || {}).map(([id, profile]) => { const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'); return [id, { type: profile.type, model: profile.model || config.model, baseUrl: safeBaseUrl(profile.baseUrl || (profile.type === 'anthropic' ? 'https://api.anthropic.com' : config.baseUrl)), credentialEnv: envName, configured: Boolean(process.env[envName]) }]; })),
     node: process.versions.node,
     agents: config.agents.map((agent) => agent.id),
     strategy: config.strategy === 'parallel' ? 'parallel' : 'staged',
@@ -652,8 +663,15 @@ function doctor(config, json = false, workspace = process.cwd()) {
   }
   printBanner({ provider: provider.name, model: config.model });
   console.log(`  ● Workspace ${workspace}`);
-  console.log(`  ${provider.name === 'demo' ? '○' : '●'} ${provider.name === 'demo' ? 'Demo mode' : 'Live provider'} ${provider.name === 'demo' ? '· set OPENAI_API_KEY for live model calls' : '· API key detected'}`);
-  console.log(`  ${provider.name === 'demo' ? '●' : '●'} Node ${process.versions.node}`);
+  if (config.provider === 'demo' || provider.name === 'demo') console.log('  ○ Demo mode · set OPENAI_API_KEY for live model calls');
+  else if (Object.keys(config.providers || {}).length) {
+    console.log(`  ● ${Object.keys(config.providers).length} provider profiles`);
+    for (const [id, profile] of Object.entries(config.providers)) {
+      const envName = profile.apiKeyEnv || (profile.type === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY');
+      console.log(`    ${process.env[envName] ? '●' : '○'} ${id} · ${profile.type} · ${profile.model || config.model} · ${envName} ${process.env[envName] ? 'set' : 'missing'}`);
+    }
+  } else console.log('  ● Live provider · API key detected');
+  console.log(`  ● Node ${process.versions.node}`);
   console.log(`  ${provider.name === 'demo' ? '●' : '●'} ${config.agents.length} agents ready`);
   console.log(`  ● Orchestration ${config.strategy === 'parallel' ? 'parallel' : 'staged'}`);
   console.log(`  ● Concurrency capped at ${config.maxConcurrency}`);
