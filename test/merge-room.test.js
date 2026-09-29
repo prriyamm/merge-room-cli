@@ -1162,6 +1162,33 @@ test('workspace context prioritizes safe explicit includes', async () => {
   }
 });
 
+test('workspace context prioritizes files inside explicitly included directories', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-include-directory-'));
+  try {
+    await fs.mkdir(path.join(root, 'z-scope', 'private'), { recursive: true });
+    await fs.writeFile(path.join(root, '.gitignore'), 'z-scope/ignored.js\nprivate\n!z-scope/private/keep.md\n', 'utf8');
+    await fs.writeFile(path.join(root, 'a-notes.md'), 'discovered first\n', 'utf8');
+    await fs.writeFile(path.join(root, 'z-scope', 'app.js'), 'included first\n', 'utf8');
+    await fs.writeFile(path.join(root, 'z-scope', 'ignored.js'), 'ignored by project rules\n', 'utf8');
+    await fs.writeFile(path.join(root, 'z-scope', 'private', 'notes.md'), 'ignored directory contents\n', 'utf8');
+    await fs.writeFile(path.join(root, 'z-scope', 'private', 'keep.md'), 'explicitly unignored\n', 'utf8');
+
+    const context = await collectWorkspaceContext(root, { include: ['z-scope'], maxFiles: 3, maxBytes: 5000 });
+    assert.equal(context.entries.length, 3);
+    assert.match(context.entries[0], /^z-scope\/app\.js\s+/);
+    assert.equal(context.entries.some((entry) => entry.includes('ignored.js')), false);
+    assert.equal(context.entries.some((entry) => entry.includes('private/notes.md')), false);
+    assert.equal(context.entries.some((entry) => entry.includes('keep.md')), true);
+    assert.equal(context.excerpts[0].path, 'z-scope/app.js');
+
+    const ignoredInclude = await collectWorkspaceContext(root, { include: ['z-scope/private'], maxFiles: 20, maxBytes: 5000 });
+    assert.equal(ignoredInclude.entries.some((entry) => entry.includes('private/notes.md')), false);
+    assert.equal(ignoredInclude.entries.some((entry) => entry.includes('keep.md')), true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('workspace context respects project ignore patterns', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-'));
   try {
