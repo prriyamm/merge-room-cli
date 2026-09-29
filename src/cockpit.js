@@ -8,6 +8,12 @@ export function createCockpitState(agents = []) {
   };
 }
 
+export function resolveAgentReference(agents, query) {
+  const normalizedQuery = String(query || '').trim().toLowerCase();
+  const byId = agents.find((agent) => String(agent.id || '').toLowerCase() === normalizedQuery);
+  return byId || agents.find((agent) => String(agent.name || '').toLowerCase() === normalizedQuery) || null;
+}
+
 export function selectCockpitRoom(state, roomNumber) {
   const index = Number(roomNumber) - 1;
   if (!Number.isInteger(index) || index < 0 || index >= state.rooms.length) throw new Error(`Room must be between 1 and ${state.rooms.length}.`);

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
-import { beginCockpitTurn, finishCockpitTurn, resetCockpitRoom, selectCockpitRoom } from './cockpit.js';
+import { beginCockpitTurn, finishCockpitTurn, resetCockpitRoom, resolveAgentReference, selectCockpitRoom } from './cockpit.js';
 import { VERSION, loadConfig, safeBaseUrl, writeStarterConfig } from './config.js';
 import { completionScript, defaultShell } from './completions.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from './context.js';
@@ -431,8 +431,8 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     if (request.startsWith('/agents ')) {
-      const query = request.slice('/agents '.length).trim().toLocaleLowerCase();
-      const agent = activeConfig.agents.find((item) => item.id.toLocaleLowerCase() === query || item.name.toLocaleLowerCase() === query);
+      const query = request.slice('/agents '.length).trim().toLowerCase();
+      const agent = resolveAgentReference(activeConfig.agents, query);
       if (!agent) setMessage(`No specialist named ${query}. Use /agents to inspect the selected team.`);
       else {
         const route = [agent.provider, agent.model].filter(Boolean).join(' · ');
@@ -728,6 +728,12 @@ async function exportMission({ cleanArgs, config, formatValue, outputValue, json
   if (!['md', 'markdown', 'json'].includes(format)) throw new Error('Export format must be `md` or `json`.');
   const normalizedFormat = format === 'markdown' ? 'md' : format;
   if (outputValue) {
+    const sourceFile = path.resolve(workspace, config.sessionDir, `${sessionId}.json`);
+    const outputFile = path.resolve(workspace, outputValue);
+    const sameFile = process.platform === 'win32'
+      ? sourceFile.toLowerCase() === outputFile.toLowerCase()
+      : sourceFile === outputFile;
+    if (sameFile) throw new Error('Cannot export a session to its own saved file. Choose a different output path.');
     const file = await writeSessionExport(session, workspace, outputValue, normalizedFormat);
     if (json) console.log(JSON.stringify({ id: sessionId, format: normalizedFormat, file }, null, 2));
     else console.log(`  Exported ${sessionId} → ${file}`);

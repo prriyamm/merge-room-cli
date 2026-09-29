@@ -16,7 +16,7 @@ import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSes
 import { createLedger, estimateTokens } from '../src/tokens.js';
 import { buildResumeRequest, main } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
-import { applyCockpitEvent, beginCockpitTurn, createCockpitState, finishCockpitTurn, resetCockpitRoom, selectCockpitRoom } from '../src/cockpit.js';
+import { applyCockpitEvent, beginCockpitTurn, createCockpitState, finishCockpitTurn, resetCockpitRoom, resolveAgentReference, selectCockpitRoom } from '../src/cockpit.js';
 import { createCockpitRenderer, createConversationRenderer, printResult, printSession, startupPatternLines } from '../src/ui.js';
 import { resolveTheme, themeSummaries, THEMES } from '../src/themes.js';
 
@@ -66,6 +66,20 @@ test('cockpit keeps two independent live rooms and agent activity', () => {
   resetCockpitRoom(state, 0, agents);
   assert.equal(state.rooms[0].status, 'idle');
   assert.equal(state.rooms[1].request, 'Review the API');
+});
+
+test('cockpit agent lookup prefers an exact ID over another agent name', () => {
+  const agents = [
+    { id: 'first', name: 'Scout' },
+    { id: 'scout', name: 'Researcher' },
+    { id: 'indexer', name: 'Indexer' },
+    { id: 'ipek', name: 'İpek' }
+  ];
+  assert.equal(resolveAgentReference(agents, 'SCOUT')?.name, 'Researcher');
+  assert.equal(resolveAgentReference(agents, 'researcher')?.id, 'scout');
+  assert.equal(resolveAgentReference(agents, 'INDEXER')?.id, 'indexer');
+  assert.equal(resolveAgentReference(agents, 'İPEK')?.id, 'ipek');
+  assert.equal(resolveAgentReference(agents, 'unknown'), null);
 });
 
 test('cockpit renders a left activity rail and a focused room pane', () => {
@@ -2151,6 +2165,13 @@ test('CLI initializes a project and exports its latest mission', async () => {
     const exportInfo = JSON.parse(exported.stdout);
     assert.equal(exportInfo.id, saved.sessionId);
     assert.match(await fs.readFile(path.join(root, 'transcript.md'), 'utf8'), /exportable mission/);
+    const sessionFile = path.join(root, '.merge-room', 'sessions', `${saved.sessionId}.json`);
+    const originalSession = await fs.readFile(sessionFile, 'utf8');
+    await assert.rejects(
+      () => execFileAsync(process.execPath, [bin, 'export', saved.sessionId, '--output', path.relative(root, sessionFile)], { cwd: root, windowsHide: true }),
+      (error) => error.code === 1 && /own saved file/.test(error.stderr)
+    );
+    assert.equal(await fs.readFile(sessionFile, 'utf8'), originalSession);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
