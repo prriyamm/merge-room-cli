@@ -3167,6 +3167,7 @@ test('opt-in Git context includes staged and unstaged changes from HEAD', async 
 test('opt-in Git diff includes safe untracked text files and excludes ignored or secret paths', async () => {
   try { await execFileAsync('git', ['--version']); } catch { return; }
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-git-untracked-diff-'));
+  const external = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-git-untracked-outside-'));
   try {
     await execFileAsync('git', ['init'], { cwd: root });
     await execFileAsync('git', ['config', 'user.name', 'Merge Room Test'], { cwd: root });
@@ -3179,11 +3180,18 @@ test('opt-in Git diff includes safe untracked text files and excludes ignored or
     await fs.writeFile(path.join(root, 'new-feature.js'), 'const NEW_UNTRACKED_FEATURE = true;\n', 'utf8');
     await fs.writeFile(path.join(root, 'ignored.js'), 'const IGNORED_UNTRACKED = true;\n', 'utf8');
     await fs.writeFile(path.join(root, 'credentials.js'), 'const SECRET_UNTRACKED = true;\n', 'utf8');
+    await fs.writeFile(path.join(external, 'outside.js'), 'const OUTSIDE_UNTRACKED_SECRET = true;\n', 'utf8');
+    try {
+      await fs.symlink(external, path.join(root, 'linked.js'), process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      if (!['EPERM', 'EACCES', 'ENOTSUP', 'ENOSYS'].includes(error.code)) throw error;
+    }
     const context = await collectWorkspaceContext(root, { includeDiff: true });
     assert.match(context.git.diff, /NEW_UNTRACKED_FEATURE/);
-    assert.doesNotMatch(context.git.diff, /IGNORED_UNTRACKED|SECRET_UNTRACKED/);
+    assert.doesNotMatch(context.git.diff, /IGNORED_UNTRACKED|SECRET_UNTRACKED|OUTSIDE_UNTRACKED_SECRET/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(external, { recursive: true, force: true });
   }
 });
 

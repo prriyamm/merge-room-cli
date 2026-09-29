@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -425,8 +426,10 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
     let diffStat = '';
     let changedPaths = [];
     const untrackedPaths = [];
-    for (const record of statusResult.stdout.split('\0')) {
-      if (record.startsWith('?? ')) untrackedPaths.push(record.slice(3));
+    if (includeDiff) {
+      for (const record of statusResult.stdout.split('\0')) {
+        if (record.startsWith('?? ')) untrackedPaths.push(record.slice(3));
+      }
     }
     let diffBase = 'HEAD';
     try {
@@ -462,12 +465,7 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
       if (!isSafeDiffPath(normalized)) continue;
       const rules = await readIgnoreRulesForPath(cwd, path.resolve(cwd, relative), signal, ignoreRuleCache);
       if (isIgnored(normalized, rules)) continue;
-      // Do not let a new symlink make the diff reader disclose bytes outside
-      // the repository. Status paths are untrusted filenames.
-      try {
-        const stat = await fs.lstat(path.resolve(cwd, relative));
-        if (!stat.isFile() || stat.isSymbolicLink()) continue;
-      } catch { continue; }
+      if (/[\u0000-\u001f\u007f]/.test(relative)) continue;
       const argument = `:(literal)${relative}`;
       const argumentBytes = Buffer.byteLength(argument, 'utf8') + 1;
       if (pathArgs.length + untrackedDiffPaths.length >= 32 || pathArgsBytes + argumentBytes > 12000) break;
@@ -494,23 +492,12 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
         ensureActive(signal);
         if (diffBytes >= 12000) break;
         const remaining = 12000 - diffBytes;
-        try {
-          // `--no-index` returns exit code 1 when it finds a difference. Keep
-          // stdout from that expected result and bound each child invocation.
-          const result = await execFileAsync('git', ['diff', '--no-index', '--no-ext-diff', '--no-textconv', '--no-renames', '--unified=2', '--', '/dev/null', relative], {
-            cwd, signal, timeout: 1000, windowsHide: true, maxBuffer: Math.min(30000, remaining + 4096)
-          });
-          const chunk = result.stdout;
-          if (chunk) chunks.push(chunk);
-          diffBytes += Buffer.byteLength(chunk, 'utf8');
-        } catch (error) {
-          if (error.name === 'AbortError' || signal?.aborted) ensureActive(signal);
-          const chunk = typeof error.stdout === 'string' ? error.stdout : '';
-          if (chunk) {
-            chunks.push(chunk);
-            diffBytes += Buffer.byteLength(chunk, 'utf8');
-          }
-        }
+        const content = await readUntrackedFileSafely(cwd, relative, 12000, signal);
+        if (!content || content.includes(0)) continue;
+        const chunk = formatUntrackedDiff(relative, content, remaining);
+        if (!chunk) continue;
+        chunks.push(chunk);
+        diffBytes += Buffer.byteLength(chunk, 'utf8');
       }
       diff = redactSecrets(chunks.join('\n').trim().slice(0, 12000));
     }
@@ -519,6 +506,63 @@ async function readGitSnapshot(cwd, includeDiff = false, signal) {
     if (error.name === 'AbortError' || signal?.aborted) ensureActive(signal);
     return null;
   }
+}
+
+async function readUntrackedFileSafely(cwd, relative, maxBytes, signal) {
+  ensureActive(signal);
+  const workspaceRoot = await fs.realpath(cwd).catch(() => null);
+  if (!workspaceRoot) return null;
+  const requestedPath = path.resolve(workspaceRoot, relative);
+  const canonicalPath = await fs.realpath(requestedPath).catch(() => null);
+  if (!canonicalPath) return null;
+  const withinWorkspace = path.relative(workspaceRoot, canonicalPath);
+  if (!withinWorkspace || withinWorkspace === '..' || withinWorkspace.startsWith(`..${path.sep}`) || path.isAbsolute(withinWorkspace)) return null;
+
+  let before;
+  try { before = await fs.lstat(canonicalPath, { bigint: true }); } catch { return null; }
+  if (!before.isFile() || before.isSymbolicLink()) return null;
+  const flags = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW || 0);
+  let handle;
+  try {
+    handle = await fs.open(canonicalPath, flags);
+    const opened = await handle.stat({ bigint: true });
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) return null;
+    ensureActive(signal);
+    const buffer = Buffer.alloc(maxBytes + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    ensureActive(signal);
+    return buffer.subarray(0, bytesRead);
+  } catch (error) {
+    if (error?.name === 'AbortError' || signal?.aborted) ensureActive(signal);
+    return null;
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+function formatUntrackedDiff(relative, buffer, maxBytes) {
+  const filePath = relative.replaceAll('\\', '/');
+  const header = `diff --git a/${filePath} b/${filePath}\nnew file mode 100644\n--- /dev/null\n+++ b/${filePath}\n`;
+  if (Buffer.byteLength(header, 'utf8') + 20 >= maxBytes) return '';
+  const text = buffer.toString('utf8');
+  const lines = text.split(/\r?\n/);
+  const additions = [];
+  let usedBytes = Buffer.byteLength(header, 'utf8') + 32;
+  for (const line of lines) {
+    const addition = `+${line}\n`;
+    const bytes = Buffer.byteLength(addition, 'utf8');
+    if (usedBytes + bytes > maxBytes) break;
+    additions.push(addition);
+    usedBytes += bytes;
+  }
+  const truncated = buffer.length > 12000 || additions.length < lines.length;
+  const marker = truncated ? '+[diff excerpt truncated]\n' : '';
+  const markerBytes = Buffer.byteLength(marker, 'utf8');
+  while (additions.length && usedBytes + markerBytes > maxBytes) {
+    usedBytes -= Buffer.byteLength(additions.pop(), 'utf8');
+  }
+  const hunk = `@@ -0,0 +1,${additions.length} @@\n`;
+  return `${header}${hunk}${additions.join('')}${marker}`;
 }
 
 async function getDiffStat(cwd, base, pathArgs, signal) {
