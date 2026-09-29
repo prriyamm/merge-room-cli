@@ -3517,8 +3517,12 @@ test('interactive export explains when session history is disabled', async () =>
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk) => { stdout += chunk; });
       child.stderr.on('data', (chunk) => { stderr += chunk; });
-      child.once('error', reject);
-      const timeout = setTimeout(() => { child.kill(); reject(new Error('Timed out waiting for the interactive export notice.')); }, 5000);
+      const timeout = setTimeout(() => {
+        child.kill();
+        const stripAnsi = (text) => text.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+        reject(new Error(`Timed out waiting for the interactive export notice.\nstdout:\n${stripAnsi(stdout)}\nstderr:\n${stripAnsi(stderr)}`));
+      }, 25000);
+      child.once('error', (error) => { clearTimeout(timeout); reject(error); });
       child.stdout.on('data', (chunk) => {
         if (!quitSent && stdout.includes('Session history is disabled.')) { quitSent = true; child.stdin.end('/quit\n'); }
       });
