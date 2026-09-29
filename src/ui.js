@@ -141,6 +141,14 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
   const state = createCockpitState(config.agents);
   const refresh = () => { render(); onRefresh(); };
   const event = (roomIndex) => (payload) => { applyCockpitEvent(state, roomIndex, payload); refresh(); };
+  const start = (options) => printCockpitWelcome({ provider: provider.name, model: config.model, workspace, write, ...options });
+  const user = (roomIndex, request) => {
+    state.activeRoom = roomIndex;
+    state.rooms[roomIndex].request = request;
+    refresh();
+  };
+  const loaded = () => refresh();
+  const notice = (message) => { state.message = message; refresh(); };
   const render = () => {
     if (!live && !force) return;
     clear();
@@ -160,7 +168,7 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     write(surface(fit(` ${color('gray', '/1 /2 switch · /new reset · /cancel turn · /help commands · /quit leave')}`, terminalWidth)));
     write(surface(fit(` ${color('teal', state.message)}`, terminalWidth)));
   };
-  return { state, event, render, refresh };
+  return { state, start, user, loaded, notice, event, render, refresh };
 }
 
 export function createConversationRenderer({ config, provider, workspace = process.cwd(), onRefresh = () => {}, force = false, write = (line) => console.log(line) }) {

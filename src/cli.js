@@ -9,7 +9,7 @@ import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from './engine.js';
 import { createProvider } from './providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from './sessions.js';
 import { themeSummaries } from './themes.js';
-import { createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme } from './ui.js';
+import { createCockpitRenderer, createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme } from './ui.js';
 
 const VALUE_OPTIONS = ['--cwd', '-C', '--prompt-file', '--config', '--team', '--provider', '--profile', '--model', '--base-url', '--max-tokens', '--temperature', '--concurrency', '--timeout', '--retries', '--max-calls', '--run-id', '--theme', '--include', '--limit', '--format', '--output'];
 const BOOLEAN_OPTIONS = ['--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict'];
@@ -325,7 +325,9 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     }
     console.log(line);
   };
-  const renderer = createConversationRenderer({ config, provider, workspace, onRefresh: () => reprompt(), write: appendLine });
+  const renderer = isTerminal && process.env.TERM !== 'dumb'
+    ? createCockpitRenderer({ config, provider, workspace, onRefresh: () => reprompt() })
+    : createConversationRenderer({ config, provider, workspace, onRefresh: () => reprompt(), write: appendLine });
 
   function reprompt() {
     if (isTerminal && rl && !closing) {
