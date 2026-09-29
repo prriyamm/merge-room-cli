@@ -301,7 +301,7 @@ Type a mission to start the selected room. After it finishes, the next message i
 /quit                  Cancel active work and close both rooms
 ```
 
-The prompt remains available while agents work. Compact status lines identify the room and specialist, and completed answers stay in the terminal’s scrollable history.
+The prompt remains available while agents work. The live dashboard shows each room’s status and specialist activity, with completed answers visible in that room’s mission pane. Non-interactive runs print answers to ordinary terminal output.
 
 ## Development
 
