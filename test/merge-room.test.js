@@ -487,6 +487,82 @@ test('interactive /cancel reports malformed targets and idle rooms', async () =>
   assert.match(stdout, /Room 2 has no active mission\./);
 });
 
+test('Cockpit missions stay in the input room when a room switch follows immediately', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-again-room-race-'));
+  const configFile = path.join(root, 'merge-room.config.json');
+  await fs.writeFile(configFile, JSON.stringify({ provider: 'demo', sessionDir: null }), 'utf8');
+  const cliUrl = new URL('../src/cli.js', import.meta.url).href;
+  const script = `process.stdin.isTTY = true; process.stdout.isTTY = true; const { main } = await import(${JSON.stringify(cliUrl)}); main(['--config', ${JSON.stringify(configFile)}, 'interactive', '--no-context', '--no-save', '--no-stream', '--team=scout']).catch((error) => { console.error(error); process.exitCode = 1; });`;
+  let secondTurnOutputStart = 0;
+  let thirdTurnOutputStart = 0;
+  let fourthTurnOutputStart = 0;
+  let phase = 0;
+  const roomOneComplete = /Room 1(?:\s+complete|\s+done)/i;
+  try {
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      let firstMissionSent = false;
+      let quitSent = false;
+      const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for the repeated mission. Output: ${stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')}\n${stderr}`)); }, 5000);
+      const turnFinished = (turn) => {
+        const cleaned = stdout.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+        const started = `Room 1 started turn ${turn}.`;
+        const startIndex = cleaned.indexOf(started);
+        return startIndex >= 0 && roomOneComplete.test(cleaned.slice(startIndex + started.length));
+      };
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk;
+        if (!firstMissionSent && /room 1\s*\u203a/i.test(stdout)) {
+          firstMissionSent = true;
+          child.stdin.write('First room mission\n');
+        }
+        if (phase === 0 && firstMissionSent && turnFinished(1)) {
+          phase = 1;
+          secondTurnOutputStart = stdout.length;
+          child.stdin.write('/again\n/2\n');
+        }
+        if (phase === 1 && turnFinished(2)) {
+          phase = 2;
+          thirdTurnOutputStart = stdout.length;
+          child.stdin.write('/1\nThird room mission\n/2\n');
+        }
+        if (phase === 2 && turnFinished(3)) {
+          phase = 3;
+          fourthTurnOutputStart = stdout.length;
+          child.stdin.write('/1\n/run Fourth room mission\n/2\n');
+        }
+        if (phase === 3 && !quitSent && turnFinished(4)) {
+          phase = 4;
+          quitSent = true;
+          child.stdin.write('/quit\n');
+        }
+      });
+      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      child.once('error', (error) => { clearTimeout(timeout); reject(error); });
+      child.once('close', (code) => {
+        clearTimeout(timeout);
+        code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`CLI exited ${code}: ${stderr}`));
+      });
+    });
+
+    assert.equal(phase, 4);
+    const stripTerminalControls = (value) => value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+    assert.match(stripTerminalControls(stdout.slice(secondTurnOutputStart, thirdTurnOutputStart)), roomOneComplete);
+    assert.match(stripTerminalControls(stdout.slice(thirdTurnOutputStart, fourthTurnOutputStart)), roomOneComplete);
+    assert.match(stripTerminalControls(stdout.slice(fourthTurnOutputStart)), roomOneComplete);
+    assert.match(stripTerminalControls(stdout), /Third room mission/i);
+    assert.match(stripTerminalControls(stdout), /Fourth room mission/i);
+    assert.doesNotMatch(stripTerminalControls(stdout), /Room 2 started turn 1/i);
+    assert.doesNotMatch(stderr, /Error|AssertionError/i);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('cockpit /run accepts slash-prefixed missions and unknown commands show guidance', async () => {
   const { stdout } = await runCliWithInput(
     ['interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream', '--team=scout'],

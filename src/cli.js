@@ -411,9 +411,9 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     return true;
   }
 
-  async function launch(request, requestNoticeSequence = noticeSequence) {
+  async function launch(request, requestNoticeSequence = noticeSequence, targetRoomIndex = renderer.state.activeRoom) {
     if (closing) return;
-    const roomIndex = renderer.state.activeRoom;
+    const roomIndex = targetRoomIndex;
     const existing = renderer.state.rooms[roomIndex];
     const previous = existing.result;
     const runConfig = activeConfig;
@@ -467,9 +467,9 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     tasks.set(roomIndex, task);
   }
 
-  async function waitForActiveRoom() {
+  async function waitForActiveRoom(roomIndex = renderer.state.activeRoom) {
     if (!isTerminal) {
-      const pendingTask = tasks.get(renderer.state.activeRoom);
+      const pendingTask = tasks.get(roomIndex);
       if (pendingTask) await pendingTask;
     }
   }
@@ -512,10 +512,11 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     }
     if (request === '/help') { setMessage('Help: mission or /run <mission> · rooms /1 /2 /switch · turns /again /new /clear /wait /cancel [1|2] · /help more · /quit /exit'); return true; }
     if (request === '/again') {
-      const room = renderer.state.rooms[renderer.state.activeRoom];
+      const roomIndex = renderer.state.activeRoom;
+      const room = renderer.state.rooms[roomIndex];
       if (room.running) setMessage(`Room ${room.id} is working. Wait for it to finish before using /again.`);
       else if (!room.request) setMessage(`Room ${room.id} has no previous mission to repeat. Run a mission first.`);
-      else { const previousRequest = room.request; await waitForActiveRoom(); await launch(previousRequest); }
+      else { const previousRequest = room.request; await waitForActiveRoom(roomIndex); await launch(previousRequest, inputNoticeSequence, roomIndex); }
       return true;
     }
     if (request === '/agents') {
@@ -643,15 +644,16 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     if (/^\/run(?:\s|$)/.test(request)) {
       const mission = request.slice('/run'.length).trim();
       if (!mission) setMessage('Use /run <mission>.');
-      else { await waitForActiveRoom(); await launch(mission, inputNoticeSequence); }
+      else { const roomIndex = renderer.state.activeRoom; await waitForActiveRoom(roomIndex); await launch(mission, inputNoticeSequence, roomIndex); }
       return true;
     }
     if (request.startsWith('/')) {
       setMessage(`Unknown command: ${request.split(/\s+/, 1)[0]}. Type /help to see available commands.`);
       return true;
     }
-    await waitForActiveRoom();
-    await launch(request, inputNoticeSequence);
+    const roomIndex = renderer.state.activeRoom;
+    await waitForActiveRoom(roomIndex);
+    await launch(request, inputNoticeSequence, roomIndex);
     return true;
   }
 
