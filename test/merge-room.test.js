@@ -27,18 +27,31 @@ test('CLI version matches package metadata', async () => {
   assert.equal(VERSION, manifest.version);
 });
 
-function runCliWithInput(args, input, cwd = process.cwd()) {
+function runCliWithInput(args, input, cwd = process.cwd(), timeoutMs = 30_000) {
   const bin = path.resolve(process.cwd(), 'bin', 'merge-room.js');
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [bin, ...args], { cwd, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled || child.exitCode !== null || child.signalCode !== null) return;
+      settled = true;
+      child.kill();
+      reject(new Error(`CLI timed out after ${timeoutMs}ms. Args: ${JSON.stringify(args)}\nStdout: ${stdout}\nStderr: ${stderr}`));
+    }, timeoutMs);
+    const finish = (error, result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      if (error) reject(error); else resolve(result);
+    };
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
-    child.once('error', reject);
-    child.once('close', (code) => code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`CLI exited ${code}: ${stderr}`)));
+    child.once('error', (error) => finish(error));
+    child.once('close', (code) => code === 0 ? finish(null, { stdout, stderr }) : finish(new Error(`CLI exited ${code}. Args: ${JSON.stringify(args)}\nStdout: ${stdout}\nStderr: ${stderr}`)));
     child.stdin.end(input);
   });
 }
