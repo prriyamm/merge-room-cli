@@ -44,6 +44,22 @@ const crop = (value, max) => {
   }
   return `${output}…`;
 };
+const cropTail = (value, max) => {
+  const text = sanitizeUntrustedText(value).replace(/\s+/g, ' ');
+  const limit = Math.max(0, Math.floor(max));
+  const items = graphemes(text);
+  if (items.reduce((total, item) => total + graphemeWidth(item), 0) <= limit) return text;
+  if (limit <= 0) return '';
+  const output = [];
+  let used = 1;
+  for (const grapheme of items.reverse()) {
+    const width = graphemeWidth(grapheme);
+    if (used + width > limit) break;
+    output.push(grapheme);
+    used += width;
+  }
+  return `…${output.reverse().join('')}`;
+};
 const graphemes = (value) => typeof Intl.Segmenter === 'function'
   ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].map(({ segment }) => segment)
   : [...value];
@@ -93,6 +109,21 @@ const wrap = (value, max) => {
   for (const word of sanitizeUntrustedText(value).split(/\s+/).filter(Boolean)) pushWord(word);
   if (current) lines.push(current);
   return lines;
+};
+
+const previewAnswerLines = (answer, rowLimit, maxWidth) => {
+  const answerLines = wrap(answer, maxWidth);
+  const limit = Math.max(0, rowLimit);
+  if (answerLines.length <= limit) return answerLines;
+  if (limit === 0) return [];
+  const marker = crop('… earlier answer omitted …', maxWidth);
+  if (limit === 1) {
+    const compactMarker = crop('… earlier omitted', Math.max(1, maxWidth - 2));
+    const tailWidth = Math.max(0, maxWidth - visibleLength(compactMarker) - 1);
+    if (tailWidth === 0) return [compactMarker];
+    return [`${compactMarker} ${cropTail(answerLines.at(-1), tailWidth)}`];
+  }
+  return [marker, ...answerLines.slice(-(limit - 1))];
 };
 
 const STARTUP_PATTERN = Object.freeze(liquidGlassLogoLines({ color: false }));
@@ -307,17 +338,20 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
           const reasonText = activeRoom.error && terminalWidth >= 44 ? crop(activeRoom.error, reasonLimit) : '';
           const detail = terminalWidth >= 30 ? ` · ${status}${reasonText ? ` (${reasonText})` : ''}` : '';
           const prefix = ` PARTIAL${detail}: `;
-          lines.splice(0, lines.length, ` ${color('yellow', 'PARTIAL')}${terminalWidth >= 30 ? ` · ${color('red', status)}${reasonText ? ` (${reasonText})` : ''}` : ''}: ${crop(answer, Math.max(0, terminalWidth - visibleLength(prefix)))}`);
+          const preview = previewAnswerLines(answer, 1, Math.max(1, terminalWidth - visibleLength(prefix)))[0] || '';
+          lines.splice(0, lines.length, ` ${color('yellow', 'PARTIAL')}${terminalWidth >= 30 ? ` · ${color('red', status)}${reasonText ? ` (${reasonText})` : ''}` : ''}: ${preview}`);
         } else {
           if (activeRoom.error) lines.splice(0, lines.length, ` ${activeRoom.status === 'cancelled' ? 'Cancelled' : 'Stopped'}: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
           else lines.splice(Math.max(0, contentHeight - 1));
           const answerLabel = activeRoom.error || activeRoom.status === 'cancelled' ? 'PARTIAL ANSWER' : 'MERGE ROOM SAYS';
           if (contentHeight === lines.length + 1) {
-            lines.push(` ${activeRoom.error || activeRoom.status === 'cancelled' ? 'Partial' : 'Answer'}: ${crop(answer, Math.max(0, terminalWidth - 10))}`);
+            const answerWidth = Math.max(1, terminalWidth - 10);
+            const preview = previewAnswerLines(answer, 1, answerWidth)[0] || '';
+            lines.push(` ${activeRoom.error || activeRoom.status === 'cancelled' ? 'Partial' : 'Answer'}: ${preview}`);
           } else {
             lines.push(` ${color('bold', answerLabel)}`);
             const answerRows = Math.max(0, contentHeight - lines.length);
-            if (answerRows > 0) lines.push(...wrap(answer, Math.max(1, terminalWidth - 2)).slice(-answerRows).map((item) => ` ${color('white', item)}`));
+            if (answerRows > 0) lines.push(...previewAnswerLines(answer, answerRows, Math.max(1, terminalWidth - 2)).map((item) => ` ${color('white', item)}`));
           }
         }
       }
@@ -539,8 +573,7 @@ function cockpitMain(state, config, workspace, maxWidth, height) {
     const heading = room.error || room.status === 'cancelled' ? 'PARTIAL ANSWER' : 'MERGE ROOM SAYS';
     lines.push('', ` ${color('bold', heading)}`);
     const remaining = Math.max(0, height - lines.length - 1);
-    const answerLines = wrap(answer, maxWidth - 2);
-    lines.push(...(remaining ? answerLines.slice(-remaining) : []).map((item) => ` ${color('white', item)}`));
+    lines.push(...previewAnswerLines(answer, remaining, maxWidth - 2).map((item) => ` ${color('white', item)}`));
   }
   const elapsed = room.started ? `${(((room.finishedAt || Date.now()) - room.started) / 1000).toFixed(1)}s` : '0.0s';
   const usage = room.usage || {};
