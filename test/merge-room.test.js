@@ -627,15 +627,19 @@ test('Claude Code JSON parser rejects errors and malformed output', () => {
 test('providers command reports routes and binary presence without revealing API keys', async () => {
   const oldPath = process.env.PATH;
   const oldKey = process.env.MERGE_ROOM_TEST_PROVIDER_KEY;
+  const oldCwd = process.cwd();
   const originalLog = console.log;
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-providers-'));
   const bin = path.join(root, 'bin');
   await fs.mkdir(bin);
   await fs.writeFile(path.join(bin, 'codex'), '#!/bin/sh\nexit 0\n');
+  await fs.writeFile(path.join(root, 'claude'), '#!/bin/sh\nexit 0\n');
   await fs.chmod(path.join(bin, 'codex'), 0o755);
-  process.env.PATH = bin;
+  await fs.chmod(path.join(root, 'claude'), 0o755);
+  process.env.PATH = `${bin}${path.delimiter}${path.delimiter}`;
   process.env.MERGE_ROOM_TEST_PROVIDER_KEY = 'never-print-this-secret';
   try {
+    process.chdir(root);
     await fs.writeFile(path.join(root, 'merge-room.config.json'), JSON.stringify({
       providers: {
         api: { type: 'openai-compatible', model: 'gpt-test', apiKeyEnv: 'MERGE_ROOM_TEST_PROVIDER_KEY' },
@@ -655,10 +659,11 @@ test('providers command reports routes and binary presence without revealing API
     assert.equal(report.profiles[0].configured, true);
     assert.equal(report.profiles[1].binaryAvailable, true);
     assert.deepEqual(report.profiles[1].agents, ['scout']);
-    assert.equal(report.profiles[2].binaryAvailable, false);
+    assert.equal(report.profiles[2].binaryAvailable, true);
     assert.deepEqual(report.profiles[2].agents, ['maker']);
     assert.equal(JSON.stringify(report).includes('never-print-this-secret'), false);
   } finally {
+    process.chdir(oldCwd);
     console.log = originalLog;
     if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
     if (oldKey === undefined) delete process.env.MERGE_ROOM_TEST_PROVIDER_KEY; else process.env.MERGE_ROOM_TEST_PROVIDER_KEY = oldKey;

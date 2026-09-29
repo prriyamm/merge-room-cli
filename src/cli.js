@@ -740,7 +740,8 @@ async function printProviderStatus(config, json = false) {
 async function findExecutable(command) {
   const pathValue = process.env.PATH || '';
   const names = process.platform === 'win32' ? [`${command}.exe`] : [command];
-  for (const directory of pathValue.split(path.delimiter).filter(Boolean)) {
+  const directories = pathValue.split(path.delimiter).map((directory) => directory || (process.platform === 'win32' ? null : process.cwd())).filter(Boolean);
+  for (const directory of directories) {
     for (const name of names) {
       const candidate = path.join(directory, name);
       try {
