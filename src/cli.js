@@ -528,7 +528,13 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       if (!await handleInput(line)) shutdown();
       else redraw();
     });
-    rl.once('close', () => { if (!closing) { closing = true; resolve(); } });
+    rl.once('close', () => {
+      if (!closing) {
+        closing = true;
+        for (const controller of controllers.values()) controller.abort();
+        resolve();
+      }
+    });
     signal?.addEventListener('abort', shutdown, { once: true });
     if (signal?.aborted) shutdown();
   });

@@ -162,7 +162,7 @@ function isIgnored(relative, directory, rules) {
 function hasNegatedDescendant(relative, rules) {
   const normalized = relative.replaceAll('\\', '/').replace(/\/$/, '');
   const prefix = `${normalized}/`;
-  return rules.some((rule) => rule.negate && (rule.pattern.startsWith(prefix) || !rule.pattern.includes('/')));
+  return rules.some((rule) => rule.negate && rule.pattern.startsWith(prefix));
 }
 
 function ignorePatternRegex(pattern) {

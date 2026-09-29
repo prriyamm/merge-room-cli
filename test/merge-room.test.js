@@ -1166,16 +1166,19 @@ test('workspace context respects project ignore patterns', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-gitignore-'));
   try {
     await fs.mkdir(path.join(root, 'cache'), { recursive: true });
-    await fs.writeFile(path.join(root, '.gitignore'), '*.log\ncache/\n!/cache/keep.json\n', 'utf8');
+    await fs.mkdir(path.join(root, 'archive'), { recursive: true });
+    await fs.writeFile(path.join(root, '.gitignore'), '*.log\ncache/\n!/cache/keep.json\narchive/\n!*.md\n', 'utf8');
     await fs.writeFile(path.join(root, 'visible.md'), 'keep me\n', 'utf8');
     await fs.writeFile(path.join(root, 'debug.log'), 'skip me\n', 'utf8');
     await fs.writeFile(path.join(root, 'cache', 'result.json'), 'skip me too\n', 'utf8');
     await fs.writeFile(path.join(root, 'cache', 'keep.json'), 'keep me too\n', 'utf8');
+    await fs.writeFile(path.join(root, 'archive', 'reinclude.md'), 'must stay ignored under an ignored directory\n', 'utf8');
     const context = await collectWorkspaceContext(root, { maxFiles: 20, maxBytes: 5000 });
     assert.equal(context.entries.some((entry) => entry.includes('debug.log')), false);
     assert.equal(context.entries.some((entry) => entry.includes('result.json')), false);
    assert.equal(context.entries.some((entry) => entry.includes('visible.md')), true);
     assert.equal(context.entries.some((entry) => entry.includes('keep.json')), true);
+    assert.equal(context.entries.some((entry) => entry.includes('archive/reinclude.md')), false);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }
