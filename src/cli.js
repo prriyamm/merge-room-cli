@@ -18,6 +18,12 @@ const MAX_PROMPT_BYTES = 256 * 1024;
 const MAX_CONVERSATION_TURNS = 12;
 const MAX_RESUME_CONTEXT_CHARS = 12000;
 
+export function cockpitHelpMorePages(width = 80) {
+  const commands = ['/again', '/cancel [1|2]', '/agents [id]', '/team [all|ids]', '/profile <name>', '/profiles', '/context [on|off]', '/history', '/show <id|last>', '/export <id> [md|json]', '/usage'];
+  const pageSize = width <= 17 ? 1 : width < 30 ? 2 : 4;
+  return Array.from({ length: Math.ceil(commands.length / pageSize) }, (_, index) => commands.slice(index * pageSize, (index + 1) * pageSize));
+}
+
 export async function main(args = [], { signal } = {}) {
   const separator = args.indexOf('--');
   const optionArgs = separator < 0 ? args : args.slice(0, separator);
@@ -347,6 +353,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   let contextEnabled = !noContext && config.context?.enabled !== false;
   let closing = false;
   let noticeSequence = 0;
+  let helpMorePage = 0;
   let rl;
   const tasks = new Map();
   const controllers = new Map();
@@ -481,7 +488,15 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); const waitingSequence = noticeSequence; await waitForCockpitTasks(tasks); setMessage('Both rooms are ready.', waitingSequence); return true; }
-    if (request === '/help more') { setMessage('Help more: /again repeats the selected room’s last mission as a new turn, carrying its conversation · /cancel [1|2] /agents [id] /team [all|ids] /profile <name> /profiles /context [on|off] /history /show <id|last> /export <id> [md|json] /usage'); return true; }
+    if (request === '/help more') {
+      const terminalWidth = process.stdout.columns || 80;
+      const pages = cockpitHelpMorePages(terminalWidth);
+      const page = helpMorePage % pages.length;
+      helpMorePage = (page + 1) % pages.length;
+      const repeat = page + 1 < pages.length ? 'Next: /help more' : 'Again: /help more';
+      setMessage(`Help more ${page + 1}/${pages.length}: ${pages[page].join(' · ')}; ${repeat}`);
+      return true;
+    }
     if (request === '/help') { setMessage('Help: mission or /run <mission> · rooms /1 /2 /switch · turns /again /new /clear /wait /cancel [1|2] · /help more · /quit /exit'); return true; }
     if (request === '/again') {
       const room = renderer.state.rooms[renderer.state.activeRoom];

@@ -14,7 +14,7 @@ import { liquidGlassLogoLines } from '../src/logo.js';
 import { AnthropicProvider, ClaudeCodeCliProvider, CodexCliProvider, createProvider, DemoProvider, OpenAICompatibleProvider, parseClaudeCodeOutput, parseCodexOutput } from '../src/providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from '../src/sessions.js';
 import { createLedger, estimateTokens } from '../src/tokens.js';
-import { buildResumeRequest, main } from '../src/cli.js';
+import { buildResumeRequest, cockpitHelpMorePages, main } from '../src/cli.js';
 import { completionScript } from '../src/completions.js';
 import { applyCockpitEvent, beginCockpitTurn, createCockpitState, finishCockpitTurn, resetCockpitRoom, resolveAgentReference, restoreAgentStatuses, selectCockpitRoom, waitForCockpitTasks } from '../src/cockpit.js';
 import { createCockpitRenderer, createConversationRenderer, printResult, printSession, startupPatternLines } from '../src/ui.js';
@@ -223,6 +223,39 @@ test('compact Cockpit primary help keeps /again discoverable in a narrow termina
     renderer.render();
 
     assert.match(lines.join('\n'), /\/again/, `expected /again in ${columns}-column help`);
+  }
+});
+
+test('compact primary Cockpit help always points to expanded help at widths 30, 17, and 8', () => {
+  for (const columns of [30, 17, 8]) {
+    const lines = [];
+    const renderer = createCockpitRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' }, force: true, columns, rows: 12, write: (line) => lines.push(line) });
+    renderer.state.message = 'Help: mission or /run <mission> · rooms /1 /2 /switch · turns /again /new /clear /wait /cancel [1|2] · /help more · /quit /exit';
+    renderer.render();
+    assert.match(lines.join('\n'), /\/help\s+more/, `help affordance at ${columns} columns`);
+    assert.ok(lines.every((line) => line.length <= columns), `line width at ${columns} columns`);
+  }
+});
+
+test('compact expanded Cockpit help pages expose every command and next-page control at widths 17 and 8', () => {
+  for (const columns of [17, 8]) {
+    const pages = cockpitHelpMorePages(columns);
+    const allVisible = [];
+    for (let index = 0; index < pages.length; index += 1) {
+      const lines = [];
+      const renderer = createCockpitRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' }, force: true, columns, rows: 18, write: (line) => lines.push(line) });
+      const next = index + 1 < pages.length ? 'Next' : 'Again';
+      renderer.state.message = `Help more ${index + 1}/${pages.length}: ${pages[index].join(' · ')}; ${next}: /help more`;
+      renderer.render();
+      const output = lines.join('\n');
+      const compactOutput = output.replace(/\s/g, '');
+      for (const command of pages[index]) assert.ok(compactOutput.includes(command.replace(/\s/g, '')), `${command} at ${columns} columns`);
+      assert.match(output, /\/help\s+more/, `next-page control at ${columns} columns, page ${index + 1}`);
+      assert.ok(lines.every((line) => line.length <= columns), `line width at ${columns} columns`);
+      allVisible.push(...pages[index]);
+    }
+    assert.equal(allVisible.length, 11);
+    assert.equal(new Set(allVisible).size, allVisible.length);
   }
 });
 
