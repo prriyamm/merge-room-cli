@@ -31,14 +31,15 @@ const line = (char = '─') => char.repeat(width());
 const crop = (value, max) => {
   const text = sanitizeUntrustedText(value).replace(/\s+/g, ' ');
   const limit = Math.max(0, Math.floor(max));
-  if (visibleLength(text) <= limit) return text;
+  const items = graphemes(text);
+  if (items.reduce((total, item) => total + graphemeWidth(item), 0) <= limit) return text;
   if (limit <= 0) return '';
   let output = '';
   let used = 0;
-  for (const character of text) {
-    const width = characterWidth(character);
+  for (const grapheme of items) {
+    const width = graphemeWidth(grapheme);
     if (used + width > limit - 1) break;
-    output += character;
+    output += grapheme;
     used += width;
   }
   return `${output}…`;
@@ -47,6 +48,7 @@ const graphemes = (value) => typeof Intl.Segmenter === 'function'
   ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(value)].map(({ segment }) => segment)
   : [...value];
 const graphemeWidth = (value) => /\p{Extended_Pictographic}/u.test(value) || value.includes('\u200d')
+  || value.includes('\u20e3') || [...value].length === 2 && [...value].every((character) => /\p{Regional_Indicator}/u.test(character))
   ? 2
   : [...value].reduce((total, character) => total + characterWidth(character), 0);
 const wrap = (value, max) => {
