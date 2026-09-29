@@ -349,6 +349,54 @@ test('conversational cockpit prints its mark once and appends the chat', async (
   assert.doesNotMatch(output, /\x1b\[2J/);
 });
 
+test('conversational events and wrapped answers retain their room labels', () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
+  const originalColumns = Object.getOwnPropertyDescriptor(process.stdout, 'columns');
+  Object.defineProperty(process.stdout, 'columns', { configurable: true, value: 58 });
+  try {
+    const renderer = createConversationRenderer({ config, provider: { name: 'demo' }, force: true, write: (line) => lines.push(line) });
+    renderer.event(0)({ type: 'agent:start', agent: config.agents[0] });
+    renderer.event(1)({ type: 'agent:done', agent: config.agents[0], text: 'Room two note' });
+    renderer.event(0)({ type: 'run:done', result: { answer: 'Room one answer has enough words to wrap across multiple narrow terminal lines. '.repeat(3) } });
+    renderer.event(1)({ type: 'run:done', result: { answer: 'Room two answer has enough words to wrap across multiple narrow terminal lines. '.repeat(3) } });
+  } finally {
+    if (originalColumns) Object.defineProperty(process.stdout, 'columns', originalColumns);
+    else delete process.stdout.columns;
+  }
+
+  const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ''));
+  assert.ok(plainLines.some((line) => line.includes('room 1') && line.includes('Scout') && line.includes('is working')));
+  assert.ok(plainLines.some((line) => line.includes('room 2') && line.includes('Scout') && line.includes('handed back a note')));
+  const answerLines = plainLines.filter((line) => /^  room [12] /.test(line) && !line.includes('Scout'));
+  assert.ok(answerLines.some((line) => line.startsWith('  room 1 ') && line.includes('Room one answer')));
+  assert.ok(answerLines.some((line) => line.startsWith('  room 2 ') && line.includes('Room two answer')));
+  assert.ok(answerLines.length > 2, 'long answers should wrap into multiple labeled lines');
+  assert.ok(answerLines.every((line) => [...line].length <= 56), 'labeled answer lines should fit the configured terminal width');
+});
+
+test('conversation renderer stays silent without a TTY while still updating room state', () => {
+  const lines = [];
+  const stdinTTY = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+  const stdoutTTY = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+  Object.defineProperty(process.stdin, 'isTTY', { configurable: true, value: false });
+  Object.defineProperty(process.stdout, 'isTTY', { configurable: true, value: false });
+  try {
+    const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
+    const renderer = createConversationRenderer({ config, provider: { name: 'demo' }, write: (line) => lines.push(line) });
+    renderer.event(1)({ type: 'run:done', result: { answer: 'Scripted room answer', usage: { total: 3, calls: 1 } } });
+    assert.equal(renderer.state.rooms[1].final, 'Scripted room answer');
+    assert.equal(renderer.state.rooms[1].status, 'saving');
+    assert.equal(renderer.state.rooms[0].final, null);
+    assert.deepEqual(lines, []);
+  } finally {
+    if (stdinTTY) Object.defineProperty(process.stdin, 'isTTY', stdinTTY);
+    else delete process.stdin.isTTY;
+    if (stdoutTTY) Object.defineProperty(process.stdout, 'isTTY', stdoutTTY);
+    else delete process.stdout.isTTY;
+  }
+});
+
 test('startup mark preserves the supplied 60-column liquid-glass M', () => {
   const pattern = startupPatternLines();
   const colored = liquidGlassLogoLines();
