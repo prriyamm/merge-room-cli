@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
-import { beginCockpitTurn, finishCockpitTurn, resetCockpitRoom, resolveAgentReference, selectCockpitRoom } from './cockpit.js';
+import { beginCockpitTurn, finishCockpitTurn, resetCockpitRoom, resolveAgentReference, restoreAgentStatuses, selectCockpitRoom, waitForCockpitTasks } from './cockpit.js';
 import { VERSION, loadConfig, safeBaseUrl, writeStarterConfig } from './config.js';
 import { completionScript, defaultShell } from './completions.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from './context.js';
@@ -424,7 +424,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       catch (error) { setMessage(error.message); }
       return true;
     }
-    if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); await Promise.allSettled([...tasks.values()]); setMessage('Both rooms are ready.'); return true; }
+    if (request === '/wait') { setMessage('Waiting for both rooms to finish…'); await waitForCockpitTasks(tasks); setMessage('Both rooms are ready.'); return true; }
     if (request === '/help') { setMessage('Type a mission · /1 /2 · /switch · /new · /cancel · /agents [id] · /team <ids> · /profile <name> · /wait · /quit'); return true; }
     if (request === '/agents') {
       setMessage(`Team of ${activeConfig.agents.length}. Use /agents <id> for a specialist's details; run merge-room agents for the full roster.`);
@@ -494,8 +494,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         room.turn = Math.max(1, room.turn);
         room.notes = Object.fromEntries((session.agents || []).map((item) => [item.agent?.id, item.text]));
         room.agentIds = (session.agents || []).map((item) => item.agent?.id).filter(Boolean);
-        const savedStatuses = new Map((session.agents || []).map((item) => [item.agent?.id, item.status || 'done']));
-        room.statuses = Object.fromEntries(activeConfig.agents.map((agent) => [agent.id, savedStatuses.get(agent.id) || 'idle']));
+        room.statuses = restoreAgentStatuses(activeConfig.agents, session.agents);
         setMessage(`Loaded ${session.id} into Room ${room.id}.`);
         if (isTerminal) renderer.loaded(session);
         else printSession(session);
