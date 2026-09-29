@@ -2244,11 +2244,11 @@ test('limited session listing keeps newest valid sessions and skips corrupt file
   try {
     await fs.mkdir(directory);
     await fs.writeFile(path.join(directory, '2026-01-03.json'), '{partial JSON');
-    await fs.writeFile(path.join(directory, '2026-01-02.json'), JSON.stringify({ id: 'newest valid', request: 'newest request' }));
-    await fs.writeFile(path.join(directory, '2026-01-01.json'), JSON.stringify({ id: 'older valid', request: 'older request' }));
+    await fs.writeFile(path.join(directory, '2026-01-02.json'), JSON.stringify({ id: '2026-01-02', request: 'newest request' }));
+    await fs.writeFile(path.join(directory, '2026-01-01.json'), JSON.stringify({ id: '2026-01-01', request: 'older request' }));
 
     const sessions = await listSessions(root, 'sessions', { limit: 2 });
-    assert.deepEqual(sessions.map(({ id }) => id), ['newest valid', 'older valid']);
+    assert.deepEqual(sessions.map(({ id }) => id), ['2026-01-02', '2026-01-01']);
     assert.deepEqual(sessions.map(({ request }) => request), ['newest request', 'older request']);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
@@ -2260,7 +2260,7 @@ test('limited session listing returns no sessions for a zero limit', async () =>
   const directory = path.join(root, 'sessions');
   try {
     await fs.mkdir(directory);
-    await fs.writeFile(path.join(directory, '2026-01-01.json'), JSON.stringify({ id: 'newest' }));
+    await fs.writeFile(path.join(directory, '2026-01-01.json'), JSON.stringify({ id: '2026-01-01' }));
     assert.deepEqual(await listSessions(root, 'sessions', { limit: 0 }), []);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
