@@ -84,6 +84,52 @@ test('cockpit renders a left activity rail and a focused room pane', () => {
   assert.match(output, /LIVE HANDOFFS/);
 });
 
+test('cockpit renderer exposes the conversation controls used by the terminal loop', async () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 1) };
+  let refreshes = 0;
+  const renderer = createCockpitRenderer({
+    config,
+    provider: { name: 'demo' },
+    workspace: 'C:\\project',
+    force: true,
+    columns: 100,
+    rows: 28,
+    onRefresh: () => { refreshes += 1; },
+    write: (line) => lines.push(line)
+  });
+
+  await renderer.start({ animate: false });
+  beginCockpitTurn(renderer.state, 0, 'Plan the release', config.agents);
+  renderer.user(0, 'Plan the release');
+  renderer.notice('Cancellation requested.');
+  assert.equal(renderer.state.message, 'Cancellation requested.');
+  renderer.event(0)({ type: 'agent:start', agent: config.agents[0] });
+  const result = { answer: 'The release plan is ready.', usage: { total: 4, calls: 1 } };
+  renderer.event(0)({ type: 'run:done', result });
+  finishCockpitTurn(renderer.state, 0, result);
+  renderer.refresh();
+  renderer.loaded();
+  beginCockpitTurn(renderer.state, 1, 'Review cancellation', config.agents);
+  renderer.event(1)({ type: 'run:cancelled', error: 'Mission cancelled.' });
+  const cancelled = new Error('Mission cancelled.');
+  cancelled.name = 'AbortError';
+  finishCockpitTurn(renderer.state, 1, null, cancelled);
+  renderer.refresh();
+
+  assert.equal(renderer.state.rooms[0].request, 'Plan the release');
+  assert.equal(renderer.state.rooms[0].status, 'done');
+  assert.equal(renderer.state.rooms[0].running, false);
+  assert.equal(renderer.state.rooms[1].status, 'cancelled');
+  assert.equal(renderer.state.rooms[1].running, false);
+  assert.ok(refreshes >= 4);
+  const output = lines.join('\n');
+  assert.match(output, /Room 1/);
+  assert.match(output, /Cancellation requested\./);
+  assert.match(output, /Room 1  done/);
+  assert.match(output, /Room 2  cancelled/);
+});
+
 test('interactive CLI accepts work in both rooms from one process', async () => {
   const { stdout } = await runCliWithInput(
     ['interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream', '--team=scout'],

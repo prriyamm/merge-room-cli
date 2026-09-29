@@ -139,10 +139,23 @@ export function createRenderer({ config, provider, context = null }) {
 
 export function createCockpitRenderer({ config, provider, workspace = process.cwd(), onRefresh = () => {}, force = false, columns, rows, write = (line) => console.log(line) }) {
   const state = createCockpitState(config.agents);
+  let lastRenderAt = 0;
   const refresh = () => { render(); onRefresh(); };
-  const event = (roomIndex) => (payload) => { applyCockpitEvent(state, roomIndex, payload); refresh(); };
+  const event = (roomIndex) => (payload) => {
+    applyCockpitEvent(state, roomIndex, payload);
+    if (payload.type !== 'synthesis:delta' || Date.now() - lastRenderAt >= 80) refresh();
+  };
+  const start = (options) => printCockpitWelcome({ provider: provider.name, model: config.model, workspace, write, ...options });
+  const user = (roomIndex, request) => {
+    state.activeRoom = roomIndex;
+    state.rooms[roomIndex].request = request;
+    refresh();
+  };
+  const loaded = () => refresh();
+  const notice = (message) => { state.message = message; refresh(); };
   const render = () => {
     if (!live && !force) return;
+    lastRenderAt = Date.now();
     clear();
     const terminalWidth = Math.max(68, Math.min(columns || process.stdout.columns || 108, 140));
     const terminalHeight = Math.max(22, rows || process.stdout.rows || 32);
@@ -160,7 +173,7 @@ export function createCockpitRenderer({ config, provider, workspace = process.cw
     write(surface(fit(` ${color('gray', '/1 /2 switch · /new reset · /cancel turn · /help commands · /quit leave')}`, terminalWidth)));
     write(surface(fit(` ${color('teal', state.message)}`, terminalWidth)));
   };
-  return { state, event, render, refresh };
+  return { state, start, user, loaded, notice, event, render, refresh };
 }
 
 export function createConversationRenderer({ config, provider, workspace = process.cwd(), onRefresh = () => {}, force = false, write = (line) => console.log(line) }) {

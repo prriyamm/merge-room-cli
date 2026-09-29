@@ -9,7 +9,7 @@ import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from './engine.js';
 import { createProvider } from './providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from './sessions.js';
 import { themeSummaries } from './themes.js';
-import { createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme } from './ui.js';
+import { createCockpitRenderer, createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, setTheme } from './ui.js';
 
 const VALUE_OPTIONS = ['--cwd', '-C', '--prompt-file', '--config', '--team', '--provider', '--profile', '--model', '--base-url', '--max-tokens', '--temperature', '--concurrency', '--timeout', '--retries', '--max-calls', '--run-id', '--theme', '--include', '--limit', '--format', '--output'];
 const BOOLEAN_OPTIONS = ['--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict'];
@@ -318,6 +318,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   const tasks = new Map();
   const controllers = new Map();
   const isTerminal = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  const useDashboard = isTerminal && process.env.TERM !== 'dumb';
   const appendLine = (line = '') => {
     if (isTerminal && rl) {
       readline.clearLine(process.stdout, 0);
@@ -325,7 +326,9 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     }
     console.log(line);
   };
-  const renderer = createConversationRenderer({ config, provider, workspace, onRefresh: () => reprompt(), write: appendLine });
+  const renderer = useDashboard
+    ? createCockpitRenderer({ config, provider, workspace, onRefresh: () => reprompt() })
+    : createConversationRenderer({ config, provider, workspace, onRefresh: () => reprompt(), write: appendLine });
 
   function reprompt() {
     if (isTerminal && rl && !closing) {
@@ -373,6 +376,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         const saved = noSave ? null : await persist(result, runConfig, workspace);
         if (saved) result.sessionId = saved.id;
         finishCockpitTurn(renderer.state, roomIndex, result);
+        renderer.refresh();
         if (!isTerminal) {
           console.log(`\n[Room ${roomIndex + 1}] ${request}`);
           printResult(result, { trace });
@@ -382,6 +386,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
           renderer.event(roomIndex)({ type: 'run:cancelled', error: error.message || 'Mission cancelled.' });
         }
         finishCockpitTurn(renderer.state, roomIndex, null, error);
+        renderer.refresh();
         if (error.name === 'AbortError') {
           if (!isTerminal) console.log(`  Room ${roomIndex + 1} cancelled.`);
         } else {
@@ -517,9 +522,13 @@ async function interactive(config, provider, noContext = false, noSave = false, 
   rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
   redraw();
   await new Promise((resolve) => {
+    const handleResize = () => { if (useDashboard && !closing) redraw(); };
+    const removeResizeListener = () => process.stdout.removeListener('resize', handleResize);
     const shutdown = () => {
       if (closing) return;
       closing = true;
+      removeResizeListener();
+      signal?.removeEventListener('abort', shutdown);
       for (const controller of controllers.values()) controller.abort();
       rl.close();
       resolve();
@@ -529,12 +538,15 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       else redraw();
     });
     rl.once('close', () => {
+      removeResizeListener();
+      signal?.removeEventListener('abort', shutdown);
       if (!closing) {
         closing = true;
         for (const controller of controllers.values()) controller.abort();
         resolve();
       }
     });
+    process.stdout.on('resize', handleResize);
     signal?.addEventListener('abort', shutdown, { once: true });
     if (signal?.aborted) shutdown();
   });
