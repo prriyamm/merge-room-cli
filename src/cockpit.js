@@ -24,7 +24,12 @@ export function restoreAgentStatuses(currentAgents = [], savedAgents = []) {
 }
 
 export async function waitForCockpitTasks(tasks) {
-  while (tasks.size) await Promise.allSettled([...tasks.values()]);
+  do {
+    await new Promise((resolve) => setImmediate(resolve));
+    const pending = [...tasks.values()];
+    if (!pending.length) return;
+    await Promise.allSettled(pending);
+  } while (tasks.size);
 }
 
 export function selectCockpitRoom(state, roomNumber) {

@@ -453,13 +453,17 @@ async function interactive(config, provider, noContext = false, noSave = false, 
       return true;
     }
     if (request === '/history') {
-      const sessions = activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : [];
-      setMessage(sessions.length ? `Recent: ${sessions.slice(0, 3).map((item) => `${item.id} ${cropLabel(item.request, 18)}`).join(' · ')}` : 'No saved missions yet.');
+      try {
+        const sessions = activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : [];
+        setMessage(sessions.length ? `Recent: ${sessions.slice(0, 3).map((item) => `${item.id} ${cropLabel(item.request, 18)}`).join(' · ')}` : 'No saved missions yet.');
+      } catch (error) { setMessage(`History unavailable: ${error.message}`); }
       return true;
     }
     if (request === '/usage') {
-      const usage = summarizeUsage(activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : []);
-      setMessage(`${usage.sessions} saved missions · ${usage.total} tokens · ${usage.calls} calls`);
+      try {
+        const usage = summarizeUsage(activeConfig.sessionDir ? await listSessions(workspace, activeConfig.sessionDir) : []);
+        setMessage(`${usage.sessions} saved missions · ${usage.total} tokens · ${usage.calls} calls`);
+      } catch (error) { setMessage(`Usage unavailable: ${error.message}`); }
       return true;
     }
     if (request === '/context') { setMessage(contextEnabled ? `Context is on for ${workspace}` : 'Context is off. Use /context on to enable it.'); return true; }
