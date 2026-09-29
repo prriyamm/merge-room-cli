@@ -295,6 +295,87 @@ test('Cockpit history aliases load a listed session despite an older ID suffix c
   }
 });
 
+test('Cockpit keeps fresh history aliases when overlapping history reads finish out of order', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-history-alias-race-'));
+  const releaseOldRead = path.join(root, 'release-old-history');
+  const freshId = '2026-09-29T22-15-10-456-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbb2e1';
+  const staleId = '2026-09-29T22-15-10-123-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaa1f0';
+  const cliUrl = new URL('../src/cli.js', import.meta.url).href;
+  const script = `
+    process.stdin.isTTY = true;
+    process.stdout.isTTY = true;
+    process.env.TERM = 'xterm-256color';
+    const { existsSync } = await import('node:fs');
+    const { main } = await import(${JSON.stringify(cliUrl)});
+    let calls = 0;
+    main(['--cwd', ${JSON.stringify(root)}, 'interactive', '--provider=demo', '--no-context', '--no-save', '--no-stream'], {
+      listSessionsFn: async () => {
+        const call = ++calls;
+        process.stderr.write('HISTORY_START:' + call + '\\n');
+        if (call === 1) {
+          while (!existsSync(${JSON.stringify(releaseOldRead)})) await new Promise((resolve) => setTimeout(resolve, 5));
+          process.stderr.write('STALE_HISTORY_RESOLVED\\n');
+          return [{ id: ${JSON.stringify(staleId)}, request: 'Stale mission' }];
+        }
+        setTimeout(() => process.stderr.write('FRESH_READ_RETURNED\\n'), 0);
+        return [{ id: ${JSON.stringify(freshId)}, request: 'Fresh mission' }];
+      },
+      readSessionFn: async (id) => {
+        process.stderr.write('SHOW_RESOLVED_ID:' + id + '\\n');
+        return { id, request: 'Loaded mapped mission', answer: 'Alias target is correct', agents: [] };
+      }
+    }).catch((error) => { console.error(error); process.exitCode = 1; });
+  `;
+  try {
+    const { stdout, stderr } = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', script], { cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+      let output = '';
+      let errors = '';
+      let firstHistorySent = false;
+      let secondHistorySent = false;
+      let oldReadReleased = false;
+      let showSent = false;
+      const timeout = setTimeout(() => { child.kill(); reject(new Error(`Timed out waiting for overlapping Cockpit history reads. stdout=${output} stderr=${errors}`)); }, 10000);
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk) => {
+        output += chunk;
+        if (!firstHistorySent && output.includes('MERGE ROOM')) {
+          firstHistorySent = true;
+          child.stdin.write('/history\n');
+        }
+      });
+      child.stderr.on('data', (chunk) => {
+        errors += chunk;
+        if (!secondHistorySent && errors.includes('HISTORY_START:1')) {
+          secondHistorySent = true;
+          child.stdin.write('/history\n');
+        }
+        if (!oldReadReleased && errors.includes('FRESH_READ_RETURNED')) {
+          oldReadReleased = true;
+          fs.writeFile(releaseOldRead, 'ready').catch(reject);
+        }
+        if (!showSent && errors.includes('STALE_HISTORY_RESOLVED')) {
+          showSent = true;
+          child.stdin.write('/show @1\n');
+        }
+        if (showSent && errors.includes(`SHOW_RESOLVED_ID:${freshId}`)) child.stdin.write('/quit\n');
+      });
+      child.once('error', (error) => { clearTimeout(timeout); reject(error); });
+      child.once('close', (code) => {
+        clearTimeout(timeout);
+        code === 0 ? resolve({ stdout: output, stderr: errors }) : reject(new Error(`CLI exited ${code}: ${errors}`));
+      });
+    });
+    assert.match(stderr, /HISTORY_START:2[\s\S]*FRESH_READ_RETURNED[\s\S]*STALE_HISTORY_RESOLVED/);
+    assert.match(stderr, new RegExp(`SHOW_RESOLVED_ID:${freshId}`));
+    assert.doesNotMatch(stderr, new RegExp(`SHOW_RESOLVED_ID:${staleId}`));
+    assert.match(stdout, /Fresh mission/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test('compact Cockpit more help pages reveal each command at widths 46, 40, and 30', () => {
   for (const columns of [46, 40, 30]) {
     const pages = cockpitHelpMorePages(columns);
