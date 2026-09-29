@@ -250,6 +250,27 @@ test('compact Cockpit marks omitted answer text while keeping the latest tail', 
   assert.ok(lines.length <= 7);
 });
 
+test('compact Cockpit reserves an answer row when mission and handoff details fill the pane', () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };
+  const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 60, rows: 9, write: (line) => lines.push(line) });
+  const room = renderer.state.rooms[0];
+  room.request = 'Review the release';
+  room.notes[config.agents[0].id] = 'Build checks are green';
+  room.events.push({ message: 'Latest event: review finished' });
+  room.final = ['ANSWER-START', ...Array.from({ length: 12 }, (_, index) => `middle answer line ${index + 1}`), 'ANSWER-END'].join('\n');
+
+  renderer.render();
+
+  const output = lines.join('\n');
+  assert.match(output, /Mission: Review the release/);
+  assert.match(output, /Handoff:.*Latest:/);
+  assert.doesNotMatch(output, /ANSWER-START/);
+  assert.ok(lines.some((line) => /earlier omitted.*ANSWER-END/.test(line)), 'the latest answer tail remains visible beside its omission marker');
+  assert.ok(lines.every((line) => line.length <= 60));
+  assert.ok(lines.length <= 8);
+});
+
 test('wide Cockpit marks omitted answer text when only one answer row remains', () => {
   const lines = [];
   const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };

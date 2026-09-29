@@ -323,7 +323,7 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
       const latestEvent = activeRoom.events.at(-1);
       const answer = activeRoom.final || activeRoom.answerDraft;
       if (activeRoom.request) lines.push(` Mission: ${crop(activeRoom.request, Math.max(0, terminalWidth - 10))}`);
-      if (latestNote && latestEvent && answer && contentHeight <= 3) {
+      if (latestNote && latestEvent && answer && contentHeight <= 4) {
         const detailWidth = Math.max(0, Math.floor((terminalWidth - 24) / 2));
         lines.push(` Handoff: ${crop(latestNote[1], detailWidth)} · Latest: ${crop(latestEvent.message, detailWidth)}`);
       } else {
@@ -332,7 +332,7 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
       }
       if (activeRoom.error && !answer) lines.unshift(` ${activeRoom.status === 'cancelled' ? 'Cancelled' : 'Stopped'}: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
       if (answer && contentHeight > 0) {
-        if (contentHeight === 1 && (activeRoom.error || activeRoom.status === 'cancelled')) {
+        if (contentHeight <= 2 && (activeRoom.error || activeRoom.status === 'cancelled')) {
           const status = activeRoom.status === 'cancelled' ? 'CANCELLED' : 'FAILED';
           const reasonLimit = Math.max(0, Math.min(18, terminalWidth - visibleLength(` PARTIAL · ${status}: `) - 15));
           const reasonText = activeRoom.error && terminalWidth >= 44 ? crop(activeRoom.error, reasonLimit) : '';
@@ -340,9 +340,13 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
           const prefix = ` PARTIAL${detail}: `;
           const preview = previewAnswerLines(answer, 1, Math.max(1, terminalWidth - visibleLength(prefix)))[0] || '';
           lines.splice(0, lines.length, ` ${color('yellow', 'PARTIAL')}${terminalWidth >= 30 ? ` · ${color('red', status)}${reasonText ? ` (${reasonText})` : ''}` : ''}: ${preview}`);
+        } else if (!activeRoom.error && lines.length >= contentHeight - 1) {
+          if (lines.length >= contentHeight) lines.splice(Math.max(0, contentHeight - 1));
+          const preview = previewAnswerLines(answer, 1, Math.max(1, terminalWidth - 10))[0] || '';
+          lines.push(` Answer: ${preview}`);
         } else {
           if (activeRoom.error) lines.splice(0, lines.length, ` ${activeRoom.status === 'cancelled' ? 'Cancelled' : 'Stopped'}: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
-          else lines.splice(Math.max(0, contentHeight - 1));
+          else lines.splice(Math.max(0, contentHeight - 2));
           const answerLabel = activeRoom.error || activeRoom.status === 'cancelled' ? 'PARTIAL ANSWER' : 'MERGE ROOM SAYS';
           if (contentHeight === lines.length + 1) {
             const answerWidth = Math.max(1, terminalWidth - 10);
