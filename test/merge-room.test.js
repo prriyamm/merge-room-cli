@@ -417,7 +417,7 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
           started = true;
           child.stdin.write('First room mission\n');
         }
-        if (started && !commandsSent && /Scout.*working|Room 1 started turn 1/i.test(visibleOutput)) {
+        if (started && !commandsSent && /Scout.*working/i.test(visibleOutput)) {
           commandsSent = true;
           child.stdin.write('/2\n');
         }
@@ -444,9 +444,9 @@ test('interactive /cancel 1 targets Room 1 without changing Room 2 focus', async
 
     const output = `${stdout}\n${stderr}`.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
     assert.match(output, /Cancellation requested for Room 1\./i);
-    assert.match(output, /Room 1 Mission cancelled\./i);
-    assert.match(output, /room 2.*Second room mission/i);
-    assert.match(output, /room 1.*First room mission/i);
+    assert.match(output, /Room 1\s+cancelled[^\n]*\n[^\n]*First room mission/i);
+    assert.match(output, /Room 2\s+done[^\n]*\n[^\n]*Second room mission/i);
+    assert.doesNotMatch(output, /Room 1\s+cancelled[^\n]*\n[^\n]*Second room mission/i);
     assert.match(output, /Room 2 finished\. Continue there or switch rooms\./i);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
