@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyCockpitEvent, beginCockpitTurn, createCockpitState, restoreAgentStatuses, snapshotCockpitAgents } from '../src/cockpit.js';
+import { applyCockpitEvent, beginCockpitTurn, createCockpitState, loadCockpitSession, restoreAgentStatuses, snapshotCockpitAgents } from '../src/cockpit.js';
 import { createCockpitRenderer } from '../src/ui.js';
 
 test('recording a queued request does not steal focus from a later room selection', () => {
@@ -69,4 +69,23 @@ test('room agent snapshots keep old team identities and handoffs visible after a
   const output = lines.join('\n');
   assert.match(output, /Scout\s+done/);
   assert.match(output, /Keep the proposal focused\./);
+});
+
+test('malformed saved specialist data leaves the previous room state unchanged', () => {
+  for (const malformedAgents of [[null], [{}], {}, null]) {
+    const room = createCockpitState([{ id: 'scout', name: 'Scout' }]).rooms[0];
+    room.request = 'previous request';
+    room.final = 'previous answer';
+    room.result = { request: room.request, answer: room.final };
+    room.notes = { scout: 'previous note' };
+    room.status = 'done';
+    const before = structuredClone(room);
+
+    assert.throws(() => loadCockpitSession(room, {
+      request: 'replacement request',
+      answer: 'replacement answer',
+      agents: malformedAgents
+    }), /invalid specialist data/);
+    assert.deepEqual(room, before);
+  }
 });

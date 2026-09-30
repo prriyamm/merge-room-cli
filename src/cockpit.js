@@ -30,6 +30,67 @@ export function snapshotCockpitAgents(agents = []) {
   return agents.map(({ id, name, specialty, color, mark }) => ({ id, name, specialty, color, mark }));
 }
 
+export function loadCockpitSession(room, session) {
+  if (!room || !session || typeof session !== 'object' || Array.isArray(session)) {
+    throw new Error('Saved session is malformed.');
+  }
+  const savedAgents = session.agents === undefined ? [] : session.agents;
+  if (!Array.isArray(savedAgents) || savedAgents.some((item) => (
+    !item || typeof item !== 'object' || Array.isArray(item)
+    || !item.agent || typeof item.agent !== 'object' || Array.isArray(item.agent)
+    || typeof item.agent.id !== 'string' || !item.agent.id
+  ))) {
+    throw new Error('Saved session has invalid specialist data.');
+  }
+
+  const agents = snapshotCockpitAgents(savedAgents.map((item) => item.agent));
+  const notes = Object.fromEntries(savedAgents.map((item) => [item.agent.id, typeof item.text === 'string' ? item.text : '']));
+  const statuses = restoreAgentStatuses(agents, savedAgents);
+  const request = typeof session.request === 'string' ? session.request : '';
+  const answer = typeof session.answer === 'string' ? session.answer : '';
+  const context = session.context && typeof session.context === 'object' && !Array.isArray(session.context) ? session.context : null;
+  const usage = session.usage && typeof session.usage === 'object' && !Array.isArray(session.usage)
+    ? session.usage
+    : { input: 0, output: 0, total: 0, calls: 0 };
+  const waves = Array.isArray(session.waves)
+    ? session.waves.filter((wave) => wave && typeof wave === 'object' && !Array.isArray(wave))
+    : [];
+  const durationMs = Number(session.durationMs);
+  const finishedAt = Date.now();
+  const normalizedDuration = session.durationMs == null || !Number.isFinite(durationMs) || durationMs < 0 ? null : durationMs;
+  const normalizedSession = {
+    ...session,
+    request,
+    answer,
+    agents: savedAgents,
+    waves,
+    context,
+    usage,
+    durationMs: normalizedDuration
+  };
+  const nextRoomState = {
+    request,
+    final: answer,
+    answerDraft: '',
+    result: normalizedSession,
+    context,
+    usage,
+    events: [],
+    error: null,
+    finishedAt,
+    started: normalizedDuration !== null && normalizedDuration <= finishedAt ? finishedAt - normalizedDuration : null,
+    status: session.degraded || session.status === 'degraded' ? 'degraded' : 'done',
+    turn: Math.max(1, room.turn),
+    notes,
+    agentIds: agents.map((agent) => agent.id),
+    agents,
+    statuses
+  };
+
+  Object.assign(room, nextRoomState);
+  return normalizedSession;
+}
+
 export async function waitForCockpitTasks(tasks) {
   do {
     await new Promise((resolve) => setImmediate(resolve));
