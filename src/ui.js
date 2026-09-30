@@ -126,6 +126,21 @@ const previewAnswerLines = (answer, rowLimit, maxWidth) => {
   return [marker, ...answerLines.slice(-(limit - 1))];
 };
 
+const previewMissionLines = (mission, rowLimit, maxWidth) => {
+  const missionLines = wrap(mission, maxWidth);
+  const limit = Math.max(0, rowLimit);
+  if (missionLines.length <= limit) return missionLines;
+  if (limit === 0 || maxWidth <= 0) return [];
+  const lastVisibleIndex = limit - 1;
+  const marker = '…';
+  const contentWidth = Math.max(0, maxWidth - 1);
+  const finalLine = missionLines[lastVisibleIndex];
+  const shortened = visibleLength(finalLine) > contentWidth
+    ? crop(finalLine, contentWidth).replace(/…$/u, '')
+    : finalLine;
+  return [...missionLines.slice(0, lastVisibleIndex), `${shortened}${marker}`];
+};
+
 const STARTUP_PATTERN = Object.freeze(liquidGlassLogoLines({ color: false }));
 const COLORED_STARTUP_PATTERN = Object.freeze(liquidGlassLogoLines({ color: true }));
 
@@ -558,7 +573,7 @@ function cockpitMain(state, config, workspace, maxWidth, height) {
     ` ${color('gray', crop(workspace, maxWidth - 2))}`,
     '',
     ` ${color('bold', 'MISSION')}`,
-    ...wrap(room.request || 'Type a mission below. Switch rooms at any time.', maxWidth - 2).slice(0, 2).map((item) => ` ${color('white', item)}`),
+    ...previewMissionLines(room.request || 'Type a mission below. Switch rooms at any time.', 2, maxWidth - 2).map((item) => ` ${color('white', item)}`),
     '',
     ` ${color('bold', 'LIVE HANDOFFS')}`
   ];
