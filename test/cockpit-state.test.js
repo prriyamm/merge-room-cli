@@ -89,3 +89,28 @@ test('malformed saved specialist data leaves the previous room state unchanged',
     assert.deepEqual(room, before);
   }
 });
+
+test('wide cockpit mission preview marks when the mission continues beyond the visible rows', () => {
+  for (const columns of [84, 85, 100, 118, 140]) {
+    const lines = [];
+    const renderer = createCockpitRenderer({
+      config: { agents: [] },
+      provider: { name: 'demo' },
+      force: true,
+      columns,
+      rows: 28,
+      write: (line) => lines.push(line)
+    });
+    renderer.state.rooms[0].request = `${'界 e\u0301 keep-visible-start '.repeat(30)}hidden-mission-tail-9271`;
+
+    renderer.render();
+
+    const output = lines.join('\n');
+    const missionHeadingIndex = lines.findIndex((line) => line.includes('MISSION'));
+    assert.notEqual(missionHeadingIndex, -1, `mission pane should render at ${columns} columns`);
+    const missionRows = lines.slice(missionHeadingIndex + 1, missionHeadingIndex + 3);
+    assert.equal(missionRows.length, 2, `mission pane should show two preview rows at ${columns} columns`);
+    assert.match(missionRows[1], /keep-visible-start.*…/, `mission pane should mark omitted text at ${columns} columns`);
+    assert.doesNotMatch(output, /hidden-mission-tail-9271/, `hidden mission tail should stay omitted at ${columns} columns`);
+  }
+});
