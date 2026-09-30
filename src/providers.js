@@ -493,7 +493,7 @@ async function readStream(body, onDelta) {
     }
     const delta = parsed.choices?.[0]?.delta;
     const content = normalizeContent(delta?.content);
-    const piece = content.trim() ? content : normalizeContent(delta?.refusal);
+    const piece = content.trim() ? content : normalizeContent(delta?.refusal) || content;
     if (piece) { text += piece; onDelta(piece); }
     if (parsed.usage) usage = parsed.usage;
   };
