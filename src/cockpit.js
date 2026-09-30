@@ -14,6 +14,41 @@ export function resolveAgentReference(agents, query) {
   return byId || agents.find((agent) => String(agent.name || '').toLowerCase() === normalizedQuery) || null;
 }
 
+export function openCockpitReader(state, kind, reference = null, page = 1) {
+  if (!Number.isSafeInteger(page) || page < 1) throw new Error('Reader pages must be whole numbers greater than zero.');
+  const room = state.rooms[state.activeRoom];
+  let title;
+  let text;
+  if (kind === 'answer') {
+    text = room.final || room.answerDraft;
+    if (!text) throw new Error(`Room ${room.id} has no answer yet.`);
+    const partial = Boolean(room.error) || room.status === 'cancelled' || !room.final;
+    title = `Room ${room.id} · ${partial ? 'PARTIAL ANSWER' : 'ANSWER'}${room.status === 'cancelled' ? ' · CANCELLED' : room.error ? ' · FAILED' : room.running ? ' · LIVE SNAPSHOT' : ''}`;
+    if (room.error) text = `${room.error}\n\n${text}`;
+  } else if (kind === 'notes') {
+    if (reference) {
+      const agent = resolveAgentReference(room.agents, reference);
+      if (!agent) throw new Error(`No specialist named ${reference} in Room ${room.id}. Use /notes to inspect this room's handoffs.`);
+      text = Object.hasOwn(room.notes, agent.id) ? room.notes[agent.id] : null;
+      if (!text) throw new Error(`${agent.name || agent.id} has no handoff yet in Room ${room.id}.`);
+      title = `Room ${room.id} · ${agent.name || agent.id} (${agent.id}) · HANDOFF`;
+    } else {
+      title = `Room ${room.id} · HANDOFFS`;
+      text = room.agents.length ? room.agents.map((agent) => `${agent.name || agent.id} (${agent.id}) · ${room.statuses[agent.id] || 'idle'}\n${Object.hasOwn(room.notes, agent.id) && room.notes[agent.id] ? `Read: /notes ${agent.id}` : 'No handoff yet.'}`).join('\n\n') : 'No specialists in this room yet.';
+    }
+  } else throw new Error('Unknown reader view.');
+  const snapshot = Object.freeze({ kind, title, text: String(text), roomId: room.id, turn: room.turn });
+  room.reader = { snapshot, page, pageCount: 1 };
+  return snapshot;
+}
+
+export function navigateCockpitReader(state, direction) {
+  const reader = state.rooms[state.activeRoom].reader;
+  if (!reader) throw new Error('Open /answer or /notes <id> before using /next or /prev.');
+  reader.page = Math.max(1, Math.min(reader.pageCount, reader.page + direction));
+  return reader;
+}
+
 export function restoreAgentStatuses(currentAgents = [], savedAgents = []) {
   const statuses = Object.fromEntries(currentAgents.map((agent) => [agent.id, 'idle']));
   const validStatuses = new Set(['idle', 'queued', 'working', 'done', 'error', 'skipped', 'cancelled']);
@@ -69,6 +104,7 @@ export function loadCockpitSession(room, session) {
     durationMs: normalizedDuration
   };
   const nextRoomState = {
+    reader: null,
     request,
     final: answer,
     answerDraft: '',
@@ -103,6 +139,8 @@ export async function waitForCockpitTasks(tasks) {
 export function selectCockpitRoom(state, roomNumber) {
   const index = Number(roomNumber) - 1;
   if (!Number.isInteger(index) || index < 0 || index >= state.rooms.length) throw new Error(`Room must be between 1 and ${state.rooms.length}.`);
+  state.rooms[state.activeRoom].reader = null;
+  state.rooms[index].reader = null;
   state.activeRoom = index;
   state.message = `Room ${roomNumber} selected.`;
   return state.rooms[index];
@@ -122,6 +160,7 @@ export function beginCockpitTurn(state, roomIndex, request, agents = []) {
   if (!room) throw new Error(`Unknown room: ${roomIndex + 1}.`);
   if (room.running) throw new Error(`Room ${roomIndex + 1} is already working. Switch rooms with /switch.`);
   room.running = true;
+  room.reader = null;
   room.status = 'preparing';
   room.request = String(request).trim();
   room.answerDraft = '';
@@ -190,6 +229,7 @@ export function finishCockpitTurn(state, roomIndex, result, error = null, option
 function createRoom(index, agents) {
   return {
     id: index + 1,
+    reader: null,
     turn: 0,
     status: 'idle',
     running: false,

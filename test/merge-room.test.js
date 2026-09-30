@@ -515,7 +515,7 @@ test('compact Cockpit more help pages reveal each command at widths 46, 40, and 
       assert.doesNotMatch(output, /Room 1:|\/new reset/);
       allVisible.push(...pages[index]);
     }
-    assert.equal(allVisible.length, 11);
+    assert.equal(allVisible.length, 16);
     assert.equal(new Set(allVisible).size, allVisible.length);
     assert.equal(currentPage, 0);
   }
@@ -623,7 +623,7 @@ test('compact expanded Cockpit help pages expose every command and next-page con
       assert.ok(lines.every((line) => line.length <= columns), `line width at ${columns} columns`);
       allVisible.push(...pages[index]);
     }
-    assert.equal(allVisible.length, 11);
+    assert.equal(allVisible.length, 16);
     assert.equal(new Set(allVisible).size, allVisible.length);
     assert.equal(currentPage, 0, `help more paging wraps at ${columns} columns`);
   }

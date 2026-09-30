@@ -141,6 +141,52 @@ const previewMissionLines = (mission, rowLimit, maxWidth) => {
   return [...missionLines.slice(0, lastVisibleIndex), `${shortened}${marker}`];
 };
 
+export function cockpitReaderPage(reader, columns, rows) {
+  const maxWidth = Math.max(1, Math.floor(columns));
+  const height = Math.max(1, Math.floor(rows) - 1);
+  if (reader.wrappedWidth !== maxWidth) {
+    const wrapped = [];
+    for (const paragraph of sanitizeMultilineText(reader.snapshot.text).replaceAll('\t', '    ').split('\n')) {
+      let current = '';
+      let used = 0;
+      for (const item of graphemes(paragraph)) {
+        const cells = graphemeWidth(item);
+        if (used + cells > maxWidth && current) { wrapped.push(current); current = ''; used = 0; }
+        // A terminal one cell wide cannot display a two-cell glyph.
+        if (cells > maxWidth) { wrapped.push('…'); continue; }
+        current += item;
+        used += cells;
+      }
+      wrapped.push(current);
+    }
+    reader.wrappedWidth = maxWidth;
+    reader.wrappedLines = wrapped;
+  }
+  const wrapped = reader.wrappedLines;
+  const showHeading = height >= 3;
+  const desiredControls = maxWidth >= 44 ? 1 : maxWidth >= 18 ? 2 : height >= 8 ? 4 : height >= 4 ? 2 : 0;
+  const availableControls = Math.max(0, height - Number(showHeading) - 1);
+  const controlLines = desiredControls <= availableControls ? desiredControls : availableControls >= 2 ? 2 : availableControls >= 1 ? 1 : 0;
+  const bodyHeight = Math.max(1, height - Number(showHeading) - controlLines);
+  reader.pageCount = Math.max(1, Math.ceil(wrapped.length / bodyHeight));
+  reader.page = Math.max(1, Math.min(reader.page, reader.pageCount));
+  const shortTitle = reader.snapshot.title.includes('PARTIAL ANSWER') ? 'PARTIAL' : reader.snapshot.kind === 'answer' ? 'ANSWER' : 'HANDOFF';
+  const title = maxWidth < 30 ? `${shortTitle} R${reader.snapshot.roomId}` : reader.snapshot.title;
+  const pageLabel = `${reader.page}/${reader.pageCount}`;
+  const controls = controlLines === 1 ? [maxWidth >= 44 ? `${pageLabel} · snapshot · /prev /next /back` : pageLabel]
+    : controlLines === 2 ? maxWidth >= 18 ? [`${pageLabel} · snapshot`, '/prev /next /back'] : [pageLabel, '/back']
+    : controlLines === 4 ? [pageLabel, '/prev', '/next', '/back'] : [];
+  const body = wrapped.slice((reader.page - 1) * bodyHeight, reader.page * bodyHeight);
+  while (body.length < bodyHeight) body.push('');
+  const lines = [...(showHeading ? [title] : []), ...body, ...controls].map((item) => fit(item, maxWidth));
+  return { lines, body, page: reader.page, pageCount: reader.pageCount };
+}
+
+export function printCockpitReader(snapshot) {
+  console.log(`\n${sanitizeUntrustedText(snapshot.title)}`);
+  console.log(sanitizeMultilineText(snapshot.text));
+}
+
 const STARTUP_PATTERN = Object.freeze(liquidGlassLogoLines({ color: false }));
 const COLORED_STARTUP_PATTERN = Object.freeze(liquidGlassLogoLines({ color: true }));
 
@@ -285,6 +331,11 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
     const terminalHeight = Math.max(1, terminalRows - 1);
     const header = ` ${color('bold', 'MERGE ROOM')} ${color('gray', `· ${sanitizeUntrustedText(provider.name)} · two live sessions`)}`;
     const help = ' /1 /2 switch · /new reset · /cancel [1|2] · /help · /quit';
+    const reader = state.rooms[state.activeRoom].reader;
+    if (reader) {
+      for (const item of cockpitReaderPage(reader, terminalWidth, terminalRows).lines) safeWrite(surface(item));
+      return;
+    }
     if (terminalWidth < 84 || terminalRows < 24) {
       const isMoreHelpMessage = state.message.startsWith('Help more');
       const isHelpMessage = state.message.startsWith('Help:') || state.message.startsWith('/agents [id] /team') || isMoreHelpMessage;
