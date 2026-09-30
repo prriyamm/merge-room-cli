@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
-import { beginCockpitTurn, finishCockpitTurn, resetCockpitRoom, resolveAgentReference, restoreAgentStatuses, selectCockpitRoom, snapshotCockpitAgents, waitForCockpitTasks } from './cockpit.js';
+import { beginCockpitTurn, finishCockpitTurn, loadCockpitSession, resetCockpitRoom, resolveAgentReference, selectCockpitRoom, waitForCockpitTasks } from './cockpit.js';
 import { providerTemperature, VERSION, loadConfig, safeBaseUrl, writeStarterConfig } from './config.js';
 import { completionScript, defaultShell } from './completions.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from './context.js';
@@ -615,26 +615,10 @@ async function interactive(config, provider, noContext = false, noSave = false, 
           throw new Error(`Room ${roomIndex + 1} changed while loading. Switch to it and try /show again.`);
         }
         const room = targetRoom;
-        room.request = session.request || '';
-        room.final = session.answer || '';
-        room.answerDraft = '';
-        room.result = session;
-        room.context = session.context || null;
-        room.usage = session.usage || { input: 0, output: 0, total: 0, calls: 0 };
-        room.events = [];
-        room.error = null;
-        room.finishedAt = Date.now();
-        const durationMs = session.durationMs == null ? NaN : Number(session.durationMs);
-        room.started = Number.isFinite(durationMs) && durationMs >= 0 && durationMs <= room.finishedAt ? room.finishedAt - durationMs : null;
-        room.status = session.degraded || session.status === 'degraded' ? 'degraded' : 'done';
-        room.turn = Math.max(1, room.turn);
-        room.notes = Object.fromEntries((session.agents || []).map((item) => [item.agent?.id, item.text]));
-        room.agentIds = (session.agents || []).map((item) => item.agent?.id).filter(Boolean);
-        room.agents = snapshotCockpitAgents((session.agents || []).map((item) => item.agent).filter(Boolean));
-        room.statuses = restoreAgentStatuses(room.agents, session.agents);
-        setMessage(`Loaded ${session.id} into Room ${room.id}.`, inputNoticeSequence);
-        if (isTerminal) renderer.loaded(session);
-        else printSession(session);
+        const loadedSession = loadCockpitSession(room, session);
+        setMessage(`Loaded ${loadedSession.id} into Room ${room.id}.`, inputNoticeSequence);
+        if (isTerminal) renderer.loaded(loadedSession);
+        else printSession(loadedSession);
       } catch (error) { if (!closing && showRequests.get(roomIndex) === showRequestId) setMessage(error.message, inputNoticeSequence); }
       return true;
     }
