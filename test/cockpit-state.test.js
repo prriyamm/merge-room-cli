@@ -106,8 +106,11 @@ test('wide cockpit mission preview marks when the mission continues beyond the v
     renderer.render();
 
     const output = lines.join('\n');
-    assert.match(output, /keep-visible-start/, `mission should remain visible at ${columns} columns`);
-    assert.match(output, /…/, `mission continuation should be marked at ${columns} columns`);
+    const missionHeadingIndex = lines.findIndex((line) => line.includes('MISSION'));
+    assert.notEqual(missionHeadingIndex, -1, `mission pane should render at ${columns} columns`);
+    const missionRows = lines.slice(missionHeadingIndex + 1, missionHeadingIndex + 3);
+    assert.equal(missionRows.length, 2, `mission pane should show two preview rows at ${columns} columns`);
+    assert.match(missionRows[1], /keep-visible-start.*…/, `mission pane should mark omitted text at ${columns} columns`);
     assert.doesNotMatch(output, /hidden-mission-tail-9271/, `hidden mission tail should stay omitted at ${columns} columns`);
   }
 });
