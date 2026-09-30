@@ -111,8 +111,11 @@ export function finishCockpitTurn(state, roomIndex, result, error = null, option
   room.final = result?.answer || room.answerDraft || null;
   room.usage = result?.usage || room.usage;
   room.error = error ? String(error.message || error) : null;
-  if (error?.name === 'AbortError') {
-    for (const [agentId, status] of Object.entries(room.statuses)) if (status === 'queued' || status === 'working') room.statuses[agentId] = 'cancelled';
+  if (error) {
+    const unfinishedStatus = error.name === 'AbortError' ? 'cancelled' : 'error';
+    for (const [agentId, status] of Object.entries(room.statuses)) {
+      if (status === 'queued' || status === 'working') room.statuses[agentId] = unfinishedStatus;
+    }
   }
   room.status = error ? (error.name === 'AbortError' ? 'cancelled' : 'error') : result?.degraded ? 'degraded' : 'done';
   if (options?.updateMessage !== false) state.message = error ? `Room ${roomIndex + 1} stopped: ${room.error}` : `Room ${roomIndex + 1} finished. Continue there or switch rooms.`;

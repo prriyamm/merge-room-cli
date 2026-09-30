@@ -39,6 +39,21 @@ test('cancellation marks active and queued specialists, then finishes as cancell
   assert.ok(Number.isFinite(state.rooms[0].finishedAt));
 });
 
+test('ordinary failure marks unfinished specialists as failed and preserves completed work', () => {
+  const team = [...agents, { id: 'scribe', name: 'Scribe' }];
+  const state = createCockpitState(team);
+  beginCockpitTurn(state, 0, 'inspect the release', team);
+  applyCockpitEvent(state, 0, { type: 'agent:start', agent: agents[0] });
+  applyCockpitEvent(state, 0, { type: 'agent:done', agent: agents[0], text: 'Release looks healthy.' });
+  applyCockpitEvent(state, 0, { type: 'agent:start', agent: agents[1] });
+
+  finishCockpitTurn(state, 0, null, new Error('Workspace context failed.'));
+
+  assert.equal(state.rooms[0].running, false);
+  assert.equal(state.rooms[0].status, 'error');
+  assert.deepEqual(state.rooms[0].statuses, { scout: 'done', critic: 'error', scribe: 'error' });
+});
+
 test('run completion enters saving, then preserves degraded status and final usage', () => {
   const state = createCockpitState(agents);
   beginCockpitTurn(state, 0, 'inspect the release', agents);
