@@ -44,7 +44,7 @@ test('failed export staging or replacement preserves the old file and removes it
       await fs.writeFile(output, 'Previous export', 'utf8');
       fs.open = async (file, ...args) => {
         const handle = await originalOpen(file, ...args);
-        if (failurePoint === 'write' && path.dirname(file) === root && path.basename(file).startsWith('.report.md.tmp-')) {
+        if (failurePoint === 'write' && path.dirname(file) === root && path.basename(file).startsWith('.merge-room-export-')) {
           const originalHandleWriteFile = handle.writeFile;
           handle.writeFile = async () => {
             await originalHandleWriteFile.call(handle, 'Incomplete replacement', 'utf8');
@@ -71,5 +71,20 @@ test('failed export staging or replacement preserves the old file and removes it
       fs.rename = originalRename;
       await fs.rm(root, { recursive: true, force: true });
     }
+  }
+});
+
+test('session export accepts a long valid destination filename without leaving staging files', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-long-export-'));
+  const filename = `${'r'.repeat(218)}.json`;
+  const output = path.join(root, filename);
+  const session = { id: 'long-export-id', answer: 'Complete replacement' };
+  try {
+    await fs.writeFile(output, 'Previous export', 'utf8');
+    assert.equal(await writeSessionExport(session, root, filename, 'json'), output);
+    assert.deepEqual(JSON.parse(await fs.readFile(output, 'utf8')), session);
+    assert.deepEqual(await fs.readdir(root), [filename]);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
   }
 });
