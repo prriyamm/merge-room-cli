@@ -233,6 +233,84 @@ test('compact cockpit preserves an answer preview when one row shorter', () => {
   assert.equal(lines.length, 6);
 });
 
+test('compact Cockpit marks omitted answer text while keeping the latest tail', () => {
+  const lines = [];
+  const renderer = createCockpitRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' }, force: true, columns: 60, rows: 8, write: (line) => lines.push(line) });
+  renderer.state.rooms[0].request = 'Review the release';
+  renderer.state.rooms[0].final = ['ANSWER-START', ...Array.from({ length: 12 }, (_, index) => `middle answer line ${index + 1}`), 'ANSWER-END'].join('\n');
+
+  renderer.render();
+
+  const output = lines.join('\n');
+  assert.match(output, /earlier omitted/);
+  assert.doesNotMatch(output, /ANSWER-START/);
+  assert.match(output, /ANSWER-END/);
+  assert.ok(lines.some((line) => /earlier omitted.*ANSWER-END/.test(line)), 'the one-row preview keeps its marker and latest answer tail together');
+  assert.ok(lines.every((line) => line.length <= 60));
+  assert.ok(lines.length <= 7);
+});
+
+test('compact Cockpit reserves an answer row when mission and handoff details fill the pane', () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };
+  const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 60, rows: 9, write: (line) => lines.push(line) });
+  const room = renderer.state.rooms[0];
+  room.request = 'Review the release';
+  room.notes[config.agents[0].id] = 'Build checks are green';
+  room.events.push({ message: 'Latest event: review finished' });
+  room.final = ['ANSWER-START', ...Array.from({ length: 12 }, (_, index) => `middle answer line ${index + 1}`), 'ANSWER-END'].join('\n');
+
+  renderer.render();
+
+  const output = lines.join('\n');
+  assert.match(output, /Mission: Review the release/);
+  assert.match(output, /Handoff:.*Latest:/);
+  assert.doesNotMatch(output, /ANSWER-START/);
+  assert.ok(lines.some((line) => /earlier omitted.*ANSWER-END/.test(line)), 'the latest answer tail remains visible beside its omission marker');
+  assert.ok(lines.every((line) => line.length <= 60));
+  assert.ok(lines.length <= 8);
+});
+
+test('compact Cockpit labels a cancelled tail preview as partial', () => {
+  const lines = [];
+  const renderer = createCockpitRenderer({ config: DEFAULT_CONFIG, provider: { name: 'demo' }, force: true, columns: 60, rows: 8, write: (line) => lines.push(line) });
+  const room = renderer.state.rooms[0];
+  room.status = 'cancelled';
+  room.request = 'Review the interrupted release';
+  room.final = ['ANSWER-START', ...Array.from({ length: 12 }, (_, index) => `middle answer line ${index + 1}`), 'ANSWER-END'].join('\n');
+
+  renderer.render();
+
+  const output = lines.join('\n');
+  assert.match(output, /PARTIAL ANSWER/);
+  assert.match(output, /earlier omitted/);
+  assert.doesNotMatch(output, /Answer:.*earlier omitted/);
+  assert.ok(lines.some((line) => /earlier omitted.*ANSWER-END/.test(line)), 'the cancelled room keeps its latest answer tail');
+});
+
+test('wide Cockpit marks omitted answer text when only one answer row remains', () => {
+  const lines = [];
+  const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };
+  const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 100, rows: 25, write: (line) => lines.push(line) });
+  const room = renderer.state.rooms[0];
+  room.request = 'Review this release request carefully '.repeat(5);
+  room.notes[config.agents[0].id] = 'First handoff';
+  room.notes[config.agents[1].id] = 'Second handoff';
+  room.events.push(...Array.from({ length: 2 }, (_, index) => ({ time: '12:00:00', message: `Run event ${index + 1}` })));
+  room.error = 'Lead synthesis failed';
+  room.final = ['ANSWER-START', ...Array.from({ length: 12 }, (_, index) => `middle answer line ${index + 1}`), 'ANSWER-END'].join('\n');
+
+  renderer.render();
+
+  const output = lines.join('\n');
+  assert.match(output, /earlier omitted/);
+  assert.doesNotMatch(output, /ANSWER-START/);
+  assert.match(output, /ANSWER-END/);
+  assert.ok(lines.some((line) => /earlier omitted.*ANSWER-END/.test(line)), 'the one-row preview keeps its marker and latest answer tail together');
+  assert.ok(lines.every((line) => line.length <= 100));
+  assert.ok(lines.length <= 24);
+});
+
 test('compact Cockpit history exposes short load references at 13 and 8 columns', () => {
   const historyEntries = [
     { id: '2026-09-29T22-15-10-123-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaa1f0', reference: '@1', request: 'Repair the parser' },
