@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
-import { beginCockpitTurn, finishCockpitTurn, resetCockpitRoom, resolveAgentReference, restoreAgentStatuses, selectCockpitRoom, waitForCockpitTasks } from './cockpit.js';
+import { beginCockpitTurn, finishCockpitTurn, resetCockpitRoom, resolveAgentReference, restoreAgentStatuses, selectCockpitRoom, snapshotCockpitAgents, waitForCockpitTasks } from './cockpit.js';
 import { providerTemperature, VERSION, loadConfig, safeBaseUrl, writeStarterConfig } from './config.js';
 import { completionScript, defaultShell } from './completions.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from './context.js';
@@ -630,7 +630,8 @@ async function interactive(config, provider, noContext = false, noSave = false, 
         room.turn = Math.max(1, room.turn);
         room.notes = Object.fromEntries((session.agents || []).map((item) => [item.agent?.id, item.text]));
         room.agentIds = (session.agents || []).map((item) => item.agent?.id).filter(Boolean);
-        room.statuses = restoreAgentStatuses(sessionConfig.agents, session.agents);
+        room.agents = snapshotCockpitAgents((session.agents || []).map((item) => item.agent).filter(Boolean));
+        room.statuses = restoreAgentStatuses(room.agents, session.agents);
         setMessage(`Loaded ${session.id} into Room ${room.id}.`, inputNoticeSequence);
         if (isTerminal) renderer.loaded(session);
         else printSession(session);
