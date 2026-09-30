@@ -306,6 +306,11 @@ Type a mission to start the selected room. Use `/run <mission>` when the mission
 /again                 Repeat the selected room’s last mission as a new turn, carrying its conversation
 /cancel [1|2]          Cancel selected room or target a room directly without switching
 /agents [id]           Show team size or one specialist's details
+/answer [page]         Read the selected room's full answer, including unsaved or streaming text
+/notes                 List handoff IDs in the selected room
+/notes <id> [page]      Read one specialist's full handoff
+/next or /prev         Move through the reader's pages
+/back                  Return from the reader to the dashboard
 /team                  Show the selected team
 /team <all|ids>        Change the team for future turns
 /profile <name>        Switch the provider profile for future turns
@@ -321,6 +326,8 @@ Type a mission to start the selected room. Use `/run <mission>` when the mission
 ```
 
 The prompt remains available while agents work. The live dashboard shows each room's status and specialist activity, with completed answers visible in that room's mission pane. Use `/agents <id>` to inspect one specialist without squeezing a long roster into the dashboard's status line. Non-interactive runs print answers to ordinary terminal output.
+
+Use `/answer` or `/notes <id>` to read text beyond the dashboard preview. The reader preserves paragraphs and list lines and works with `--no-save`. It captures a snapshot when opened, so new streaming text cannot move the page while you read; reopen the command to refresh it. Streaming, cancelled, and failed answers are labeled partial. Page numbers start at 1 and adjust to the terminal's size. `/next`, `/prev`, and `/back` navigate the reader; `/1`, `/2`, a new mission, `/new`, or `/show` return to the dashboard. Other commands also return to the dashboard to show their notices. Small terminals prioritize the text and page indicator; `/next`, `/prev`, and `/back` still work when there is insufficient space to display their labels. Non-interactive terminals print the complete snapshot directly, with no history or export file required.
 
 ## Development
 

@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline';
-import { beginCockpitTurn, finishCockpitTurn, loadCockpitSession, resetCockpitRoom, resolveAgentReference, selectCockpitRoom, waitForCockpitTasks } from './cockpit.js';
+import { beginCockpitTurn, finishCockpitTurn, loadCockpitSession, navigateCockpitReader, openCockpitReader, resetCockpitRoom, resolveAgentReference, selectCockpitRoom, waitForCockpitTasks } from './cockpit.js';
 import { providerTemperature, VERSION, loadConfig, safeBaseUrl, writeStarterConfig } from './config.js';
 import { completionScript, defaultShell } from './completions.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from './context.js';
@@ -9,7 +9,7 @@ import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from './engine.js';
 import { createProvider } from './providers.js';
 import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from './sessions.js';
 import { themeSummaries } from './themes.js';
-import { createCockpitRenderer, createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, printCockpitPartialAnswer, setTheme, stripUnsafeTerminalControls } from './ui.js';
+import { createCockpitRenderer, createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, printCockpitPartialAnswer, printCockpitReader, setTheme, stripUnsafeTerminalControls } from './ui.js';
 
 const VALUE_OPTIONS = ['--cwd', '-C', '--prompt-file', '--config', '--team', '--provider', '--profile', '--model', '--base-url', '--max-tokens', '--temperature', '--concurrency', '--timeout', '--retries', '--max-calls', '--run-id', '--theme', '--include', '--limit', '--format', '--output'];
 const BOOLEAN_OPTIONS = ['--json', '--no-context', '--no-save', '--parallel', '--diff', '--trace', '--no-stream', '--stream-usage', '--events', '--strict'];
@@ -19,7 +19,7 @@ const MAX_CONVERSATION_TURNS = 12;
 const MAX_RESUME_CONTEXT_CHARS = 12000;
 
 export function cockpitHelpMorePages(width = 80) {
-  const commands = ['/again', '/cancel [1|2]', '/agents [id]', '/team [all|ids]', '/profile <name>', '/profiles', '/context [on|off]', '/history', '/show <id|last>', '/export <id> [md|json]', '/usage'];
+  const commands = ['/again', '/cancel [1|2]', '/agents [id]', '/team [all|ids]', '/profile <name>', '/profiles', '/context [on|off]', '/history', '/show <id|last>', '/export <id> [md|json]', '/usage', '/answer [page]', '/notes [id] [page]', '/next', '/prev', '/back'];
   const pageSize = width <= 17 ? 1 : width < 30 ? 2 : 4;
   return Array.from({ length: Math.ceil(commands.length / pageSize) }, (_, index) => commands.slice(index * pageSize, (index + 1) * pageSize));
 }
@@ -491,7 +491,39 @@ async function interactive(config, provider, noContext = false, noSave = false, 
     const request = String(value || '').trim();
     if (!request) return true;
     const inputNoticeSequence = ++noticeSequence;
+    const isReaderCommand = /^\/(?:answer|notes)(?:\s|$)/.test(request) || ['/next', '/prev', '/back'].includes(request);
+    if (!isReaderCommand) renderer.state.rooms[renderer.state.activeRoom].reader = null;
     if (request === '/quit' || request === '/exit') return false;
+    if (/^\/(?:answer|notes)(?:\s|$)/.test(request)) {
+      const [command, ...parts] = request.split(/\s+/);
+      const kind = command.slice(1);
+      const roomIndex = renderer.state.activeRoom;
+      renderer.state.rooms[roomIndex].reader = null;
+      const usage = kind === 'answer' ? 'Use /answer [page].' : 'Use /notes or /notes <id> [page].';
+      if (parts.length > (kind === 'answer' ? 1 : 2)) { setMessage(usage); return true; }
+      const pageValue = parts[kind === 'answer' ? 0 : 1];
+      if (pageValue !== undefined && !/^\d+$/.test(pageValue)) { setMessage(usage); return true; }
+      try {
+        if (!isTerminal) await waitForActiveRoom(roomIndex);
+        const snapshot = openCockpitReader(renderer.state, kind, kind === 'notes' ? parts[0] : null, pageValue === undefined ? 1 : Number(pageValue));
+        if (useDashboard) setMessage('Reading a snapshot. Use /next /prev /back; reopen /answer or /notes to refresh.');
+        else {
+          renderer.state.rooms[roomIndex].reader = null;
+          printCockpitReader(snapshot);
+        }
+      } catch (error) { setMessage(error.message); }
+      return true;
+    }
+    if (request === '/next' || request === '/prev') {
+      try { navigateCockpitReader(renderer.state, request === '/next' ? 1 : -1); redraw(); }
+      catch (error) { setMessage(error.message); }
+      return true;
+    }
+    if (request === '/back') {
+      renderer.state.rooms[renderer.state.activeRoom].reader = null;
+      setMessage('Returned to the room dashboard.');
+      return true;
+    }
     if (request === '/1' || request === '/2') { const room = selectCockpitRoom(renderer.state, request.slice(1)); setMessage(`Switched to Room ${room.id}.`); return true; }
     if (request === '/switch') { const room = selectCockpitRoom(renderer.state, renderer.state.activeRoom === 0 ? 2 : 1); setMessage(`Switched to Room ${room.id}.`); return true; }
     if (/^\/cancel(?:\s|$)/.test(request)) {
