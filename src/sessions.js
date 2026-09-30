@@ -273,6 +273,19 @@ export async function writeSessionExport(session, cwd = process.cwd(), destinati
   const output = path.resolve(cwd, destination);
   const content = format === 'json' ? `${JSON.stringify(session, null, 2)}\n` : formatSessionMarkdown(session);
   await fs.mkdir(path.dirname(output), { recursive: true });
-  await fs.writeFile(output, content, 'utf8');
+  const temporary = path.join(path.dirname(output), `.merge-room-export-${randomUUID()}.tmp`);
+  let handle;
+  let created = false;
+  try {
+    handle = await fs.open(temporary, 'wx', 0o600);
+    created = true;
+    await handle.writeFile(content, 'utf8');
+    await handle.close();
+    handle = null;
+    await fs.rename(temporary, output);
+  } finally {
+    await handle?.close().catch(() => {});
+    if (created) await fs.rm(temporary, { force: true }).catch(() => {});
+  }
   return output;
 }
