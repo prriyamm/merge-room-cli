@@ -107,24 +107,6 @@ export async function main(args = [], { signal, readSessionFn = readSession, lis
     else printThemes(selected.id);
     return;
   }
- if (command === 'agents') {
-    if (json) console.log(JSON.stringify({ agents: config.agents, model: config.model, baseUrl: safeBaseUrl(config.baseUrl) }, null, 2));
-    else printAgents(config);
-    return;
-  }
-  if (command === 'config') {
-    const safeConfig = publicConfig(config);
-    if (json) console.log(JSON.stringify(safeConfig, null, 2));
-    else printConfig(safeConfig);
-    return;
-  }
-  if (command === 'providers') return printProviderStatus(config, json);
-  if (command === 'context') {
-    const context = noContext ? { cwd: workspace, entries: [], excerpts: [], fileCount: 0, truncated: false, git: null } : await collectWorkspaceContext(workspace, { ...config.context, ...(include !== null ? { include } : {}), includeDiff: includeDiff || preset.includeDiff === true, signal });
-   if (json) console.log(JSON.stringify(context, null, 2));
-    else console.log(formatWorkspaceContext(context));
-    return;
-  }
   if (command === 'history') {
     const limit = limitValue !== null ? numericFlag(limitValue, '--limit', 1, true) : undefined;
     const sessions = config.sessionDir ? await listSessions(workspace, config.sessionDir, { limit }) : [];
@@ -169,10 +151,9 @@ export async function main(args = [], { signal, readSessionFn = readSession, lis
     else console.log(result.created ? `  Created ${result.file}` : `  Already here: ${result.file}`);
     return;
   }
-  if (command === 'doctor') return doctor(config, json, workspace);
   const configuredRun = {
     ...config,
-    context: { ...config.context, ...(include !== null ? { include } : {}), includeDiff: includeDiff || preset.includeDiff === true },
+    context: { ...config.context, ...(noContext ? { enabled: false } : {}), ...(include !== null ? { include } : {}), includeDiff: includeDiff || preset.includeDiff === true },
     ...(preset.strategy ? { strategy: preset.strategy } : {}),
     ...(parallel ? { strategy: 'parallel' } : {}),
    ...(noStream ? { streaming: false } : {}),
@@ -192,6 +173,25 @@ export async function main(args = [], { signal, readSessionFn = readSession, lis
     ...(maxCallsValue !== null ? { maxCalls: numericFlag(maxCallsValue, '--max-calls', 0, true) } : {}),
   };
   const runConfig = teamValue !== null ? selectTeam(configuredRun, teamValue) : configuredRun;
+  if (command === 'agents') {
+    if (json) console.log(JSON.stringify({ agents: runConfig.agents, model: runConfig.model, baseUrl: safeBaseUrl(runConfig.baseUrl) }, null, 2));
+    else printAgents(runConfig);
+    return;
+  }
+  if (command === 'config') {
+    const safeConfig = publicConfig(runConfig);
+    if (json) console.log(JSON.stringify(safeConfig, null, 2));
+    else printConfig(safeConfig);
+    return;
+  }
+  if (command === 'providers') return printProviderStatus(runConfig, json);
+  if (command === 'context') {
+    const context = noContext ? { cwd: workspace, entries: [], excerpts: [], fileCount: 0, truncated: false, git: null } : await collectWorkspaceContext(workspace, { ...runConfig.context, signal });
+    if (json) console.log(JSON.stringify(context, null, 2));
+    else console.log(formatWorkspaceContext(context));
+    return;
+  }
+  if (command === 'doctor') return doctor(runConfig, json, workspace);
   const provider = createProvider(runConfig, workspace);
   if (command === 'plan') {
     const requestParts = cleanArgs.slice(1);
@@ -995,6 +995,8 @@ function publicConfig(config) {
     sessionDir: config.sessionDir,
     context: {
       enabled: config.context?.enabled !== false,
+      include: config.context?.include || [],
+      includeDiff: config.context?.includeDiff === true,
       maxFiles: config.context?.maxFiles,
       maxBytes: config.context?.maxBytes,
       maxExcerptBytes: config.context?.maxExcerptBytes,

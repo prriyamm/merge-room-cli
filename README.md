@@ -202,6 +202,8 @@ usage ~1.5k burned · ~1.2k in · ~309 out · 5 calls · 4 agents
 
 ## Configuration
 
+Use `config`, `agents`, `providers`, or `doctor` with the same options you intend to run. For example, `merge-room config --team=scout --model=your-model --concurrency=2 --json` reports those effective overrides, and `merge-room plan "your mission"` with the same options previews the resulting orchestration without calling a model.
+
 Create a project profile:
 
 ```bash
