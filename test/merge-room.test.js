@@ -311,6 +311,47 @@ test('wide Cockpit marks omitted answer text when only one answer row remains', 
   assert.ok(lines.length <= 24);
 });
 
+test('wide Cockpit reserves answer content and usage after full handoffs and log entries', () => {
+  for (const rows of [24, 25]) {
+    for (const status of ['done', 'degraded', 'cancelled', 'error']) {
+      for (const message of ['Room 1 finished. Continue there or switch rooms.', 'Exported saved mission to C:/long-project-workspace/'.repeat(6), 'Exported saved mission to C:/long-project-workspace/'.repeat(40)]) {
+        const lines = [];
+        const config = { ...DEFAULT_CONFIG, agents: DEFAULT_CONFIG.agents.slice(0, 2) };
+        const renderer = createCockpitRenderer({ config, provider: { name: 'demo' }, force: true, columns: 100, rows, write: (line) => lines.push(line) });
+        const room = renderer.state.rooms[0];
+        room.request = 'Review this release request carefully '.repeat(5);
+        room.notes[config.agents[0].id] = 'First handoff';
+        room.notes[config.agents[1].id] = 'Second handoff';
+        room.events = Array.from({ length: 3 }, (_, index) => ({ time: '12:00:00', message: `Run event ${index + 1}` }));
+        room.status = status;
+        room.error = status === 'cancelled' ? 'Mission cancelled.' : status === 'error' ? 'Connection failed.' : null;
+        room.final = ['ANSWER-START', ...Array.from({ length: 12 }, (_, index) => `middle answer line ${index + 1}`), 'ANSWER-END'].join('\n');
+        room.usage = { total: 432, calls: 5 };
+        renderer.state.message = message;
+
+        renderer.render();
+
+        // Inspect only the focused pane: the sidebar's room status cannot
+        // satisfy the answer, interruption reason, or footer assertions.
+        const mainLines = lines.filter((line) => line.startsWith('│')).map((line) => line.split('│')[2]);
+        const output = mainLines.join('\n');
+        const label = `${rows} rows, ${status}, ${message.length}-character notice`;
+        assert.match(output, /ANSWER-END/, label);
+        assert.match(output, /earlier (?:answer )?omitted/, label);
+        assert.match(output, /432 tokens · 5 calls/, label);
+        assert.match(output, /MISSION/, label);
+        if (room.error) {
+          assert.match(output, /PARTIAL ANSWER/, label);
+          assert.match(output, status === 'cancelled' ? /Cancelled: Mission cancelled\./ : /Stopped: Connection failed\./, label);
+        } else assert.match(output, /MERGE ROOM SAYS/, label);
+        assert.ok(lines.length <= rows - 1, label);
+        assert.ok(lines.every((line) => line.length <= 100), label);
+        if (message.length > 1000) assert.match(lines.at(-1), /…/, 'a capped notice marks its omitted continuation');
+      }
+    }
+  }
+});
+
 test('compact Cockpit history exposes short load references at 13 and 8 columns', () => {
   const historyEntries = [
     { id: '2026-09-29T22-15-10-123-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaa1f0', reference: '@1', request: 'Repair the parser' },
