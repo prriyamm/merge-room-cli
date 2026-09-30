@@ -406,8 +406,9 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
     }
     const sidebarWidth = Math.min(34, Math.max(27, Math.floor(terminalWidth * 0.3)));
     const mainWidth = terminalWidth - sidebarWidth - 3;
-    const wrappedMessage = wrap(state.message || '', Math.max(1, terminalWidth - 2));
-    const messageLines = (wrappedMessage.length ? wrappedMessage : ['']).slice(0, Math.max(0, terminalHeight - 3));
+    const messageLimit = Math.max(1, terminalHeight - 3 - 10);
+    const messagePreview = previewMissionLines(state.message || '', messageLimit, Math.max(1, terminalWidth - 2));
+    const messageLines = messagePreview.length ? messagePreview : [''];
     const contentHeight = Math.max(0, terminalHeight - 3 - messageLines.length);
     const sidebar = cockpitSidebar(state, currentConfig, sidebarWidth, contentHeight);
     const main = cockpitMain(state, currentConfig, workspace, mainWidth, contentHeight);
@@ -568,26 +569,46 @@ function cockpitSidebar(state, config, maxWidth, height) {
 
 function cockpitMain(state, config, workspace, maxWidth, height) {
   const room = state.rooms[state.activeRoom];
-  const lines = [
+  const titleLines = [
     ` ${color('bold', `ROOM ${room.id}`)} ${color('gray', room.turn ? `· turn ${room.turn}` : '· new session')}`,
     ` ${color('gray', crop(workspace, maxWidth - 2))}`,
-    '',
+    ''
+  ];
+  const missionLines = [
     ` ${color('bold', 'MISSION')}`,
     ...previewMissionLines(room.request || 'Type a mission below. Switch rooms at any time.', 2, maxWidth - 2).map((item) => ` ${color('white', item)}`),
-    '',
-    ` ${color('bold', 'LIVE HANDOFFS')}`
+    ''
   ];
+  const handoffLines = [` ${color('bold', 'LIVE HANDOFFS')}`];
   const notes = Object.entries(room.notes).slice(-2);
-  if (!notes.length) lines.push(` ${color('gray', room.running ? 'Specialists are getting oriented…' : 'No handoffs yet.')}`);
+  if (!notes.length) handoffLines.push(` ${color('gray', room.running ? 'Specialists are getting oriented…' : 'No handoffs yet.')}`);
   for (const [agentId, note] of notes) {
     const agent = (room.agents || config.agents).find((item) => item.id === agentId);
-    lines.push(` ${color(agent?.color || 'gray', sanitizeUntrustedText(agent?.mark || '·'))} ${color('gray', crop(note, maxWidth - 5))}`);
+    handoffLines.push(` ${color(agent?.color || 'gray', sanitizeUntrustedText(agent?.mark || '·'))} ${color('gray', crop(note, maxWidth - 5))}`);
   }
-  lines.push('', ` ${color('bold', 'RUN LOG')}`);
-  if (!room.events.length) lines.push(` ${color('gray', 'Waiting for work.')}`);
-  for (const item of room.events.slice(-3)) lines.push(` ${color('gray', item.time)} ${crop(item.message, maxWidth - 13)}`);
-  if (room.error) lines.push('', ` ${color(room.status === 'cancelled' ? 'yellow' : 'red', crop(room.error, maxWidth - 2))}`);
+  const logLines = ['', ` ${color('bold', 'RUN LOG')}`];
+  if (!room.events.length) logLines.push(` ${color('gray', 'Waiting for work.')}`);
+  for (const item of room.events.slice(-3)) logLines.push(` ${color('gray', item.time)} ${crop(item.message, maxWidth - 13)}`);
+  const errorLines = room.error ? ['', ` ${color(room.status === 'cancelled' ? 'yellow' : 'red', crop(`${room.status === 'cancelled' ? 'Cancelled' : 'Stopped'}: ${room.error}`, maxWidth - 2))}`] : [];
   const answer = room.final || room.answerDraft;
+  const sections = [titleLines, missionLines, handoffLines, logLines];
+  const contextBudget = Math.max(0, height - 1 - errorLines.length - (answer ? 3 : 0));
+  const contextLength = () => sections.reduce((sum, section) => sum + section.length, 0);
+  // Preserve the answer body and usage before spending rows on spacing or
+  // earlier handoffs and log entries.
+  for (const section of sections) {
+    while (contextLength() > contextBudget && section.includes('')) section.splice(section.indexOf(''), 1);
+  }
+  for (const section of [logLines, handoffLines]) {
+    while (contextLength() > contextBudget && section.length > 2) section.splice(1, 1);
+    if (contextLength() > contextBudget) section.splice(0);
+  }
+  if (contextLength() > contextBudget) titleLines.splice(1);
+  if (contextLength() > contextBudget && missionLines.length > 2) {
+    missionLines.splice(1, missionLines.length - 1, ...previewMissionLines(room.request || 'Type a mission below. Switch rooms at any time.', 1, maxWidth - 2).map((item) => ` ${color('white', item)}`));
+  }
+  const lines = sections.flat().slice(0, contextBudget);
+  lines.push(...errorLines);
   if (answer) {
     const heading = room.error || room.status === 'cancelled' ? 'PARTIAL ANSWER' : 'MERGE ROOM SAYS';
     lines.push('', ` ${color('bold', heading)}`);
@@ -599,7 +620,7 @@ function cockpitMain(state, config, workspace, maxWidth, height) {
   const footer = ` ${elapsed} · ${formatTokens(usage.total || 0)} tokens · ${usage.calls || 0} calls`;
   while (lines.length < height - 1) lines.push('');
   lines.push(color('gray', footer));
-  return lines.slice(0, height);
+  return lines;
 }
 
 function visibleLength(value) {
