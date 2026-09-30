@@ -26,6 +26,10 @@ export function restoreAgentStatuses(currentAgents = [], savedAgents = []) {
   return statuses;
 }
 
+export function snapshotCockpitAgents(agents = []) {
+  return agents.map(({ id, name, specialty, color, mark }) => ({ id, name, specialty, color, mark }));
+}
+
 export async function waitForCockpitTasks(tasks) {
   do {
     await new Promise((resolve) => setImmediate(resolve));
@@ -70,6 +74,7 @@ export function beginCockpitTurn(state, roomIndex, request, agents = []) {
   room.notes = {};
   room.statuses = Object.fromEntries(agents.map((agent) => [agent.id, 'queued']));
   room.agentIds = agents.map((agent) => agent.id);
+  room.agents = snapshotCockpitAgents(agents);
   room.turn += 1;
   state.message = `Room ${roomIndex + 1} started turn ${room.turn}. You can switch rooms while it works.`;
   return room;
@@ -128,6 +133,7 @@ function createRoom(index, agents) {
     context: null,
     statuses: Object.fromEntries(agents.map((agent) => [agent.id, 'idle'])),
     agentIds: agents.map((agent) => agent.id),
+    agents: snapshotCockpitAgents(agents),
     notes: {},
     events: [],
     usage: { input: 0, output: 0, total: 0, calls: 0 },

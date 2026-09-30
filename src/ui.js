@@ -534,7 +534,7 @@ function cockpitSidebar(state, config, maxWidth, height) {
     const status = color(statusColor, room.status);
     section.push(` ${marker} ${color('bold', `Room ${room.id}`)}  ${status}`);
     section.push(`   ${color('white', crop(room.request || 'Ready for a mission', maxWidth - 4))}`);
-    const roomAgents = config.agents.filter((item) => room.agentIds.includes(item.id));
+    const roomAgents = (room.agents || config.agents).filter((item) => room.agentIds.includes(item.id));
     const agentSlots = Math.max(1, roomHeight - 2);
     const visibleAgents = roomAgents.length > agentSlots ? roomAgents.slice(0, Math.max(0, agentSlots - 1)) : roomAgents;
     for (const agent of visibleAgents) {
@@ -565,7 +565,7 @@ function cockpitMain(state, config, workspace, maxWidth, height) {
   const notes = Object.entries(room.notes).slice(-2);
   if (!notes.length) lines.push(` ${color('gray', room.running ? 'Specialists are getting oriented…' : 'No handoffs yet.')}`);
   for (const [agentId, note] of notes) {
-    const agent = config.agents.find((item) => item.id === agentId);
+    const agent = (room.agents || config.agents).find((item) => item.id === agentId);
     lines.push(` ${color(agent?.color || 'gray', sanitizeUntrustedText(agent?.mark || '·'))} ${color('gray', crop(note, maxWidth - 5))}`);
   }
   lines.push('', ` ${color('bold', 'RUN LOG')}`);
