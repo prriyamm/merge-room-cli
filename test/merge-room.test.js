@@ -2407,6 +2407,50 @@ test('Anthropic adapter retries transient failures and times out', async () => {
   }
 });
 
+test('Anthropic adapter retries timeouts then recovers', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  const hangUntilAbort = (_url, { signal }) => new Promise((_resolve, reject) => signal.addEventListener('abort', () => {
+    const error = new Error('aborted');
+    error.name = 'AbortError';
+    reject(error);
+  }, { once: true }));
+  globalThis.fetch = async (_url, options) => {
+    calls += 1;
+    if (calls === 1) return hangUntilAbort(_url, options);
+    return new Response(JSON.stringify({ content: [{ type: 'text', text: 'recovered' }], usage: { input_tokens: 1, output_tokens: 1 } }), { status: 200 });
+  };
+  try {
+    const result = await new AnthropicProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.anthropic.com', requestTimeoutMs: 20, retries: 1 }, 'anthropic-secret').complete({ system: 'system', prompt: 'prompt' });
+    assert.equal(calls, 2);
+    assert.equal(result.text, 'recovered');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Anthropic adapter throws TimeoutError after exhausting timeout retries', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async (_url, { signal }) => {
+    calls += 1;
+    return new Promise((_resolve, reject) => signal.addEventListener('abort', () => {
+      const error = new Error('aborted');
+      error.name = 'AbortError';
+      reject(error);
+    }, { once: true }));
+  };
+  try {
+    await assert.rejects(
+      () => new AnthropicProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://api.anthropic.com', requestTimeoutMs: 20, retries: 1 }, 'anthropic-secret').complete({ system: 'system', prompt: 'prompt' }),
+      (error) => error.name === 'TimeoutError' && /timed out after 20ms/.test(error.message)
+    );
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('provider profiles reject inline keys and unknown agent routes', async () => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-profile-validation-'));
   try {
@@ -2494,6 +2538,41 @@ test('openai-compatible adapter preserves provider usage metadata', async () => 
    assert.deepEqual({ input: result.inputTokens, output: result.outputTokens }, { input: 21, output: 7 });
     assert.equal(result.inputEstimated, false);
     assert.equal(result.outputEstimated, false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('openai-compatible adapter estimates usage when provider tokens are invalid', async () => {
+  const originalFetch = global.fetch;
+  const invalidValues = [Infinity, NaN, -1, 1.5, 'oops'];
+  try {
+    for (const invalid of invalidValues) {
+      global.fetch = async () => ({
+        ok: true,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ choices: [{ message: { content: 'adapter response' } }], usage: { prompt_tokens: invalid, completion_tokens: invalid } }),
+      });
+      const result = await new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, baseUrl: 'https://example.test/v1' }, 'secret').complete({ system: 'system', prompt: 'prompt' });
+      assert.equal(result.inputEstimated, true, `JSON inputEstimated for ${String(invalid)}`);
+      assert.equal(result.outputEstimated, true, `JSON outputEstimated for ${String(invalid)}`);
+      assert.ok(Number.isFinite(result.inputTokens), `JSON inputTokens finite for ${String(invalid)}`);
+      assert.ok(Number.isFinite(result.outputTokens), `JSON outputTokens finite for ${String(invalid)}`);
+    }
+    for (const invalid of invalidValues) {
+      const usagePayload = JSON.stringify({ prompt_tokens: invalid, completion_tokens: invalid });
+      global.fetch = async () => {
+        const encoder = new TextEncoder();
+        const sse = `data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: {"choices":[],"usage":${usagePayload}}\n\ndata: [DONE]\n\n`;
+        const body = new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(sse)); controller.close(); } });
+        return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+      };
+      const result = await new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, retries: 0 }, 'secret').complete({ system: 'system', prompt: 'prompt', onDelta: () => {} });
+      assert.equal(result.inputEstimated, true, `SSE inputEstimated for ${String(invalid)}`);
+      assert.equal(result.outputEstimated, true, `SSE outputEstimated for ${String(invalid)}`);
+      assert.ok(Number.isFinite(result.inputTokens), `SSE inputTokens finite for ${String(invalid)}`);
+      assert.ok(Number.isFinite(result.outputTokens), `SSE outputTokens finite for ${String(invalid)}`);
+    }
   } finally {
     global.fetch = originalFetch;
   }
@@ -2948,6 +3027,53 @@ test('openai-compatible adapter reports provider timeouts distinctly', async () 
   }, { once: true }));
   try {
     await assert.rejects(() => new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, requestTimeoutMs: 20, retries: 0 }, 'secret').complete({ system: 'system', prompt: 'prompt' }), /timed out after 20ms/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('openai-compatible adapter retries timeouts then recovers', async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  const hangUntilAbort = (_url, options) => new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => {
+    const error = new Error('aborted');
+    error.name = 'AbortError';
+    reject(error);
+  }, { once: true }));
+  global.fetch = async (_url, options) => {
+    calls += 1;
+    if (calls === 1) return hangUntilAbort(_url, options);
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'recovered' } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+  try {
+    const result = await new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, requestTimeoutMs: 20, retries: 1 }, 'secret').complete({ system: 'system', prompt: 'prompt' });
+    assert.equal(calls, 2);
+    assert.equal(result.text, 'recovered');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('openai-compatible adapter throws TimeoutError after exhausting timeout retries', async () => {
+  const originalFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async (_url, options) => {
+    calls += 1;
+    return new Promise((_resolve, reject) => options.signal.addEventListener('abort', () => {
+      const error = new Error('aborted');
+      error.name = 'AbortError';
+      reject(error);
+    }, { once: true }));
+  };
+  try {
+    await assert.rejects(
+      () => new OpenAICompatibleProvider({ ...DEFAULT_CONFIG, requestTimeoutMs: 20, retries: 1 }, 'secret').complete({ system: 'system', prompt: 'prompt' }),
+      (error) => error.name === 'TimeoutError' && /timed out after 20ms/.test(error.message)
+    );
+    assert.equal(calls, 2);
   } finally {
     global.fetch = originalFetch;
   }
