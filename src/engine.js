@@ -44,7 +44,7 @@ export class MergeRoomEngine {
       this.emit({ type: 'agents:dispatch', agentCount: firstWave.length, stage: firstStage, stageLabel: stageLabel(firstStage) });
       const firstResults = await this.runAgents(firstWave, `${shared}${workspace}`, signal, firstStage);
       ensureActive(signal);
-      const earlyDossier = firstResults.map((item) => `### ${item.agent.name} — ${item.agent.specialty}\n${item.text}`).join('\n\n');
+      const earlyDossier = firstResults.filter((item) => item.status === 'done').map((item) => `### ${item.agent.name} — ${item.agent.specialty}\n${item.text}`).join('\n\n');
       results = firstResults;
       if (draftGroup?.agents?.length) {
         this.emit({ type: 'agents:dispatch', agentCount: draftGroup.agents.length, stage: 2, stageLabel: 'draft' });
@@ -53,7 +53,7 @@ export class MergeRoomEngine {
         ensureActive(signal);
         results = [...results, ...draftResults];
         if (reviewGroup?.agents?.length) {
-          const draftDossier = draftResults.map((item) => `### ${item.agent.name} — ${item.agent.specialty}\n${item.text}`).join('\n\n');
+          const draftDossier = draftResults.filter((item) => item.status === 'done').map((item) => `### ${item.agent.name} — ${item.agent.specialty}\n${item.text}`).join('\n\n');
           this.emit({ type: 'agents:dispatch', agentCount: reviewGroup.agents.length, stage: 3, stageLabel: 'review' });
           const reviewPrompt = `${shared}\n\nEarly team notes:\n${earlyDossier}\n\nDraft proposal:\n${draftDossier}\n\nReview the draft directly. Name what should stay, what should change, and why.`;
           const reviewResults = await this.runAgents(reviewGroup.agents, reviewPrompt, signal, 3);
@@ -68,7 +68,7 @@ export class MergeRoomEngine {
         results = [...results, ...reviewResults];
       }
     }
-    const dossier = results.map((item) => `### ${item.agent.name} — ${item.agent.specialty}\n${item.text}`).join('\n\n');
+    const dossier = results.filter((item) => item.status === 'done').map((item) => `### ${item.agent.name} — ${item.agent.specialty}\n${item.text}`).join('\n\n');
     ensureActive(signal);
     this.emit({ type: 'synthesis:start', agentCount: agents.length });
     const leadRoute = this.config.leadProvider || this.config.defaultProvider || this.provider.defaultProvider;
