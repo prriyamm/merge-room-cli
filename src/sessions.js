@@ -279,6 +279,7 @@ export async function writeSessionExport(session, cwd = process.cwd(), destinati
   } catch {}
   await fs.mkdir(path.dirname(output), { recursive: true });
   const temporary = path.join(path.dirname(output), `.merge-room-export-${randomUUID()}.tmp`);
+  const targetMode = priorMode ?? (0o666 & ~process.umask());
   let handle;
   let created = false;
   try {
@@ -287,12 +288,14 @@ export async function writeSessionExport(session, cwd = process.cwd(), destinati
     await handle.writeFile(content, 'utf8');
     await handle.close();
     handle = null;
-    await fs.rename(temporary, output);
-    // Don't leak the 0600 staging mode onto the final report: restore the
-    // previous file's mode, or fall back to the process default.
+    // Set the final mode before the atomic rename so a crash between the
+    // two can never leave the report at the 0600 staging mode.
     try {
-      await fs.chmod(output, priorMode ?? (0o666 & ~process.umask()));
-    } catch {}
+      await fs.chmod(temporary, targetMode);
+    } catch (error) {
+      console.error(`  warning: could not set permissions on export: ${error.message}`);
+    }
+    await fs.rename(temporary, output);
   } finally {
     await handle?.close().catch(() => {});
     if (created) await fs.rm(temporary, { force: true }).catch(() => {});

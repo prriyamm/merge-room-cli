@@ -27,6 +27,18 @@ test('cockpit rejects automation flags instead of silently dropping them', async
         `expected ${flag} to be rejected before the cockpit starts`
       );
     }
+    // Multiple offenders are reported together, and no warning precedes the error.
+    let multi;
+    try {
+      await execute(process.execPath, [cli, '--cwd', workspace, '--provider=demo', '--json', '--strict'], { timeout: 15000, windowsHide: true });
+    } catch (error) {
+      multi = error;
+    }
+    assert.ok(multi, 'expected combined flags to be rejected');
+    assert.equal(multi.code, 1);
+    assert.match(multi.stderr, /--json/);
+    assert.match(multi.stderr, /--strict/);
+    assert.doesNotMatch(multi.stderr, /warning:/);
   } finally {
     await fs.rm(workspace, { recursive: true, force: true });
   }
@@ -53,6 +65,23 @@ test('ignored overrides warn on stderr without breaking stdout contracts', async
   }
 });
 
+test('--base-url stays silent when a named profile falls back to it', async () => {
+  const workspace = await makeWorkspace();
+  try {
+    await fs.writeFile(path.join(workspace, 'merge-room.config.json'), JSON.stringify({
+      providers: { work: { type: 'openai-compatible', model: 'm' } }
+    }));
+    const { stderr } = await execute(
+      process.execPath,
+      [cli, '--cwd', workspace, '--provider=demo', '--base-url=https://fallback.example/v1', '--json', 'config'],
+      { windowsHide: true }
+    );
+    assert.doesNotMatch(stderr, /--base-url/);
+  } finally {
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test('session export preserves the prior file mode instead of leaking 0600', async () => {
   const workspace = await makeWorkspace();
   try {
@@ -71,10 +100,23 @@ test('session export preserves the prior file mode instead of leaking 0600', asy
   }
 });
 
+test('session export of a new file uses the process default mode', async () => {
+  const workspace = await makeWorkspace();
+  try {
+    const session = { id: 's2', request: 'r', answer: 'a', agents: [], usage: {}, status: 'complete' };
+    await writeSessionExport(session, workspace, 'fresh.md', 'md');
+    const stat = await fs.stat(path.join(workspace, 'fresh.md'));
+    assert.equal(stat.mode & 0o777, 0o666 & ~process.umask());
+  } finally {
+    await fs.rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test('formatRoomError does not duplicate the status prefix', () => {
   assert.equal(formatRoomError('cancelled', 'Mission cancelled.'), 'Cancelled: Mission cancelled.');
   assert.equal(formatRoomError('cancelled', 'Cancelled: Mission cancelled.'), 'Cancelled: Mission cancelled.');
   assert.equal(formatRoomError('cancelled', 'cancelled by user'), 'cancelled by user');
   assert.equal(formatRoomError('error', 'disk full'), 'Stopped: disk full');
   assert.equal(formatRoomError('error', 'Stopped: disk full'), 'Stopped: disk full');
+  assert.equal(formatRoomError('cancelled', '  Cancelled: foo'), '  Cancelled: foo');
 });

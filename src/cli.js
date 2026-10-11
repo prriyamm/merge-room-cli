@@ -173,6 +173,8 @@ export async function main(args = [], { signal, readSessionFn = readSession, lis
     ...(maxCallsValue !== null ? { maxCalls: numericFlag(maxCallsValue, '--max-calls', 0, true) } : {}),
   };
   const runConfig = teamValue !== null ? selectTeam(configuredRun, teamValue) : configuredRun;
+  const cockpitBound = cockpitByDefault || command === 'interactive' || command === 'chat';
+  if (cockpitBound) assertCockpitHasNoAutomationFlags({ json, events, strict, runIdValue });
   warnOnIgnoredOverrides({ baseUrlValue, include, noContext, runConfig });
   if (command === 'agents') {
     if (json) console.log(JSON.stringify({ agents: runConfig.agents, model: runConfig.model, baseUrl: safeBaseUrl(runConfig.baseUrl) }, null, 2));
@@ -204,8 +206,7 @@ export async function main(args = [], { signal, readSessionFn = readSession, lis
     else printPlan(plan);
     return;
   }
-  if (cockpitByDefault || command === 'interactive' || command === 'chat') {
-    assertCockpitHasNoAutomationFlags({ json, events, strict, runIdValue });
+  if (cockpitBound) {
     return interactive(runConfig, provider, noContext, noSave, signal, trace, workspace, readSessionFn, configuredRun, listSessionsFn);
   }
   const requestParts = command === 'run' || command === 'ask' || command === 'resume' || command === 'review' || command === 'brainstorm' ? cleanArgs.slice(1) : cleanArgs;
@@ -299,13 +300,14 @@ function selectTeam(config, value) {
 
 function assertCockpitHasNoAutomationFlags({ json, events, strict, runIdValue }) {
   const offenders = [];
-  if (json) offenders.push(['--json', 'merge-room run "your mission" --json']);
-  if (events) offenders.push(['--events', 'merge-room run "your mission" --events']);
-  if (strict) offenders.push(['--strict', 'merge-room run "your mission" --strict']);
-  if (runIdValue !== null && runIdValue !== undefined) offenders.push(['--run-id', 'merge-room run "your mission" --run-id <id>']);
+  if (json) offenders.push('--json');
+  if (events) offenders.push('--events');
+  if (strict) offenders.push('--strict');
+  if (runIdValue !== null && runIdValue !== undefined) offenders.push('--run-id');
   if (!offenders.length) return;
-  const [[flag, hint]] = offenders;
-  throw new Error(`\`${flag}\` applies to single-shot missions, not the interactive cockpit. Try \`${hint}\`.`);
+  const flags = offenders.map((flag) => `\`${flag}\``).join(', ');
+  const verb = offenders.length > 1 ? 'apply' : 'applies';
+  throw new Error(`${flags} ${verb} to single-shot missions, not the interactive cockpit. Try \`merge-room run "your mission" ${offenders[0] === '--run-id' ? '--run-id <id>' : offenders[0]}\`.`);
 }
 
 function warnOnIgnoredOverrides({ baseUrlValue, include, noContext, runConfig }) {
@@ -313,8 +315,13 @@ function warnOnIgnoredOverrides({ baseUrlValue, include, noContext, runConfig })
   if (Array.isArray(runConfig?.agents) && runConfig.agents.length === 0) {
     warn('Team is empty; the lead will synthesize with no specialist notes.');
   }
-  if (baseUrlValue !== null && baseUrlValue !== undefined && Object.keys(runConfig?.providers || {}).length > 0) {
-    warn('`--base-url` is ignored for named provider profiles; set `providers.<id>.baseUrl` in config instead.');
+  if (baseUrlValue !== null && baseUrlValue !== undefined) {
+    // config.baseUrl is the fallback for profiles without their own baseUrl
+    // (see ProviderRouter), and never applies to CLI-based profiles.
+    const profiles = Object.values(runConfig?.providers || {});
+    if (profiles.length > 0 && profiles.every((profile) => profile?.baseUrl || ['codex-cli', 'claude-code-cli'].includes(profile?.type))) {
+      warn('`--base-url` is ignored for named provider profiles; set `providers.<id>.baseUrl` in config instead.');
+    }
   }
   if (include !== null && include !== undefined && (noContext || runConfig?.context?.enabled === false)) {
     warn('`--include` has no effect while workspace context is disabled (`--no-context`).');

@@ -151,7 +151,8 @@ export function startupPatternLines() {
 export function formatRoomError(status, error) {
   const label = status === 'cancelled' ? 'Cancelled' : 'Stopped';
   const text = String(error ?? '');
-  return new RegExp(`^${label}\\b`, 'i').test(text) ? text : `${label}: ${text}`;
+  if (new RegExp(`^\\s*${label}\\b`, 'i').test(text)) return text;
+  return `${label}: ${text}`;
 }
 
 function tintPattern(value, index) {
