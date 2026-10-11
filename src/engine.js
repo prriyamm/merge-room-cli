@@ -15,8 +15,11 @@ export class MergeRoomEngine {
     const started = Date.now();
     this.ledger = createLedger();
     this.eventSequence = 0;
+    // Keep honoring the requested runId on every run (never null it):
+    // explicit ids stay correlated across reuse; without one each run
+    // mints a fresh UUID so (runId, sequence) keys never collide.
+    // Falsy ids ('', null, undefined) fall through to a generated UUID.
     this.runId = this.requestedRunId || randomUUID();
-    this.requestedRunId = null;
     this.callsStarted = 0;
     this.callBudget = Number(this.config.maxCalls) || 0;
     try {
