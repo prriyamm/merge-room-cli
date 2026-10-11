@@ -173,6 +173,7 @@ export async function main(args = [], { signal, readSessionFn = readSession, lis
     ...(maxCallsValue !== null ? { maxCalls: numericFlag(maxCallsValue, '--max-calls', 0, true) } : {}),
   };
   const runConfig = teamValue !== null ? selectTeam(configuredRun, teamValue) : configuredRun;
+  warnOnIgnoredOverrides({ baseUrlValue, include, noContext, runConfig });
   if (command === 'agents') {
     if (json) console.log(JSON.stringify({ agents: runConfig.agents, model: runConfig.model, baseUrl: safeBaseUrl(runConfig.baseUrl) }, null, 2));
     else printAgents(runConfig);
@@ -203,7 +204,10 @@ export async function main(args = [], { signal, readSessionFn = readSession, lis
     else printPlan(plan);
     return;
   }
-  if (cockpitByDefault || command === 'interactive' || command === 'chat') return interactive(runConfig, provider, noContext, noSave, signal, trace, workspace, readSessionFn, configuredRun, listSessionsFn);
+  if (cockpitByDefault || command === 'interactive' || command === 'chat') {
+    assertCockpitHasNoAutomationFlags({ json, events, strict, runIdValue });
+    return interactive(runConfig, provider, noContext, noSave, signal, trace, workspace, readSessionFn, configuredRun, listSessionsFn);
+  }
   const requestParts = command === 'run' || command === 'ask' || command === 'resume' || command === 'review' || command === 'brainstorm' ? cleanArgs.slice(1) : cleanArgs;
   const request = await readMissionInput(requestParts, promptFileValue, workspace, signal);
   if (!request) return printHelp();
@@ -291,6 +295,30 @@ function selectTeam(config, value) {
   const unknown = requested.filter((id) => !config.agents.some((agent) => agent.id === id));
   if (unknown.length) throw new Error(`Unknown agent id(s): ${unknown.join(', ')}. Try 'merge-room agents'.`);
   return { ...config, agents: selected };
+}
+
+function assertCockpitHasNoAutomationFlags({ json, events, strict, runIdValue }) {
+  const offenders = [];
+  if (json) offenders.push(['--json', 'merge-room run "your mission" --json']);
+  if (events) offenders.push(['--events', 'merge-room run "your mission" --events']);
+  if (strict) offenders.push(['--strict', 'merge-room run "your mission" --strict']);
+  if (runIdValue !== null && runIdValue !== undefined) offenders.push(['--run-id', 'merge-room run "your mission" --run-id <id>']);
+  if (!offenders.length) return;
+  const [[flag, hint]] = offenders;
+  throw new Error(`\`${flag}\` applies to single-shot missions, not the interactive cockpit. Try \`${hint}\`.`);
+}
+
+function warnOnIgnoredOverrides({ baseUrlValue, include, noContext, runConfig }) {
+  const warn = (message) => console.error(`  warning: ${message}`);
+  if (Array.isArray(runConfig?.agents) && runConfig.agents.length === 0) {
+    warn('Team is empty; the lead will synthesize with no specialist notes.');
+  }
+  if (baseUrlValue !== null && baseUrlValue !== undefined && Object.keys(runConfig?.providers || {}).length > 0) {
+    warn('`--base-url` is ignored for named provider profiles; set `providers.<id>.baseUrl` in config instead.');
+  }
+  if (include !== null && include !== undefined && (noContext || runConfig?.context?.enabled === false)) {
+    warn('`--include` has no effect while workspace context is disabled (`--no-context`).');
+  }
 }
 
 function numericFlag(raw, name, minimum, integer) {

@@ -272,6 +272,11 @@ export async function writeSessionExport(session, cwd = process.cwd(), destinati
   if (!destination) throw new Error('Give an export destination path.');
   const output = path.resolve(cwd, destination);
   const content = format === 'json' ? `${JSON.stringify(session, null, 2)}\n` : formatSessionMarkdown(session);
+  let priorMode = null;
+  try {
+    const prior = await fs.stat(output);
+    if (prior.isFile()) priorMode = prior.mode & 0o777;
+  } catch {}
   await fs.mkdir(path.dirname(output), { recursive: true });
   const temporary = path.join(path.dirname(output), `.merge-room-export-${randomUUID()}.tmp`);
   let handle;
@@ -283,6 +288,11 @@ export async function writeSessionExport(session, cwd = process.cwd(), destinati
     await handle.close();
     handle = null;
     await fs.rename(temporary, output);
+    // Don't leak the 0600 staging mode onto the final report: restore the
+    // previous file's mode, or fall back to the process default.
+    try {
+      await fs.chmod(output, priorMode ?? (0o666 & ~process.umask()));
+    } catch {}
   } finally {
     await handle?.close().catch(() => {});
     if (created) await fs.rm(temporary, { force: true }).catch(() => {});
