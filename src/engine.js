@@ -6,7 +6,7 @@ export const SCHEMA_VERSION = 1;
 
 export class MergeRoomEngine {
   constructor({ config, provider, onEvent = () => {}, runId } = {}) {
-    this.config = config; this.provider = provider; this.onEvent = onEvent; this.runId = runId ?? randomUUID(); this.ledger = createLedger(); this.eventSequence = 0; this.callsStarted = 0; this.callBudget = 0;
+    this.config = config; this.provider = provider; this.onEvent = onEvent; this.requestedRunId = runId; this.runId = runId; this.ledger = createLedger(); this.eventSequence = 0; this.callsStarted = 0; this.callBudget = 0;
   }
 
   emit(event) { this.onEvent({ ...event, schemaVersion: SCHEMA_VERSION, runId: this.runId, sequence: ++this.eventSequence, at: new Date().toISOString(), telemetry: this.ledger.snapshot() }); }
@@ -15,6 +15,11 @@ export class MergeRoomEngine {
     const started = Date.now();
     this.ledger = createLedger();
     this.eventSequence = 0;
+    // Keep honoring the requested runId on every run (never null it):
+    // explicit ids stay correlated across reuse; without one each run
+    // mints a fresh UUID so (runId, sequence) keys never collide.
+    // Falsy ids ('', null, undefined) fall through to a generated UUID.
+    this.runId = this.requestedRunId || randomUUID();
     this.callsStarted = 0;
     this.callBudget = Number(this.config.maxCalls) || 0;
     try {

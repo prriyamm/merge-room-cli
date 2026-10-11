@@ -27,13 +27,22 @@ test('engine keeps the requested runId stable across reused runs', async () => {
   assert.equal(first.runId, second.runId);
 });
 
-test('engine auto-generates one runId per instance and reuses it', async () => {
+test('engine mints a fresh runId per run without a requested id', async () => {
   const config = singleAgentConfig();
   const engine = new MergeRoomEngine({ config, provider: new DemoProvider(config) });
   const first = await engine.run('first mission');
   const second = await engine.run('second mission');
   assert.ok(first.runId, 'auto runId exists');
-  assert.equal(second.runId, first.runId);
+  assert.ok(second.runId, 'second auto runId exists');
+  assert.notEqual(second.runId, first.runId);
+});
+
+test('engine rejects falsy runIds with a generated UUID', async () => {
+  const config = singleAgentConfig();
+  const engine = new MergeRoomEngine({ config, provider: new DemoProvider(config), runId: '' });
+  const result = await engine.run('empty id mission');
+  assert.ok(result.runId, 'falsy id falls through to generated UUID');
+  assert.notEqual(result.runId, '');
 });
 
 test('--events stream has strictly increasing sequences and one terminal run:done', async () => {
