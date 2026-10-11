@@ -12,14 +12,14 @@ class FlakyStubProvider {
 
   async complete({ system, prompt }) {
     this.prompts.push({ system, prompt });
-    if (/Architect/i.test(system)) {
-      throw new Error('boom-unavailable');
-    }
     if (/Merge Room.s lead/i.test(system)) {
       return {
         text: 'final answer', inputTokens: 1, outputTokens: 1,
         inputEstimated: false, outputEstimated: false,
       };
+    }
+    if (/^You are Architect,/.test(system)) {
+      throw new Error('boom-unavailable');
     }
     if (/Scout/i.test(system)) {
       return {
@@ -46,7 +46,7 @@ class FlakyStubProvider {
   }
 }
 
-test('staged dossiers exclude error/skipped placeholders from downstream prompts', async () => {
+test('staged dossiers exclude error placeholders from downstream prompts', async () => {
   const config = { ...DEFAULT_CONFIG, strategy: 'staged', maxCalls: 20 };
   const provider = new FlakyStubProvider();
   const engine = new MergeRoomEngine({ config, provider });
@@ -71,4 +71,28 @@ test('staged dossiers exclude error/skipped placeholders from downstream prompts
   assert.ok(draftCall.prompt.includes('SCOUT-DONE-NOTE'), 'draft keeps done notes');
   assert.ok(!draftCall.prompt.includes('Agent unavailable'), 'draft must not contain error placeholder');
   assert.ok(!draftCall.prompt.includes('boom-unavailable'), 'draft must not leak provider error text');
+
+  // Both filtered dossiers feed the review stage: Critic must not see the failure either.
+  const reviewCall = provider.prompts.find((call) => /^You are Critic,/.test(call.system));
+  assert.ok(reviewCall, 'review prompt was recorded');
+  assert.ok(reviewCall.prompt.includes('SCOUT-DONE-NOTE'), 'review keeps done notes');
+  assert.ok(reviewCall.prompt.includes('MAKER-DONE-NOTE'), 'review keeps draft notes');
+  assert.ok(!reviewCall.prompt.includes('Agent unavailable'), 'review must not contain error placeholder');
+  assert.ok(!reviewCall.prompt.includes('boom-unavailable'), 'review must not leak provider error text');
+});
+
+test('budget-exhausted agents report skipped status without leaking placeholders into answers', async () => {
+  const config = { ...DEFAULT_CONFIG, strategy: 'staged', maxCalls: 2, maxConcurrency: 1 };
+  const provider = new FlakyStubProvider();
+  const engine = new MergeRoomEngine({ config, provider });
+
+  const result = await engine.run('skipped filter probe');
+
+  const skipped = result.agents.filter((item) => item.status === 'skipped');
+  assert.ok(skipped.length > 0, 'budget exhaustion produces skipped agents');
+  assert.ok(result.degraded, 'run is degraded');
+  // The lead call itself is over budget, so the fallback answer carries the
+  // surviving done notes — never the skipped placeholder.
+  assert.ok(!result.answer.includes('Agent skipped'), 'answer must not contain skipped placeholder');
+  assert.ok(result.answer.includes('SCOUT-DONE-NOTE'), 'answer keeps done notes');
 });
