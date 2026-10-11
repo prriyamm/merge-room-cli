@@ -148,6 +148,13 @@ export function startupPatternLines() {
   return [...STARTUP_PATTERN];
 }
 
+export function formatRoomError(status, error) {
+  const label = status === 'cancelled' ? 'Cancelled' : 'Stopped';
+  const text = String(error ?? '');
+  if (new RegExp(`^\\s*${label}\\b`, 'i').test(text)) return text;
+  return `${label}: ${text}`;
+}
+
 function tintPattern(value, index) {
   return colorsEnabled ? COLORED_STARTUP_PATTERN[index] : value;
 }
@@ -345,7 +352,7 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
         if (latestNote) lines.push(` Handoff: ${crop(latestNote[1], Math.max(0, terminalWidth - 10))}`);
         if (latestEvent) lines.push(` Latest: ${crop(latestEvent.message, Math.max(0, terminalWidth - 9))}`);
       }
-      if (activeRoom.error && !answer) lines.unshift(` ${activeRoom.status === 'cancelled' ? 'Cancelled' : 'Stopped'}: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
+      if (activeRoom.error && !answer) lines.unshift(` ${crop(formatRoomError(activeRoom.status, activeRoom.error), Math.max(0, terminalWidth - 10))}`);
       if (answer && contentHeight > 0) {
         if (contentHeight <= 2 && (activeRoom.error || activeRoom.status === 'cancelled')) {
           const status = activeRoom.status === 'cancelled' ? 'CANCELLED' : 'FAILED';
@@ -360,7 +367,7 @@ export function createCockpitRenderer({ config, getConfig = () => config, provid
           const preview = previewAnswerLines(answer, 1, Math.max(1, terminalWidth - 10))[0] || '';
           lines.push(` Answer: ${preview}`);
         } else {
-          if (activeRoom.error) lines.splice(0, lines.length, ` ${activeRoom.status === 'cancelled' ? 'Cancelled' : 'Stopped'}: ${crop(activeRoom.error, Math.max(0, terminalWidth - 10))}`);
+          if (activeRoom.error) lines.splice(0, lines.length, ` ${crop(formatRoomError(activeRoom.status, activeRoom.error), Math.max(0, terminalWidth - 10))}`);
           else lines.splice(Math.max(0, contentHeight - 2));
           const answerLabel = activeRoom.error || activeRoom.status === 'cancelled' ? 'PARTIAL ANSWER' : 'MERGE ROOM SAYS';
           if (contentHeight === lines.length + 1) {
@@ -589,7 +596,8 @@ function cockpitMain(state, config, workspace, maxWidth, height) {
   const logLines = ['', ` ${color('bold', 'RUN LOG')}`];
   if (!room.events.length) logLines.push(` ${color('gray', 'Waiting for work.')}`);
   for (const item of room.events.slice(-3)) logLines.push(` ${color('gray', item.time)} ${crop(item.message, maxWidth - 13)}`);
-  const errorLines = room.error ? ['', ` ${color(room.status === 'cancelled' ? 'yellow' : 'red', crop(`${room.status === 'cancelled' ? 'Cancelled' : 'Stopped'}: ${room.error}`, maxWidth - 2))}`] : [];
+  const errorBody = formatRoomError(room.status, room.error);
+  const errorLines = room.error ? ['', ` ${color(room.status === 'cancelled' ? 'yellow' : 'red', crop(errorBody, maxWidth - 2))}`] : [];
   const answer = room.final || room.answerDraft;
   const sections = [titleLines, missionLines, handoffLines, logLines];
   const contextBudget = Math.max(0, height - 1 - errorLines.length - (answer ? 3 : 0));
@@ -603,7 +611,7 @@ function cockpitMain(state, config, workspace, maxWidth, height) {
     while (contextLength() > contextBudget && section.length > 2) section.splice(1, 1);
     if (contextLength() > contextBudget) section.splice(0);
   }
-  if (contextLength() > contextBudget) titleLines.splice(1);
+  if (contextLength() > contextBudget) titleLines.splice(1, 1);
   if (contextLength() > contextBudget && missionLines.length > 2) {
     missionLines.splice(1, missionLines.length - 1, ...previewMissionLines(room.request || 'Type a mission below. Switch rooms at any time.', 1, maxWidth - 2).map((item) => ` ${color('white', item)}`));
   }

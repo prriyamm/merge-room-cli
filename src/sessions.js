@@ -272,8 +272,14 @@ export async function writeSessionExport(session, cwd = process.cwd(), destinati
   if (!destination) throw new Error('Give an export destination path.');
   const output = path.resolve(cwd, destination);
   const content = format === 'json' ? `${JSON.stringify(session, null, 2)}\n` : formatSessionMarkdown(session);
+  let priorMode = null;
+  try {
+    const prior = await fs.stat(output);
+    if (prior.isFile()) priorMode = prior.mode & 0o777;
+  } catch {}
   await fs.mkdir(path.dirname(output), { recursive: true });
   const temporary = path.join(path.dirname(output), `.merge-room-export-${randomUUID()}.tmp`);
+  const targetMode = priorMode ?? (0o666 & ~process.umask());
   let handle;
   let created = false;
   try {
@@ -282,6 +288,13 @@ export async function writeSessionExport(session, cwd = process.cwd(), destinati
     await handle.writeFile(content, 'utf8');
     await handle.close();
     handle = null;
+    // Set the final mode before the atomic rename so a crash between the
+    // two can never leave the report at the 0600 staging mode.
+    try {
+      await fs.chmod(temporary, targetMode);
+    } catch (error) {
+      console.error(`  warning: could not set permissions on export: ${error.message}`);
+    }
     await fs.rename(temporary, output);
   } finally {
     await handle?.close().catch(() => {});
