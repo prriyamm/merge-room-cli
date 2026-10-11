@@ -195,10 +195,10 @@ function cliSpawnError(error, label, command) {
 }
 
 export function parseCodexOutput(output) {
-  let text = '';
+  const parts = [];
   let inputTokens;
   let outputTokens;
-  let completed = false;
+  let completedTurns = 0;
   const eventTypes = [];
   for (const [index, line] of String(output).split(/\r?\n/).entries()) {
     if (!line.trim()) continue;
@@ -207,15 +207,17 @@ export function parseCodexOutput(output) {
     catch { throw new Error(`Codex CLI emitted malformed JSONL on line ${index + 1}.`); }
     eventTypes.push(event.type);
     if (event.type === 'error' || event.type === 'turn.failed') throw new Error('Codex CLI reported a failed turn. Check its local sign-in and CLI status.');
-    if (event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') text = event.item.text;
-    if (event.type === 'turn.started') completed = false;
+    if (event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') parts.push(event.item.text);
     if (event.type === 'turn.completed') {
-      completed = true;
-      inputTokens = safeTokenCount(event.usage?.input_tokens);
-      outputTokens = safeTokenCount(event.usage?.output_tokens);
+      completedTurns += 1;
+      const inputCount = safeTokenCount(event.usage?.input_tokens);
+      if (inputCount !== undefined) inputTokens = (inputTokens ?? 0) + inputCount;
+      const outputCount = safeTokenCount(event.usage?.output_tokens);
+      if (outputCount !== undefined) outputTokens = (outputTokens ?? 0) + outputCount;
     }
   }
-  if (!completed) throw new Error(`Codex CLI output did not include a completed turn (events: ${eventTypes.join(', ') || 'none'}).`);
+  if (completedTurns === 0) throw new Error(`Codex CLI output did not include a completed turn (events: ${eventTypes.join(', ') || 'none'}).`);
+  const text = parts.join('\n\n');
   if (!text.trim()) throw new Error('Codex CLI completed without a final assistant message.');
   return { text: text.trim(), inputTokens, outputTokens };
 }

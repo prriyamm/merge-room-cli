@@ -1405,7 +1405,10 @@ test('openai-compatible adapter cancels retry backoff', async () => {
   }
 });
 
-test('session exports preserve the answer and usage ledger', async () => { const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-export-')); try { const session = { id: 'abc123', savedAt: '2026-01-01T00:00:00.000Z', request: 'Export this', answer: 'A useful answer.', provider: 'demo', model: 'local-demo', strategy: 'staged', synthesisError: 'lead offline', usage: { input: 12, output: 8, total: 20, calls: 5 }, agents: [{ agent: { id: 'scout', name: 'Scout' }, stage: 1, text: 'A concise note.' }] }; const markdown = formatSessionMarkdown(session); assert.ok(markdown.includes('Total tokens burned: 20')); assert.ok(markdown.includes('A useful answer.')); assert.ok(markdown.includes('lead offline')); const output = await writeSessionExport(session, root, 'out/report.json', 'json'); assert.equal(JSON.parse(await fs.readFile(output, 'utf8')).answer, 'A useful answer.'); } finally { await fs.rm(root, { recursive: true, force: true }); } });
+test('session exports preserve the answer and usage ledger', async () => { const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-export-')); try { const session = { id: 'abc123', savedAt: '2026-01-01T00:00:00.000Z', request: 'Export this', answer: 'A useful answer.', provider: 'demo', model: 'local-demo', strategy: 'staged', synthesisError: 'lead offline', usage: { input: 12, output: 8, total: 20, calls: 5 }, agents: [{ agent: { id: 'scout', name: 'Scout' }, stage: 1, text: 'A concise note.' }] }; const markdown = formatSessionMarkdown(session); assert.ok(markdown.includes('Total tokens burned: 20')); assert.ok(markdown.includes('A useful answer.')); assert.ok(markdown.includes('lead offline')); const output = await writeSessionExport(session, root, 'out/report.json', 'json'); assert.equal(JSON.parse(await fs.readFile(output, 'utf8')).answer, 'A useful answer.');   } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
 
 test('saved specialist reports identify their provider profile and model', async () => {
   const originalLog = console.log;
@@ -1936,6 +1939,41 @@ test('Codex JSONL parser keeps final assistant text and rejects malformed output
   assert.throws(() => parseCodexOutput('{broken json}'), /malformed JSONL/);
   assert.throws(() => parseCodexOutput(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Truncated' } })), /did not include a completed turn/);
   assert.throws(() => parseCodexOutput(JSON.stringify({ type: 'turn.completed' })), /without a final assistant message/);
+});
+
+test('Codex JSONL parser accumulates multi-turn text and token usage', () => {
+  const multiTurn = [
+    JSON.stringify({ type: 'turn.started' }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'First' } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } }),
+    JSON.stringify({ type: 'turn.started' }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Second' } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 7, output_tokens: 3 } })
+  ].join('\n');
+  assert.deepEqual(parseCodexOutput(multiTurn), { text: 'First\n\nSecond', inputTokens: 17, outputTokens: 8 });
+
+  const secondTurnSilent = [
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Only' } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 4, output_tokens: 2 } }),
+    JSON.stringify({ type: 'turn.started' }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 6, output_tokens: 1 } })
+  ].join('\n');
+  assert.deepEqual(parseCodexOutput(secondTurnSilent), { text: 'Only', inputTokens: 10, outputTokens: 3 });
+
+  const trailingStarted = [
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Done' } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 5, output_tokens: 2 } }),
+    JSON.stringify({ type: 'turn.started' })
+  ].join('\n');
+  assert.deepEqual(parseCodexOutput(trailingStarted), { text: 'Done', inputTokens: 5, outputTokens: 2 });
+
+  const invalidUsage = [
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'A' } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } }),
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'B' } }),
+    JSON.stringify({ type: 'turn.completed', usage: { input_tokens: -2, output_tokens: 'oops' } })
+  ].join('\n');
+  assert.deepEqual(parseCodexOutput(invalidUsage), { text: 'A\n\nB', inputTokens: 10, outputTokens: 5 });
 });
 
 test('Claude Code CLI profiles use restricted JSON with tools and session persistence disabled', {
@@ -3201,6 +3239,60 @@ test('workspace excerpts and opt-in Git diffs redact complete Authorization head
     assert.match(formatted, /Content-Type: application\/json/);
     assert.doesNotMatch(context.git.diff, /OLD_AUTH_SECRET|NEW_AUTH_SECRET|OLD_MULTILINE_AUTH_SECRET|NEW_MULTILINE_AUTH_SECRET|OLD_BLOCK_SECRET|NEW_BLOCK_SECRET|OLD_HUNK_SECRET|NEW_HUNK_SECRET|OLD_BARE_TOKEN|NEW_BARE_TOKEN|OLD_CAMEL_TOKEN|NEW_CAMEL_TOKEN|OLD_KEBAB_TOKEN|NEW_KEBAB_TOKEN|OLD_DIFF_TOKEN|NEW_DIFF_TOKEN|OLD_SNAKE_TOKEN|NEW_SNAKE_TOKEN|OLD_YAML_DOUBLE_TOKEN|NEW_YAML_DOUBLE_TOKEN|OLD_YAML_SINGLE_TOKEN|NEW_YAML_SINGLE_TOKEN|OLD_APOSTROPHE_SUFFIX|NEW_APOSTROPHE_SUFFIX|OLD_API_KEY|NEW_API_KEY|OLD_GITHUB_ASSIGNMENT_TOKEN|NEW_GITHUB_ASSIGNMENT_TOKEN|WITH SPACES/);
     assert.doesNotMatch(formatted, /OLD_AUTH_SECRET|NEW_AUTH_SECRET|OLD_MULTILINE_AUTH_SECRET|NEW_MULTILINE_AUTH_SECRET|OLD_BLOCK_SECRET|NEW_BLOCK_SECRET|OLD_HUNK_SECRET|NEW_HUNK_SECRET|OLD_BARE_TOKEN|NEW_BARE_TOKEN|OLD_CAMEL_TOKEN|NEW_CAMEL_TOKEN|OLD_KEBAB_TOKEN|NEW_KEBAB_TOKEN|OLD_DIFF_TOKEN|NEW_DIFF_TOKEN|OLD_SNAKE_TOKEN|NEW_SNAKE_TOKEN|OLD_YAML_DOUBLE_TOKEN|NEW_YAML_DOUBLE_TOKEN|OLD_YAML_SINGLE_TOKEN|NEW_YAML_SINGLE_TOKEN|OLD_APOSTROPHE_SUFFIX|NEW_APOSTROPHE_SUFFIX|OLD_API_KEY|NEW_API_KEY|OLD_GITHUB_ASSIGNMENT_TOKEN|NEW_GITHUB_ASSIGNMENT_TOKEN|WITH SPACES/);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('workspace context excludes extended secret filenames without false positives', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-secret-names-'));
+  try {
+    for (const name of ['keyboard.js', 'monkey.txt', 'tokenizer.js', 'server.key', 'cert.p12', 'auth.json', 'config.auth.json']) {
+      await fs.writeFile(path.join(root, name), 'hello\n', 'utf8');
+    }
+    const context = await collectWorkspaceContext(root, { maxBytes: 5000, maxFiles: 20 });
+    const names = context.entries.map((entry) => entry.split(/\s+/)[0]);
+    for (const allowed of ['keyboard.js', 'monkey.txt', 'tokenizer.js']) {
+      assert.ok(names.includes(allowed), `expected ${allowed} to be included`);
+    }
+    for (const excluded of ['server.key', 'cert.p12', 'auth.json', 'config.auth.json']) {
+      assert.ok(!names.some((entry) => entry === excluded || entry.endsWith(`/${excluded}`)), `expected ${excluded} to be excluded`);
+    }
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('workspace excerpts redact AWS keys, camelCase secrets, and bare tokens', async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-extended-redaction-'));
+  try {
+    const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    await fs.writeFile(path.join(root, 'notes.txt'), [
+      'SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE',
+      'secretAccessKey=NEW_CAMEL_SECRET_ACCESS_VALUE',
+      'aws_secret_access_key=NEW_SNAKE_SECRET_ACCESS_VALUE',
+      'input_tokens: 12',
+      'input_token: 1',
+      'inputTokens literal stays',
+      'deployed sk-ant-api03-1234567890abcdefghij1234567890abcdefghij1234 done',
+      'pushed ghp_1234567890abcdefghij1234567890ABCD done',
+      'key AKIAIOSFODNN7EXAMPLE done',
+      `jwt ${jwt} done`,
+    ].join('\n') + '\n', 'utf8');
+    const context = await collectWorkspaceContext(root, { maxBytes: 8000, maxFiles: 10 });
+    const excerpt = context.excerpts.find((item) => item.path === 'notes.txt');
+    assert.ok(excerpt);
+    assert.match(excerpt.text, /SECRET_ACCESS_KEY=\[redacted\]/);
+    assert.match(excerpt.text, /secretAccessKey=\[redacted\]/);
+    assert.match(excerpt.text, /aws_secret_access_key=\[redacted\]/);
+    assert.doesNotMatch(excerpt.text, /AKIAIOSFODNN7EXAMPLE|NEW_CAMEL_SECRET_ACCESS_VALUE|NEW_SNAKE_SECRET_ACCESS_VALUE/);
+    assert.match(excerpt.text, /input_tokens: 12/);
+    assert.match(excerpt.text, /input_token: 1/);
+    assert.match(excerpt.text, /inputTokens/);
+    assert.doesNotMatch(excerpt.text, /sk-ant-api03-1234567890abcdefghij1234567890abcdefghij1234/);
+    assert.doesNotMatch(excerpt.text, /ghp_1234567890abcdefghij1234567890ABCD/);
+    assert.doesNotMatch(excerpt.text, /SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c/);
+    assert.match(excerpt.text, /\[redacted\]/);
   } finally {
     await fs.rm(root, { recursive: true, force: true });
   }

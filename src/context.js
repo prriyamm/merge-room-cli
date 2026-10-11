@@ -9,7 +9,7 @@ const DEFAULT_IGNORES = new Set([
   '.git', '.hg', '.svn', 'node_modules', 'dist', 'build', 'coverage', '.next',
   '.cache', 'outputs', 'work', '.merge-room'
 ]);
-const SECRET_NAMES = /(^|[._-])(env|secret|secrets|token|password|passwd|credential|credentials)([._-]|$)|id_rsa|\.pem$/i;
+const SECRET_NAMES = /(^|[._-])(env|secret|secrets|token|password|passwd|credential|credentials|auth)([._-]|$)|id_rsa|\.pem$|\.(key|p12|pfx)$/i;
 const TEXT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.json', '.md', '.txt', '.css', '.html', '.yml', '.yaml', '.toml', '.py', '.go', '.rs', '.java', '.rb', '.sql', '.sh', '.ps1']);
 const MAX_IGNORE_FILE_BYTES = 256 * 1024;
 const CONTEXT_TRAVERSAL_BATCH_SIZE = 128;
@@ -101,6 +101,38 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
       : inheritedIgnoreRules.concat(await readIgnoreRules(directory, path.relative(workspaceRoot, directory), options.signal));
     let handle;
     try { handle = await fs.opendir(directory); } catch { return; }
+    // Root cause fix: readdir order is OS-dependent and the loop below only
+    // sorts within each raw batch, so cross-batch order is nondeterministic.
+    // When a negated rule may re-include something under this directory, drain
+    // the full listing and serve reads in sorted order so traversal-budget
+    // accounting deterministically starves late-sorting negated files.
+    // Other directories keep lazy batched reads to avoid buffering huge trees.
+    try {
+      const dirRelative = path.relative(workspaceRoot, directory) || '';
+      if (hasNegatedDescendant(dirRelative, directoryRules)) {
+        const drained = [];
+        try {
+          for (;;) {
+            ensureActive(options.signal);
+            const child = await handle.read();
+            if (!child) break;
+            drained.push(child);
+          }
+        } catch (error) {
+          if (error?.name === 'AbortError') throw error;
+        }
+        drained.sort((a, b) => a.name.localeCompare(b.name));
+        const rawHandle = handle;
+        let cursor = 0;
+        await rawHandle.close().catch(() => {});
+        handle = {
+          read: async () => (cursor < drained.length ? drained[cursor++] : null),
+          close: async () => {},
+        };
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError') throw error;
+    }
     let directoryEnded = false;
     try {
       while (!directoryEnded && !stopTraversal) {
@@ -224,7 +256,7 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function redactSecrets(text) {
+export function redactSecrets(text) {
   text = text.replace(/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)/g, '[redacted]');
   const unifiedDiff = /^(?:diff --git |@@ )/m.test(text);
   text = redactYamlPrivateKeyBlocks(text, unifiedDiff);
@@ -250,21 +282,27 @@ function redactSecrets(text) {
   }
   const withAuthorizationHeadersRedacted = lines.join('');
   const withAuthSchemeCredentialsRedacted = withAuthorizationHeadersRedacted.replace(/\b((?:Bearer|Basic|Token|Digest|HOBA|Mutual|Negotiate|OAuth|SCRAM(?:-[A-Z0-9-]+)?|VAPID|AWS4-HMAC-SHA256|Signature|DPoP)\s+)(?![=:])[^\r\n]*/gi, '$1[redacted]');
-  const assignmentPattern = /(^|[^A-Za-z0-9_])((?:[A-Za-z][A-Za-z0-9_-]*[-_])?(?:private[_-]?key(?:[_-]?id)?|api[_-]?key|(?:api|access|refresh|id|auth|session|provider)[_-]?token|token|auth|password|passwd|secret)["']?\s*[=:]\s*)(?:"(?:\\.|[^"\\\r\n])*"?|'(?:''|\\.|[^'\\\r\n])*'?|[^\s"'`,}]+)/gi;
+  const assignmentPattern = /(^|[^A-Za-z0-9_])((?:[A-Za-z][A-Za-z0-9_-]*(?:[-_]|(?<=[a-z])(?=[A-Z])))?(?:private(?:[-_]|(?<=[a-z])(?=[A-Z]))?key(?:(?:[-_]|(?<=[a-z])(?=[A-Z]))?id)?|api(?:[-_]|(?<=[a-z])(?=[A-Z]))?key|secret(?:[-_]|(?<=[a-z])(?=[A-Z]))?access(?:[-_]|(?<=[a-z])(?=[A-Z]))?key|(?:api|access|refresh|id|auth|session|provider)(?:[-_]|(?<=[a-z])(?=[A-Z]))?token|token|auth|password|passwd|secret)["']?\s*[=:]\s*)(?:"(?:\\.|[^"\\\r\n])*"?|'(?:''|\\.|[^'\\\r\n])*'?|[^\s"'`,}]+)/gi;
   const usageTokenPrefixes = new Set(['input', 'output', 'prompt', 'completion', 'total', 'reasoning', 'cached', 'read', 'write', 'creation']);
-  return withAuthSchemeCredentialsRedacted.split(/(\r\n|\n|\r)/).map((line, index) => {
+  const withAssignmentsRedacted = withAuthSchemeCredentialsRedacted.split(/(\r\n|\n|\r)/).map((line, index) => {
     if (index % 2 === 1) return line;
     const diffPrefix = unifiedDiff && /^[ +\-]/.test(line) ? line[0] : '';
     const contentLine = diffPrefix ? line.slice(1) : line;
     return `${diffPrefix}${contentLine.replace(assignmentPattern, (match, boundary, prefix) => {
-      const assignedName = prefix.match(/^([A-Za-z][A-Za-z0-9_-]*)/)?.[1].toLowerCase();
-      const usagePrefix = assignedName?.split(/[_-]/)[0];
-      if (/(?:^|[-_])token$/.test(assignedName || '') && usageTokenPrefixes.has(usagePrefix)) return match;
+      const rawName = prefix.match(/^([A-Za-z][A-Za-z0-9_-]*)/)?.[1] || '';
+      const normalized = rawName.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+      const usagePrefix = normalized.split(/[_-]/)[0];
+      if (/(?:^|[-_])token$/.test(normalized) && usageTokenPrefixes.has(usagePrefix)) return match;
       const firstValueChar = match[boundary.length + prefix.length];
       const quote = firstValueChar === '"' || firstValueChar === "'" ? firstValueChar : '';
       return `${boundary}${prefix}${quote}[redacted]${quote}`;
     })}`;
   }).join('');
+  return withAssignmentsRedacted
+    .replace(/sk-ant-[A-Za-z0-9_=-]{20,}/g, '[redacted]')
+    .replace(/gh[pousr]_[A-Za-z0-9]{20,}/g, '[redacted]')
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, '[redacted]')
+    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, '[redacted]');
 }
 
 function redactYamlPrivateKeyBlocks(text, unifiedDiff) {
