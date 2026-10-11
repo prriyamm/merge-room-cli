@@ -211,8 +211,8 @@ export function parseCodexOutput(output) {
     if (event.type === 'turn.started') completed = false;
     if (event.type === 'turn.completed') {
       completed = true;
-      inputTokens = event.usage?.input_tokens;
-      outputTokens = event.usage?.output_tokens;
+      inputTokens = safeTokenCount(event.usage?.input_tokens);
+      outputTokens = safeTokenCount(event.usage?.output_tokens);
     }
   }
   if (!completed) throw new Error(`Codex CLI output did not include a completed turn (events: ${eventTypes.join(', ') || 'none'}).`);
@@ -227,7 +227,7 @@ export function parseClaudeCodeOutput(output) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('Claude Code CLI returned an invalid JSON response.');
   if (body.is_error === true || body.subtype === 'error') throw new Error('Claude Code CLI reported a failed turn. Check its local sign-in and CLI status.');
   if (typeof body.result !== 'string' || !body.result.trim()) throw new Error('Claude Code CLI completed without a final assistant message.');
-  return { text: body.result.trim(), inputTokens: body.usage?.input_tokens, outputTokens: body.usage?.output_tokens };
+  return { text: body.result.trim(), inputTokens: safeTokenCount(body.usage?.input_tokens), outputTokens: safeTokenCount(body.usage?.output_tokens) };
 }
 
 export class OpenAICompatibleProvider {
@@ -263,7 +263,7 @@ export class OpenAICompatibleProvider {
         if (streaming && /\btext\/event-stream\b/i.test(contentType) && response.body?.getReader) {
           const streamed = await readStream(response.body, emitDelta);
           if (!streamed.text) throw new Error('Provider returned an empty response');
-          return result(streamed.text, streamed.usage?.prompt_tokens, streamed.usage?.completion_tokens, system, prompt, this.name, model);
+          return result(streamed.text, safeTokenCount(streamed.usage?.prompt_tokens), safeTokenCount(streamed.usage?.completion_tokens), system, prompt, this.name, model);
         }
         const body = await response.json().catch(() => ({}));
         const message = body.choices?.[0]?.message;
@@ -271,9 +271,9 @@ export class OpenAICompatibleProvider {
         const text = (content.trim() ? content : normalizeContent(message?.refusal)).trim();
         if (!text) throw new Error('Provider returned an empty response');
         if (streaming) emitDelta(text);
-        return result(text, body.usage?.prompt_tokens, body.usage?.completion_tokens, system, prompt, this.name, model);
+        return result(text, safeTokenCount(body.usage?.prompt_tokens), safeTokenCount(body.usage?.completion_tokens), system, prompt, this.name, model);
       } catch (error) {
-        if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Provider request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
+        if (timedOut && !signal?.aborted) { if (attempt < attempts - 1 && !emittedDelta) { await delay(250 * (attempt + 1), signal); continue; } const timeoutError = new Error(`Provider request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
         if (error.name === 'ProviderError') providerError = true;
         if (error.name === 'ProviderError' && error.retryable && attempt < attempts - 1 && !emittedDelta) { await delay(250 * (attempt + 1), signal); continue; }
         if (attempt < attempts - 1 && !providerError && !emittedDelta && !['AbortError', 'ProtocolError'].includes(error.name)) { await delay(250 * (attempt + 1), signal); continue; }
@@ -327,9 +327,9 @@ export class AnthropicProvider {
         const text = normalizeContent(body.content).trim();
         if (!text) throw new Error('Anthropic returned an empty response');
         if (streaming) emitDelta(text);
-        return result(text, anthropicInputTokens(body.usage), body.usage?.output_tokens, system, prompt, this.name, model);
+        return result(text, anthropicInputTokens(body.usage), safeTokenCount(body.usage?.output_tokens), system, prompt, this.name, model);
       } catch (error) {
-        if (timedOut && !signal?.aborted) { const timeoutError = new Error(`Anthropic request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
+        if (timedOut && !signal?.aborted) { if (attempt < attempts - 1 && !emittedDelta) { await delay(250 * (attempt + 1), signal); continue; } const timeoutError = new Error(`Anthropic request timed out after ${this.config.requestTimeoutMs}ms`); timeoutError.name = 'TimeoutError'; throw timeoutError; }
         if (attempt < attempts - 1 && !providerError && !emittedDelta && !['AbortError', 'ProtocolError'].includes(error.name)) { await delay(250 * (attempt + 1), signal); continue; }
         throw error;
       } finally {
@@ -413,7 +413,7 @@ async function readAnthropicStream(body, onDelta) {
       if (event.type === 'error') throw new Error(event.error?.message || 'Anthropic stream failed.');
       if (event.type === 'message_stop') completed = true;
       if (event.type === 'message_start') inputTokens = anthropicInputTokens(event.message?.usage);
-      if (event.type === 'message_delta') outputTokens = event.usage?.output_tokens;
+      if (event.type === 'message_delta') outputTokens = safeTokenCount(event.usage?.output_tokens);
       const piece = event.type === 'content_block_delta' && event.delta?.type === 'text_delta' ? event.delta.text : '';
       if (piece) { text += piece; onDelta(piece); }
     } catch (error) {
@@ -450,13 +450,15 @@ async function readAnthropicStream(body, onDelta) {
   }
 }
 
+function safeTokenCount(value) { return Number.isSafeInteger(value) && value >= 0 ? value : undefined; }
+
 function anthropicInputTokens(usage) {
   if (!usage || !['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'].some((key) => usage[key] != null)) return undefined;
   let total = 0;
   for (const key of ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']) {
     if (usage[key] == null) continue;
-    const value = usage[key];
-    if (!Number.isSafeInteger(value) || value < 0 || !Number.isSafeInteger(total + value)) return undefined;
+    const value = safeTokenCount(usage[key]);
+    if (value === undefined || !Number.isSafeInteger(total + value)) return undefined;
     total += value;
   }
   return total;
