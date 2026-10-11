@@ -2,8 +2,44 @@ import fs from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { redactSecrets } from './context.js';
 
 const MAX_BOUNDED_SESSION_LIMIT = 100;
+
+function redactStoredText(value) {
+  // Single canonical redactor (context.js covers assignments, PEM blocks,
+  // auth schemes, and bare high-entropy tokens). No local second pass:
+  // overlapping patterns would re-split the [redacted] marker itself.
+  return redactSecrets(String(value));
+}
+
+export function sanitizeSessionForStorage(session) {
+  if (!session || typeof session !== 'object' || Array.isArray(session)) return session;
+  const clean = typeof structuredClone === 'function' ? structuredClone(session) : JSON.parse(JSON.stringify(session));
+  if (typeof clean.request === 'string' && clean.request) clean.request = redactStoredText(clean.request);
+  if (typeof clean.answer === 'string' && clean.answer) clean.answer = redactStoredText(clean.answer);
+  if (typeof clean.synthesisError === 'string' && clean.synthesisError) clean.synthesisError = redactStoredText(clean.synthesisError);
+  if (Array.isArray(clean.agents)) {
+    for (const item of clean.agents) {
+      if (item && typeof item.text === 'string' && item.text) item.text = redactStoredText(item.text);
+      if (item && typeof item.error === 'string' && item.error) item.error = redactStoredText(item.error);
+    }
+  }
+  if (Array.isArray(clean.conversation)) {
+    for (const turn of clean.conversation) {
+      if (!turn || typeof turn !== 'object') continue;
+      if (typeof turn.request === 'string' && turn.request) turn.request = redactStoredText(turn.request);
+      if (typeof turn.answer === 'string' && turn.answer) turn.answer = redactStoredText(turn.answer);
+      if (Array.isArray(turn.agents)) {
+        for (const note of turn.agents) {
+          if (note && typeof note.text === 'string' && note.text) note.text = redactStoredText(note.text);
+          if (note && typeof note.error === 'string' && note.error) note.error = redactStoredText(note.error);
+        }
+      }
+    }
+  }
+  return clean;
+}
 
 export async function saveSession(result, cwd = process.cwd(), directory = '.merge-room/sessions') {
   const root = await createSessionDirectory(cwd, directory);
@@ -13,7 +49,7 @@ export async function saveSession(result, cwd = process.cwd(), directory = '.mer
  const file = path.join(root, `${id}.json`);
   const temporary = path.join(root, `.${id}.tmp-${process.pid}`);
   try {
-    await fs.writeFile(temporary, `${JSON.stringify({ ...result, id, savedAt }, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    await fs.writeFile(temporary, `${JSON.stringify(sanitizeSessionForStorage({ ...result, id, savedAt }), null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
     await fs.rename(temporary, file);
   } finally {
     await fs.rm(temporary, { force: true }).catch(() => {});
@@ -55,7 +91,10 @@ async function readSessionSummary(root, name) {
     const contents = await readRegularFile(path.join(root, name));
     if (contents === null) return null;
     const data = JSON.parse(contents);
-    return { id: name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request: data.request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) };
+    // Sanitize the summary request so history output never serves raw secrets
+    // from pre-fix session files.
+    const request = typeof data.request === 'string' ? redactStoredText(data.request) : data.request;
+    return { id: name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) };
   } catch { /* Ignore a partial or hand-edited session file. */ return null; }
 }
 
@@ -110,6 +149,8 @@ export async function selectNewestSessionSummaries(openEntries, limit, readSumma
   return sessions;
 }
 
+// Note: readSession stays raw (no sanitize) — files are already redacted at
+// saveSession time, and resume needs the stored conversation shape intact.
 export async function readSession(id, cwd = process.cwd(), directory = '.merge-room/sessions') {
   if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Session ids may only contain letters, numbers, underscores, and dashes.');
   const root = await resolveSessionDirectory(cwd, directory);
@@ -223,6 +264,7 @@ async function readRegularFile(file) {
 }
 
 export function formatSessionMarkdown(session) {
+  session = sanitizeSessionForStorage(session);
   const lines = [
     '# Merge Room mission',
     '',
@@ -270,6 +312,10 @@ export function formatSessionMarkdown(session) {
 
 export async function writeSessionExport(session, cwd = process.cwd(), destination, format = 'md') {
   if (!destination) throw new Error('Give an export destination path.');
+  // Sanitize here so both the md entry (formatSessionMarkdown) and the json
+  // branch below are redacted. readSession intentionally stays raw so resume
+  // callers keep full fidelity of what is on disk (already redacted at save).
+  session = sanitizeSessionForStorage(session);
   const output = path.resolve(cwd, destination);
   const content = format === 'json' ? `${JSON.stringify(session, null, 2)}\n` : formatSessionMarkdown(session);
   let priorMode = null;
