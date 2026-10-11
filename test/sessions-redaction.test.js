@@ -17,6 +17,7 @@ function missionSession() {
     answer: `Deployed using ${SECRET_ASSIGNMENT} done`,
     agents: [
       { agent: { id: 'scout', name: 'Scout' }, stage: 1, status: 'done', text: `Scout note with ${SECRET_ASSIGNMENT}` },
+      { agent: { id: 'maker', name: 'Maker' }, stage: 2, status: 'error', text: `Agent unavailable: boom`, error: `boom with ${SECRET_ASSIGNMENT}` },
     ],
     conversation: [
       {
@@ -41,7 +42,8 @@ test('sanitizeSessionForStorage deep-clones and redacts secret text', () => {
   assert.doesNotMatch(dumped, new RegExp(SECRET_VALUE));
   assert.match(dumped, /\[redacted\]/);
   assert.equal(clean.usage.total, 3, 'non-secret shapes preserved');
-  assert.equal(clean.agents.length, 1);
+  assert.equal(clean.agents.length, 2);
+  assert.equal(clean.agents[1].error, 'boom with SECRET_ACCESS_KEY=[redacted]', 'agent error value redacted, key name preserved');
   assert.equal(clean.conversation.length, 1);
   assert.equal(clean.conversation[0].agents.length, 1);
 });

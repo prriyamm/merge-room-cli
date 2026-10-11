@@ -1941,7 +1941,7 @@ test('Codex JSONL parser keeps final assistant text and rejects malformed output
   assert.throws(() => parseCodexOutput(JSON.stringify({ type: 'turn.completed' })), /without a final assistant message/);
 });
 
-test('Codex JSONL parser accumulates multi-turn text and token usage', () => {
+test('Codex JSONL parser keeps the last completed turn with messages', () => {
   const multiTurn = [
     JSON.stringify({ type: 'turn.started' }),
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'First' } }),
@@ -1950,7 +1950,8 @@ test('Codex JSONL parser accumulates multi-turn text and token usage', () => {
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Second' } }),
     JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 7, output_tokens: 3 } })
   ].join('\n');
-  assert.deepEqual(parseCodexOutput(multiTurn), { text: 'First\n\nSecond', inputTokens: 17, outputTokens: 8 });
+  // Intermediate drafts never surface; usage pairs with the same turn's text.
+  assert.deepEqual(parseCodexOutput(multiTurn), { text: 'Second', inputTokens: 7, outputTokens: 3 });
 
   const secondTurnSilent = [
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Only' } }),
@@ -1958,7 +1959,7 @@ test('Codex JSONL parser accumulates multi-turn text and token usage', () => {
     JSON.stringify({ type: 'turn.started' }),
     JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 6, output_tokens: 1 } })
   ].join('\n');
-  assert.deepEqual(parseCodexOutput(secondTurnSilent), { text: 'Only', inputTokens: 10, outputTokens: 3 });
+  assert.deepEqual(parseCodexOutput(secondTurnSilent), { text: 'Only', inputTokens: 4, outputTokens: 2 });
 
   const trailingStarted = [
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Done' } }),
@@ -1970,10 +1971,11 @@ test('Codex JSONL parser accumulates multi-turn text and token usage', () => {
   const invalidUsage = [
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'A' } }),
     JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 10, output_tokens: 5 } }),
+    JSON.stringify({ type: 'turn.started' }),
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'B' } }),
     JSON.stringify({ type: 'turn.completed', usage: { input_tokens: -2, output_tokens: 'oops' } })
   ].join('\n');
-  assert.deepEqual(parseCodexOutput(invalidUsage), { text: 'A\n\nB', inputTokens: 10, outputTokens: 5 });
+  assert.deepEqual(parseCodexOutput(invalidUsage), { text: 'B', inputTokens: undefined, outputTokens: undefined });
 });
 
 test('Claude Code CLI profiles use restricted JSON with tools and session persistence disabled', {
@@ -3267,6 +3269,13 @@ test('workspace excerpts redact AWS keys, camelCase secrets, and bare tokens', a
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'merge-room-extended-redaction-'));
   try {
     const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c';
+    // Synthetic credential-shaped fixtures are built by concatenation so the
+    // committed file never contains a literal secret pattern (push protection).
+    const stripeKey = ['sk_live_', '1'.repeat(24)].join('');
+    const slackToken = ['xoxb-', '1'.repeat(10), '-', 'a'.repeat(12)].join('');
+    const gitlabToken = ['glpat-', '1'.repeat(20)].join('');
+    const githubToken = ['github_pat_', '1'.repeat(28)].join('');
+    const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     await fs.writeFile(path.join(root, 'notes.txt'), [
       'SECRET_ACCESS_KEY=AKIAIOSFODNN7EXAMPLE',
       'secretAccessKey=NEW_CAMEL_SECRET_ACCESS_VALUE',
@@ -3276,6 +3285,11 @@ test('workspace excerpts redact AWS keys, camelCase secrets, and bare tokens', a
       'inputTokens literal stays',
       'deployed sk-ant-api03-1234567890abcdefghij1234567890abcdefghij1234 done',
       'pushed ghp_1234567890abcdefghij1234567890ABCD done',
+      'openai sk-1234567890abcdefghij1234567890ABCD done',
+      `stripe ${stripeKey} done`,
+      `slack ${slackToken} done`,
+      `gitlab ${gitlabToken} done`,
+      `github ${githubToken} done`,
       'key AKIAIOSFODNN7EXAMPLE done',
       `jwt ${jwt} done`,
     ].join('\n') + '\n', 'utf8');
@@ -3291,6 +3305,11 @@ test('workspace excerpts redact AWS keys, camelCase secrets, and bare tokens', a
     assert.match(excerpt.text, /inputTokens/);
     assert.doesNotMatch(excerpt.text, /sk-ant-api03-1234567890abcdefghij1234567890abcdefghij1234/);
     assert.doesNotMatch(excerpt.text, /ghp_1234567890abcdefghij1234567890ABCD/);
+    assert.doesNotMatch(excerpt.text, /sk-1234567890abcdefghij1234567890ABCD/);
+    assert.doesNotMatch(excerpt.text, new RegExp(escapeRegExp(stripeKey)));
+    assert.doesNotMatch(excerpt.text, new RegExp(escapeRegExp(slackToken)));
+    assert.doesNotMatch(excerpt.text, new RegExp(escapeRegExp(gitlabToken)));
+    assert.doesNotMatch(excerpt.text, new RegExp(escapeRegExp(githubToken)));
     assert.doesNotMatch(excerpt.text, /SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c/);
     assert.match(excerpt.text, /\[redacted\]/);
   } finally {

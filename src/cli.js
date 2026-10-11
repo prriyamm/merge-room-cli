@@ -7,7 +7,7 @@ import { completionScript, defaultShell } from './completions.js';
 import { collectWorkspaceContext, formatWorkspaceContext } from './context.js';
 import { buildRunPlan, MergeRoomEngine, SCHEMA_VERSION } from './engine.js';
 import { createProvider } from './providers.js';
-import { formatSessionMarkdown, listSessions, readSession, saveSession, writeSessionExport } from './sessions.js';
+import { formatSessionMarkdown, listSessions, readSession, sanitizeSessionForStorage, saveSession, writeSessionExport } from './sessions.js';
 import { themeSummaries } from './themes.js';
 import { createCockpitRenderer, createConversationRenderer, createRenderer, printAgents, printBanner, printConfig, printHistory, printHelp, printPlan, printResult, printSession, printThemes, printUsage, printCockpitPartialAnswer, setTheme, stripUnsafeTerminalControls } from './ui.js';
 
@@ -128,8 +128,10 @@ export async function main(args = [], { signal, readSessionFn = readSession, lis
     const sessionId = await resolveSessionId(cleanArgs[1], config, workspace);
     const session = await readSession(sessionId, workspace, config.sessionDir);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
-    if (json) console.log(JSON.stringify(session, null, 2));
-    else printSession(session);
+    // Sanitize for display: pre-fix session files may hold raw secrets.
+    const safe = sanitizeSessionForStorage(session);
+    if (json) console.log(JSON.stringify(safe, null, 2));
+    else printSession(safe);
     return;
   }
   if (command === 'export') return exportMission({ cleanArgs, config, formatValue, outputValue, json, workspace });
@@ -137,7 +139,7 @@ export async function main(args = [], { signal, readSessionFn = readSession, lis
     if (!cleanArgs[1]) throw new Error('Give resume a session id. Try `merge-room history` first.');
     if (!config.sessionDir) throw new Error('Session history is disabled in merge-room.config.json.');
     const sessionId = await resolveSessionId(cleanArgs[1], config, workspace);
-    const prior = await readSession(sessionId, workspace, config.sessionDir);
+    const prior = sanitizeSessionForStorage(await readSession(sessionId, workspace, config.sessionDir));
     if (!prior) throw new Error(`Session not found: ${sessionId}`);
    resumePrior = prior;
    const followup = await readMissionInput(cleanArgs.slice(2), promptFileValue, workspace, signal);
@@ -650,7 +652,7 @@ async function interactive(config, provider, noContext = false, noSave = false, 
           throw new Error(`Room ${roomIndex + 1} changed while loading. Switch to it and try /show again.`);
         }
         const room = targetRoom;
-        const loadedSession = loadCockpitSession(room, session);
+        const loadedSession = loadCockpitSession(room, sanitizeSessionForStorage(session));
         setMessage(`Loaded ${loadedSession.id} into Room ${room.id}.`, inputNoticeSequence);
         if (isTerminal) renderer.loaded(loadedSession);
         else printSession(loadedSession);
@@ -939,7 +941,7 @@ async function exportMission({ cleanArgs, config, formatValue, outputValue, json
     if (json) console.log(JSON.stringify({ id: sessionId, format: normalizedFormat, file }, null, 2));
     else console.log(`  Exported ${sessionId} → ${file}`);
   } else if (json || normalizedFormat === 'json') {
-    console.log(JSON.stringify(session, null, 2));
+    console.log(JSON.stringify(sanitizeSessionForStorage(session), null, 2));
   } else {
     console.log(formatSessionMarkdown(session));
   }

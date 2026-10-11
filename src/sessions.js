@@ -7,11 +7,10 @@ import { redactSecrets } from './context.js';
 const MAX_BOUNDED_SESSION_LIMIT = 100;
 
 function redactStoredText(value) {
-  // Reuse the workspace redactor, plus AWS-shaped values it does not cover
-  // (e.g. SECRET_ACCESS_KEY=AKIA…).
-  return redactSecrets(String(value))
-    .replace(/AKIA[0-9A-Z]{16}/g, '[redacted]')
-    .replace(/((?:aws_)?secret_access_key\s*[=:]\s*)([^\s"'`,;\]}]+)/gi, '$1[redacted]');
+  // Single canonical redactor (context.js covers assignments, PEM blocks,
+  // auth schemes, and bare high-entropy tokens). No local second pass:
+  // overlapping patterns would re-split the [redacted] marker itself.
+  return redactSecrets(String(value));
 }
 
 export function sanitizeSessionForStorage(session) {
@@ -23,6 +22,7 @@ export function sanitizeSessionForStorage(session) {
   if (Array.isArray(clean.agents)) {
     for (const item of clean.agents) {
       if (item && typeof item.text === 'string' && item.text) item.text = redactStoredText(item.text);
+      if (item && typeof item.error === 'string' && item.error) item.error = redactStoredText(item.error);
     }
   }
   if (Array.isArray(clean.conversation)) {
@@ -33,6 +33,7 @@ export function sanitizeSessionForStorage(session) {
       if (Array.isArray(turn.agents)) {
         for (const note of turn.agents) {
           if (note && typeof note.text === 'string' && note.text) note.text = redactStoredText(note.text);
+          if (note && typeof note.error === 'string' && note.error) note.error = redactStoredText(note.error);
         }
       }
     }
@@ -90,7 +91,10 @@ async function readSessionSummary(root, name) {
     const contents = await readRegularFile(path.join(root, name));
     if (contents === null) return null;
     const data = JSON.parse(contents);
-    return { id: name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request: data.request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) };
+    // Sanitize the summary request so history output never serves raw secrets
+    // from pre-fix session files.
+    const request = typeof data.request === 'string' ? redactStoredText(data.request) : data.request;
+    return { id: name.slice(0, -5), runId: data.runId, theme: data.theme, savedAt: data.savedAt, request, usage: data.usage, provider: data.provider, model: data.model, strategy: data.strategy, status: data.status, maxCalls: data.maxCalls, providerCallsStarted: data.providerCallsStarted, durationMs: data.durationMs, agents: data.agents?.length || 0, degraded: Boolean(data.degraded) };
   } catch { /* Ignore a partial or hand-edited session file. */ return null; }
 }
 

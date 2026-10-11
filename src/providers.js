@@ -195,11 +195,19 @@ function cliSpawnError(error, label, command) {
 }
 
 export function parseCodexOutput(output) {
-  const parts = [];
+  // Multi-turn transcripts: the answer is the last COMPLETED turn that
+  // produced messages, paired with that same turn's validated usage.
+  // Intermediate turns may hold retried drafts (never surface them), and a
+  // trailing turn.started with no completion (truncated process) must not
+  // veto already-completed work. Message-less completions are ignored so a
+  // silent turn cannot blank a completed answer or pair its usage with
+  // another turn's text.
+  const eventTypes = [];
+  let completedTurns = 0;
+  let text = '';
   let inputTokens;
   let outputTokens;
-  let completedTurns = 0;
-  const eventTypes = [];
+  let turnParts = [];
   for (const [index, line] of String(output).split(/\r?\n/).entries()) {
     if (!line.trim()) continue;
     let event;
@@ -207,17 +215,19 @@ export function parseCodexOutput(output) {
     catch { throw new Error(`Codex CLI emitted malformed JSONL on line ${index + 1}.`); }
     eventTypes.push(event.type);
     if (event.type === 'error' || event.type === 'turn.failed') throw new Error('Codex CLI reported a failed turn. Check its local sign-in and CLI status.');
-    if (event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') parts.push(event.item.text);
+    if (event.type === 'turn.started') turnParts = [];
+    if (event.type === 'item.completed' && event.item?.type === 'agent_message' && typeof event.item.text === 'string') turnParts.push(event.item.text);
     if (event.type === 'turn.completed') {
       completedTurns += 1;
-      const inputCount = safeTokenCount(event.usage?.input_tokens);
-      if (inputCount !== undefined) inputTokens = (inputTokens ?? 0) + inputCount;
-      const outputCount = safeTokenCount(event.usage?.output_tokens);
-      if (outputCount !== undefined) outputTokens = (outputTokens ?? 0) + outputCount;
+      const turnText = turnParts.join('\n\n');
+      if (turnText.trim()) {
+        text = turnText;
+        inputTokens = safeTokenCount(event.usage?.input_tokens);
+        outputTokens = safeTokenCount(event.usage?.output_tokens);
+      }
     }
   }
   if (completedTurns === 0) throw new Error(`Codex CLI output did not include a completed turn (events: ${eventTypes.join(', ') || 'none'}).`);
-  const text = parts.join('\n\n');
   if (!text.trim()) throw new Error('Codex CLI completed without a final assistant message.');
   return { text: text.trim(), inputTokens, outputTokens };
 }

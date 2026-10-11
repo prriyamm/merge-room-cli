@@ -110,6 +110,12 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
     try {
       const dirRelative = path.relative(workspaceRoot, directory) || '';
       if (hasNegatedDescendant(dirRelative, directoryRules)) {
+        // Drain the FULL listing before sorting: capping the drain would
+        // select an OS-ordered subset and reintroduce nondeterminism.
+        // The batch loop below still enforces maxTraversalEntries/maxFiles
+        // while serving, so only buffering (one dirent array for this
+        // directory, which is only drained when a negation may apply)
+        // is unbounded — processing stays budgeted.
         const drained = [];
         try {
           for (;;) {
@@ -120,6 +126,8 @@ export async function collectWorkspaceContext(cwd = process.cwd(), options = {})
           }
         } catch (error) {
           if (error?.name === 'AbortError') throw error;
+          // A failed readdir must not masquerade as a complete listing.
+          traversalTruncated = true;
         }
         drained.sort((a, b) => a.name.localeCompare(b.name));
         const rawHandle = handle;
@@ -300,7 +308,13 @@ export function redactSecrets(text) {
   }).join('');
   return withAssignmentsRedacted
     .replace(/sk-ant-[A-Za-z0-9_=-]{20,}/g, '[redacted]')
+    .replace(/sk-[A-Za-z0-9]{20,}/g, '[redacted]')
+    .replace(/sk_live_[A-Za-z0-9]{16,}/g, '[redacted]')
+    .replace(/rk_live_[A-Za-z0-9]{16,}/g, '[redacted]')
     .replace(/gh[pousr]_[A-Za-z0-9]{20,}/g, '[redacted]')
+    .replace(/github_pat_[A-Za-z0-9_]{20,}/g, '[redacted]')
+    .replace(/glpat-[A-Za-z0-9_=-]{16,}/g, '[redacted]')
+    .replace(/xox[bap]-([A-Za-z0-9-]{10,})/g, '[redacted]')
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, '[redacted]')
     .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, '[redacted]');
 }
